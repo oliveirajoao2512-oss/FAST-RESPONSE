@@ -130,3 +130,16 @@ cd server && node dist/index.js
 ```
 
 Use um gerenciador de serviços (systemd, PM2, NSSM no Windows) para manter o processo ativo.
+
+## 9. Banco de dados no Supabase
+
+O Supabase fornece um PostgreSQL gerenciado (com backup automático) e funciona sem mudar o código.
+As tabelas já foram criadas no projeto Supabase da organização FAST RESPONSE.
+
+1. No painel do Supabase: **Connect → Connection string → Session pooler** (porta 5432). Não use o
+   *Transaction pooler* (porta 6543): a aplicação usa `LISTEN/NOTIFY` (tempo real) e *advisory locks*, que exigem sessão.
+2. Com Docker Compose: coloque essa URL (com a senha do banco) em `EXTERNAL_DATABASE_URL` no `.env` e suba só a
+   aplicação: `docker compose up -d --build --no-deps app`. Sem Docker: use a URL em `DATABASE_URL`.
+
+A migração `003_row_level_security.sql` ativa RLS em todas as tabelas, bloqueando a API REST automática do Supabase.
+A aplicação conecta como dona das tabelas e não é afetada. Os anexos continuam no disco do servidor da aplicação.

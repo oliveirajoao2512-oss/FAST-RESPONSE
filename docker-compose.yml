@@ -25,7 +25,8 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://fastresponse:${POSTGRES_PASSWORD}@db:5432/fastresponse
+      # EXTERNAL_DATABASE_URL (ex.: Supabase) substitui o banco do próprio compose
+      DATABASE_URL: ${EXTERNAL_DATABASE_URL:-postgresql://fastresponse:${POSTGRES_PASSWORD}@db:5432/fastresponse}
       UPLOAD_DIR: /data/uploads
     ports:
       - "${HTTP_PORT:-3000}:3000"
