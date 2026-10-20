@@ -18,7 +18,8 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: num('PORT', 3000),
   host: process.env.HOST ?? '0.0.0.0',
-  databaseUrl: process.env.DATABASE_URL ?? 'postgresql://fr:fr@localhost:5432/fastresponse',
+  // tolerate whitespace and quotes pasted into hosting dashboards
+  databaseUrl: (process.env.DATABASE_URL ?? 'postgresql://fr:fr@localhost:5432/fastresponse').trim().replace(/^['"]|['"]$/g, ''),
   uploadDir: path.resolve(process.env.UPLOAD_DIR ?? './data/uploads'),
   maxUploadMb: num('MAX_UPLOAD_MB', 15),
   sessionDays: num('SESSION_DAYS', 7),
