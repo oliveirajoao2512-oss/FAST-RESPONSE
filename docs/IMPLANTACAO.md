@@ -162,21 +162,26 @@ postgresql://postgres.<ref-do-projeto>:<SENHA>@<host-do-pooler>:5432/postgres?ss
 Sem Docker, troque o caminho do `sslrootcert` pelo caminho local do arquivo. Se a senha tiver caracteres
 especiais (`@`, `#`, `/`, `:`), codifique-os (ex.: `@` → `%40`).
 
-## 10. Hospedagem no Render (sem servidor próprio)
+## 10. Hospedagem gratuita: Render + Supabase
 
-O arquivo `render.yaml` descreve o serviço (Docker, disco de 1 GB para anexos, verificação de saúde, deploy
-automático a cada push na `main`).
+O arquivo `render.yaml` descreve o serviço no plano gratuito do Render (Docker, verificação de saúde, deploy
+automático a cada push na `main`). Banco e anexos ficam no Supabase gratuito.
 
 1. Crie a conta em [render.com](https://render.com) entrando com o GitHub e autorize o acesso ao repositório.
-2. **New → Blueprint** → escolha o repositório `fast-response` → Apply.
+2. **New → Blueprint** → escolha o repositório → Apply.
 3. Preencha as variáveis pedidas:
    - `DATABASE_URL`: a string do Supabase da seção anterior;
+   - `SUPABASE_URL`: `https://<ref-do-projeto>.supabase.co`;
+   - `SUPABASE_SECRET_KEY`: Supabase → Settings → API Keys → *Secret key*;
    - `ADMIN_EMAIL` e `ADMIN_PASSWORD`: o administrador inicial (senha provisória, trocada no primeiro acesso);
    - `APP_URL`: o endereço que o Render mostrar (ex.: `https://fast-response.onrender.com`).
 4. Aguarde o primeiro deploy (5–10 min) e acesse o endereço. O HTTPS já vem pronto.
+5. **Manter ligado:** o plano gratuito hiberna após 15 min sem acesso, e enquanto dorme os processos automáticos
+   (atrasos, escalonamentos, e-mails) não rodam. Crie um monitor gratuito em [uptimerobot.com](https://uptimerobot.com):
+   *New monitor → HTTP(s)*, URL `https://<seu-endereço>/api/health`, intervalo de 5 min. Ele também avisa por e-mail se o
+   sistema cair. As 750 h/mês gratuitas do Render cobrem um serviço ligado o mês todo.
 
-Custo do Render: plano Starter (US$ 7/mês) + disco (US$ 0,25/GB/mês). O plano gratuito não serve para produção:
-hiberna após 15 minutos sem acesso (atrasos, escalonamentos e e-mails só rodam quando alguém abre o sistema)
-e não tem disco, então os anexos seriam perdidos a cada deploy. O Supabase gratuito tem 500 MB de banco e
-pausa projetos sem atividade por 7 dias; para uso diário na fábrica, o plano Pro (US$ 25/mês) inclui backups diários.
-
+Limites do gratuito: o Render tem 512 MB de RAM e o primeiro acesso após um deploy demora alguns segundos;
+o Supabase tem 500 MB de banco e 1 GB de arquivos, não faz backup automático e pausa projetos sem atividade
+por 7 dias (o monitor evita isso). Faça backups periódicos do banco (`pg_dump` com a string do Supabase).
+Se o uso crescer: Render Starter (US$ 7/mês, sem hibernação) e Supabase Pro (US$ 25/mês, backups diários).

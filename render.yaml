@@ -1,21 +1,23 @@
 # Render Blueprint: New → Blueprint → escolha este repositório.
-# Banco de dados: Supabase (Session pooler). Anexos: disco persistente montado em /data.
+# Plano gratuito: banco no Supabase (Session pooler) e anexos no Supabase Storage (o plano gratuito não tem disco).
+# Para não hibernar após 15 min sem acesso, configure um monitor gratuito chamando /api/health a cada 5–10 min
+# (passo a passo em docs/IMPLANTACAO.md, seção 10).
 services:
   - type: web
     name: fast-response
     runtime: docker
-    plan: starter            # o plano gratuito não tem disco (anexos seriam perdidos) e hiberna após 15 min
+    plan: free
     region: ohio             # mesma região do projeto Supabase (us-east-2)
     branch: main
     autoDeploy: true
     healthCheckPath: /api/health
-    disk:
-      name: fast-response-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: DATABASE_URL
-        sync: false          # informada no painel (string do Supabase, ver docs/IMPLANTACAO.md)
+        sync: false          # string do Supabase (Session pooler) com sslmode/sslrootcert, ver docs
+      - key: SUPABASE_URL
+        sync: false          # https://<ref>.supabase.co
+      - key: SUPABASE_SECRET_KEY
+        sync: false          # Supabase → Settings → API Keys → Secret key
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD
@@ -26,7 +28,5 @@ services:
         sync: false          # ex.: https://fast-response.onrender.com
       - key: COOKIE_SECURE
         value: "true"
-      - key: UPLOAD_DIR
-        value: /data/uploads
       - key: TZ
         value: America/Sao_Paulo
