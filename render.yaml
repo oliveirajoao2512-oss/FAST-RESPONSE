@@ -1,0 +1,32 @@
+# Render Blueprint: New → Blueprint → escolha este repositório.
+# Banco de dados: Supabase (Session pooler). Anexos: disco persistente montado em /data.
+services:
+  - type: web
+    name: fast-response
+    runtime: docker
+    plan: starter            # o plano gratuito não tem disco (anexos seriam perdidos) e hiberna após 15 min
+    region: ohio             # mesma região do projeto Supabase (us-east-2)
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /api/health
+    disk:
+      name: fast-response-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # informada no painel (string do Supabase, ver docs/IMPLANTACAO.md)
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Administrador
+      - key: APP_URL
+        sync: false          # ex.: https://fast-response.onrender.com
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: UPLOAD_DIR
+        value: /data/uploads
+      - key: TZ
+        value: America/Sao_Paulo

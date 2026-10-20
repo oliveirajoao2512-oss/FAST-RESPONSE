@@ -23,10 +23,12 @@ COPY web/package.json web/
 RUN npm ci --omit=dev --ignore-scripts -w server && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/web/dist web/dist
+COPY server/certs server/certs
+COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint-app.sh
 RUN mkdir -p /data/uploads && chown -R node:node /data
-USER node
 WORKDIR /app/server
 EXPOSE 3000
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["docker-entrypoint-app.sh"]
 CMD ["node", "dist/index.js"]

@@ -143,3 +143,34 @@ As tabelas já foram criadas no projeto Supabase da organização FAST RESPONSE.
 
 A migração `003_row_level_security.sql` ativa RLS em todas as tabelas, bloqueando a API REST automática do Supabase.
 A aplicação conecta como dona das tabelas e não é afetada. Os anexos continuam no disco do servidor da aplicação.
+
+### String de conexão com TLS verificado
+
+O certificado raiz do Supabase acompanha a imagem (`server/certs/supabase-prod-ca-2021.crt`). Monte a URL assim
+(dados em Supabase → Connect → Session pooler):
+
+```
+postgresql://postgres.<ref-do-projeto>:<SENHA>@<host-do-pooler>:5432/postgres?sslmode=verify-full&sslrootcert=/app/server/certs/supabase-prod-ca-2021.crt
+```
+
+Sem Docker, troque o caminho do `sslrootcert` pelo caminho local do arquivo. Se a senha tiver caracteres
+especiais (`@`, `#`, `/`, `:`), codifique-os (ex.: `@` → `%40`).
+
+## 10. Hospedagem no Render (sem servidor próprio)
+
+O arquivo `render.yaml` descreve o serviço (Docker, disco de 1 GB para anexos, verificação de saúde, deploy
+automático a cada push na `main`).
+
+1. Crie a conta em [render.com](https://render.com) entrando com o GitHub e autorize o acesso ao repositório.
+2. **New → Blueprint** → escolha o repositório `fast-response` → Apply.
+3. Preencha as variáveis pedidas:
+   - `DATABASE_URL`: a string do Supabase da seção anterior;
+   - `ADMIN_EMAIL` e `ADMIN_PASSWORD`: o administrador inicial (senha provisória, trocada no primeiro acesso);
+   - `APP_URL`: o endereço que o Render mostrar (ex.: `https://fast-response.onrender.com`).
+4. Aguarde o primeiro deploy (5–10 min) e acesse o endereço. O HTTPS já vem pronto.
+
+Custo do Render: plano Starter (US$ 7/mês) + disco (US$ 0,25/GB/mês). O plano gratuito não serve para produção:
+hiberna após 15 minutos sem acesso (atrasos, escalonamentos e e-mails só rodam quando alguém abre o sistema)
+e não tem disco, então os anexos seriam perdidos a cada deploy. O Supabase gratuito tem 500 MB de banco e
+pausa projetos sem atividade por 7 dias; para uso diário na fábrica, o plano Pro (US$ 25/mês) inclui backups diários.
+
