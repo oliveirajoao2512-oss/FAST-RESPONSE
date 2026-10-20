@@ -7,6 +7,7 @@ import { audit } from '../audit.js';
 import { hashPassword, passwordProblem, requireUser, revokeUserSessions } from '../auth.js';
 import { one, pool, q } from '../db.js';
 import { emailEnabled } from '../mailer.js';
+import { storage } from '../storage.js';
 import { badRequest, conflict, forbidden, notFound } from '../errors.js';
 import { publish } from '../realtime.js';
 import { getConfig, invalidateConfig } from '../settings.js';
@@ -93,7 +94,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/settings', async (req) => {
     const u = requireUser(req);
     if (!can.manageSettings(u) && !can.viewAudit(u)) throw forbidden();
-    return { config: await getConfig(), defaults: DEFAULT_CONFIG, emailEnabled: emailEnabled() };
+    return { config: await getConfig(), defaults: DEFAULT_CONFIG, emailEnabled: emailEnabled(), storage: storage.name };
   });
 
   app.put('/api/admin/settings', async (req) => {

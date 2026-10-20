@@ -142,7 +142,13 @@ As tabelas já foram criadas no projeto Supabase da organização FAST RESPONSE.
    aplicação: `docker compose up -d --build --no-deps app`. Sem Docker: use a URL em `DATABASE_URL`.
 
 A migração `003_row_level_security.sql` ativa RLS em todas as tabelas, bloqueando a API REST automática do Supabase.
-A aplicação conecta como dona das tabelas e não é afetada. Os anexos continuam no disco do servidor da aplicação.
+A aplicação conecta como dona das tabelas e não é afetada.
+
+**Anexos no Supabase Storage (opcional):** defina `SUPABASE_URL` (`https://<ref>.supabase.co`) e `SUPABASE_SECRET_KEY`
+(Settings → API Keys → *Secret key*; nunca use essa chave no navegador). Os arquivos vão para o bucket privado `anexos`
+(já criado, limite de 15 MB por arquivo) e continuam sendo entregues apenas pela aplicação, a usuários autenticados.
+Sem essas variáveis, os anexos ficam no disco (`UPLOAD_DIR`). Administração → Configurações mostra o armazenamento em uso.
+Os scripts de backup cobrem só o disco local; com Supabase Storage, os arquivos ficam no próprio Supabase.
 
 ### String de conexão com TLS verificado
 

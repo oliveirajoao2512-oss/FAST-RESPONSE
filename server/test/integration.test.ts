@@ -506,6 +506,13 @@ describe('13. falhas e entradas inválidas', () => {
     const exe = Buffer.from('4d5a90000300000004000000ffff0000b8000000', 'hex');
     const r = await upload(operador, id, 'foto.png', exe);
     expect(r.statusCode).toBe(400);
+    const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+    const ok = await upload(operador, id, 'foto.png', png);
+    expect(ok.statusCode).toBe(201);
+    const dl = await ctx.app.inject({ method: 'GET', url: `/api/attachments/${ok.json()[0].id}`, headers: { cookie: operador.cookie } });
+    expect(dl.statusCode).toBe(200);
+    expect(dl.rawPayload.equals(png)).toBe(true);
+    expect(dl.headers['content-security-policy']).toContain('sandbox');
   });
   it('id inválido → 400; inexistente → 404; transição inválida → 422 com mensagem clara', async () => {
     expect((await operador.get('/api/issues/abc')).status).toBe(400);

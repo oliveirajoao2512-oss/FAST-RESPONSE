@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { fileTypeFromBuffer } from 'file-type';
@@ -10,12 +9,12 @@ import { audit } from '../audit.js';
 import { requireUser } from '../auth.js';
 import { withTx } from '../context.js';
 import { one, q } from '../db.js';
-import { env } from '../env.js';
-import { badRequest, forbidden, notFound } from '../errors.js';
+import { badRequest, notFound } from '../errors.js';
 import { addClient } from '../realtime.js';
 import * as svc from '../services/issues.js';
 import { findSimilar, getIssueDetail, listIssues, type IssueFilters } from '../services/queries.js';
 import { getConfig } from '../settings.js';
+import { storage } from '../storage.js';
 import { optText, parse, uuid } from '../validation.js';
 
 const version = z.number().int().positive().nullish().transform((v) => v ?? null);
@@ -233,10 +232,8 @@ export async function issueRoutes(app: FastifyInstance) {
       if (stepId && !(await one('SELECT id FROM steps WHERE id = $1 AND issue_id = $2', [stepId, id]))) throw badRequest('Etapa inválida.');
       const fileId = crypto.randomUUID();
       const now = new Date();
-      const rel = path.join(String(now.getUTCFullYear()), String(now.getUTCMonth() + 1).padStart(2, '0'), fileId);
-      const abs = path.join(env.uploadDir, rel);
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, buf, { flag: 'wx' });
+      const rel = `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${fileId}`;
+      await storage.put(rel, buf, mime);
       const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
       const filename = part.filename.replace(/[\\/\r\n"]/g, '_').slice(0, 200) || 'arquivo';
       try {
@@ -249,7 +246,7 @@ export async function issueRoutes(app: FastifyInstance) {
           ctx.events.push({ type: 'issue.changed', issueId: id });
         });
       } catch (e) {
-        await fs.unlink(abs).catch(() => {});
+        await storage.remove(rel);
         throw e;
       }
       saved.push({ id: fileId, filename, mime, size_bytes: buf.length, purpose });
@@ -264,9 +261,7 @@ export async function issueRoutes(app: FastifyInstance) {
     const { id } = parse(z.object({ id: uuid }), req.params);
     const a = await one<any>('SELECT * FROM attachments WHERE id = $1', [id]);
     if (!a) throw notFound('Arquivo não encontrado.');
-    const abs = path.join(env.uploadDir, a.storage_path);
-    if (!abs.startsWith(env.uploadDir)) throw forbidden();
-    const data = await fs.readFile(abs).catch(() => null);
+    const data = await storage.get(a.storage_path);
     if (!data) throw notFound('Arquivo indisponível no armazenamento.');
     const inline = a.mime.startsWith('image/') || a.mime === 'application/pdf' || a.mime.startsWith('video/');
     reply.header('Content-Type', a.mime);

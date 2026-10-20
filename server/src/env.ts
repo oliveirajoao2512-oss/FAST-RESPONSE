@@ -27,6 +27,11 @@ export const env = {
   webDist: process.env.WEB_DIST ?? path.resolve(process.cwd(), '../web/dist'),
   jobsEnabled: process.env.JOBS_ENABLED !== 'false',
   jobIntervalSeconds: num('JOB_INTERVAL_SECONDS', 60),
+  supabase: {
+    url: process.env.SUPABASE_URL ?? '',
+    secretKey: process.env.SUPABASE_SECRET_KEY ?? '',
+    bucket: process.env.SUPABASE_BUCKET ?? 'anexos',
+  },
   smtp: {
     host: process.env.SMTP_HOST ?? '',
     port: num('SMTP_PORT', 587),

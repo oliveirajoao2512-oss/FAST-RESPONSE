@@ -20,8 +20,7 @@ Lista transparente do que **não** está implementado ou depende de configuraç�
 - **Recuperação de senha por e-mail:** o administrador redefine a senha (provisória, com troca obrigatória).
 - **Integração com ERP/MES** (ordens de produção, cadastro de máquinas): OP e ativo são digitados, com sugestões
   a partir do cadastro e do histórico.
-- **Armazenamento de anexos em nuvem (S3/Azure Blob):** anexos ficam em disco local/volume Docker.
-  Para várias instâncias, o volume precisa ser compartilhado.
+- **Armazenamento de anexos em S3/Azure Blob:** anexos ficam em disco local/volume Docker ou no Supabase Storage.
 - **Apontamento de horas trabalhadas:** os tempos medidos são de calendário (abertura → conclusão, tempo em cada status).
 - **Relatórios agendados por e-mail e exportação em Excel/PDF:** há exportação CSV (abre no Excel) e telas de relatório.
 - **Aplicativo instalável (PWA) e uso offline:** sem conexão, o sistema avisa e reconecta sozinho, mas não grava offline.

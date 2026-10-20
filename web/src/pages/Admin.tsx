@@ -228,6 +228,7 @@ export function SettingsPage() {
         </div>
         {n('escalation.managerAfterOverdueHours', 'Escalonar para gestores após (horas de atraso)')}
         <div className="text-sm text-gray-600 sm:col-span-2">E-mail: {q.data.emailEnabled ? <span className="font-medium text-emerald-700">SMTP configurado — notificações também vão por e-mail.</span> : <span className="font-medium text-amber-700">SMTP não configurado — apenas notificações no sistema. Veja a documentação de implantação.</span>}</div>
+        <div className="text-sm text-gray-600 sm:col-span-2">Anexos armazenados em: <span className="font-medium text-gray-800">{q.data.storage}</span></div>
       </Section>
       <Section title="Pontuação do ranking">
         {n('scoring.base.simples', 'Pontos base — simples')}
