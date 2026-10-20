@@ -1,0 +1,234 @@
+import { useQuery } from '@tanstack/react-query';
+import {
+  Award, Bell, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
+  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database,
+} from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { ROLE_LABELS } from '@shared/constants';
+import { get, post, qs } from '../lib/api';
+import { fmtShort } from '../lib/format';
+import { useMeta } from '../lib/meta';
+import { useRealtime } from '../lib/realtime';
+import { can, useMe, useSession } from '../lib/session';
+import { IssueOverlay } from './IssueDetail';
+import { useOpenIssue } from './issues';
+import { NewIssueModal } from './NewIssueModal';
+import { AreaDot, Button, cx } from './ui';
+
+export function Layout() {
+  const me = useMe();
+  const meta = useMeta();
+  const conn = useRealtime(true);
+  const [menu, setMenu] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const counts = useQuery({ queryKey: ['area-counts'], queryFn: () => get('/api/dashboard'), staleTime: 30_000 });
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) {
+        e.preventDefault();
+        setCreating(true);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const link = ({ isActive }: { isActive: boolean }) =>
+    cx('flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm', isActive ? 'bg-brand-600 text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white');
+  const overdueBy = (id: number) => counts.data?.byArea.find((a: any) => a.id === id)?.overdue ?? 0;
+
+  const nav = (
+    <nav className="flex flex-col gap-0.5 p-3" onClick={() => setMenu(false)}>
+      <NavLink to="/" end className={link}><Gauge size={18} />Painel geral</NavLink>
+      <NavLink to="/fast-response" className={link}><Siren size={18} />Fast Response</NavLink>
+      <NavLink to="/minhas" className={link}><CheckSquare size={18} />Minhas pendências</NavLink>
+      <NavLink to="/pendencias" className={link}><LayoutList size={18} />Todas as pendências</NavLink>
+      <NavLink to="/aprovacoes" className={link}><ShieldCheck size={18} />Aprovações</NavLink>
+      <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Áreas</div>
+      {meta?.areas.map((a) => (
+        <NavLink key={a.id} to={`/areas/${a.slug}`} className={link}>
+          <AreaDot color={a.color} /><span className="flex-1">{a.name}</span>
+          {overdueBy(a.id) > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Atrasadas">{overdueBy(a.id)}</span>}
+        </NavLink>
+      ))}
+      <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Gestão</div>
+      <NavLink to="/ranking" className={link}><Award size={18} />Ranking mensal</NavLink>
+      {can.viewReports(me) && <NavLink to="/relatorios" className={link}><BarChart3 size={18} />Relatórios</NavLink>}
+      {can.manageUsers(me) && <NavLink to="/admin/usuarios" className={link}><Users size={18} />Usuários</NavLink>}
+      {can.manageCatalog(me) && <NavLink to="/admin/cadastros" className={link}><Database size={18} />Cadastros</NavLink>}
+      {(can.manageSettings(me) || can.viewAudit(me)) && <NavLink to="/admin/configuracoes" className={link}><Settings size={18} />Configurações</NavLink>}
+      {can.viewAudit(me) && <NavLink to="/admin/auditoria" className={link}><ScrollText size={18} />Auditoria</NavLink>}
+    </nav>
+  );
+
+  return (
+    <div className="flex h-full">
+      <aside className="hidden w-60 shrink-0 flex-col overflow-y-auto bg-gray-900 lg:flex">
+        <Brand />
+        {nav}
+      </aside>
+      {menu && (
+        <div className="fixed inset-0 z-40 flex lg:hidden">
+          <div className="w-72 overflow-y-auto bg-gray-900">
+            <div className="flex items-center justify-between pr-3"><Brand /><button aria-label="Fechar menu" className="text-gray-300" onClick={() => setMenu(false)}><X /></button></div>
+            {nav}
+          </div>
+          <div className="flex-1 bg-black/40" onClick={() => setMenu(false)} />
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4">
+          <button className="rounded p-2 text-gray-700 hover:bg-gray-100 lg:hidden" aria-label="Abrir menu" onClick={() => setMenu(true)}><Menu size={20} /></button>
+          <GlobalSearch />
+          <Button kind="primary" onClick={() => setCreating(true)} title="Nova pendência (atalho: N)"><Plus size={18} /><span className="hidden sm:inline">Nova pendência</span></Button>
+          <NotificationsBell />
+          <UserMenu />
+        </header>
+        {conn !== 'online' && (
+          <div className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900" role="status">
+            <WifiOff size={16} />
+            {conn === 'offline' ? 'Sem conexão. As informações podem estar desatualizadas; ações não serão enviadas até a conexão voltar.' : 'Reconectando ao servidor… a tela será atualizada automaticamente.'}
+          </div>
+        )}
+        <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
+          <Outlet />
+        </main>
+      </div>
+      {creating && <NewIssueModal onClose={() => setCreating(false)} />}
+      <IssueOverlay />
+    </div>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-2 px-4 py-4 text-white">
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600"><Factory size={18} /></span>
+      <div className="leading-tight">
+        <div className="font-bold">Fast Response</div>
+        <div className="text-xs text-gray-400">Gestão de pendências</div>
+      </div>
+    </div>
+  );
+}
+
+function GlobalSearch() {
+  const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
+  const [debounced, setDebounced] = useState('');
+  const navigate = useNavigate();
+  const openIssue = useOpenIssue();
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(text.trim()), 250);
+    return () => clearTimeout(t);
+  }, [text]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        ref.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+  const r = useQuery({ queryKey: ['search', debounced], queryFn: () => get(`/api/issues${qs({ q: debounced, limit: 8, sort: 'updated' })}`), enabled: debounced.length >= 2 });
+  return (
+    <div className="relative flex-1 max-w-xl">
+      <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+      <input ref={ref} value={text} onChange={(e) => { setText(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 200)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { setOpen(false); navigate(`/pendencias?q=${encodeURIComponent(text.trim())}`); } }}
+        placeholder="Buscar código, título, máquina, molde, OP… (Ctrl+K)" aria-label="Pesquisa global"
+        className="w-full rounded-lg border border-gray-300 bg-gray-50 py-2 pl-9 pr-3 text-sm focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-200" />
+      {open && debounced.length >= 2 && (
+        <div className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          {r.isLoading && <div className="px-3 py-2 text-sm text-gray-500">Buscando…</div>}
+          {r.data?.items.length === 0 && <div className="px-3 py-2 text-sm text-gray-500">Nada encontrado.</div>}
+          {r.data?.items.map((i: any) => (
+            <button key={i.id} onMouseDown={() => { openIssue(i.id); setOpen(false); }} className="block w-full px-3 py-2 text-left text-sm hover:bg-brand-50">
+              <span className="font-mono text-xs text-gray-500">{i.code}</span> <span className="font-medium">{i.title}</span>
+              <span className="block text-xs text-gray-500">{i.area_name} · {i.assignee_name ?? 'sem responsável'}</span>
+            </button>
+          ))}
+          {r.data?.total > 8 && <button onMouseDown={() => navigate(`/pendencias?q=${encodeURIComponent(debounced)}`)} className="block w-full border-t px-3 py-2 text-left text-sm text-brand-700">Ver todos os {r.data.total} resultados</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotificationsBell() {
+  const { unread } = useSession();
+  const [open, setOpen] = useState(false);
+  const list = useQuery({ queryKey: ['notifications'], queryFn: () => get('/api/notifications?limit=30'), enabled: open });
+  const openIssue = useOpenIssue();
+  const navigate = useNavigate();
+  return (
+    <div className="relative">
+      <button className="relative rounded-lg p-2 text-gray-700 hover:bg-gray-100" aria-label={`Notificações (${unread} não lidas)`} onClick={() => setOpen((v) => !v)}>
+        <Bell size={20} />
+        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-5 rounded-full bg-red-600 px-1 text-center text-xs font-bold text-white">{unread > 99 ? '99+' : unread}</span>}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-40 mt-1 w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-3 py-2">
+              <span className="text-sm font-semibold">Notificações</span>
+              <Button size="sm" kind="ghost" onClick={() => post('/api/notifications/read', { all: true }).then(() => list.refetch())}>Marcar todas como lidas</Button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {list.data?.length === 0 && <div className="px-3 py-6 text-center text-sm text-gray-500">Nenhuma notificação.</div>}
+              {list.data?.map((n: any) => (
+                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.issue_id) openIssue(n.issue_id); }}
+                  className={cx('block w-full border-b px-3 py-2 text-left text-sm hover:bg-gray-50', !n.read_at && 'bg-brand-50')}>
+                  <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento'].includes(n.type) && 'text-red-700')}>{n.title}</div>
+                  {n.body && <div className="line-clamp-2 text-gray-600">{n.body}</div>}
+                  <div className="text-xs text-gray-400">{fmtShort(n.created_at)}</div>
+                </button>
+              ))}
+            </div>
+            <button className="block w-full px-3 py-2 text-center text-sm text-brand-700 hover:bg-gray-50" onClick={() => { setOpen(false); navigate('/notificacoes'); }}>Ver todas</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function UserMenu() {
+  const { me, logout } = useSession();
+  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  if (!me) return null;
+  const initials = me.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 rounded-lg p-1 hover:bg-gray-100" aria-label="Menu do usuário">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-800 text-xs font-bold text-white">{initials}</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-40 mt-1 w-64 rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
+            <div className="px-2 py-1.5">
+              <div className="font-medium">{me.name}</div>
+              <div className="text-xs text-gray-500">{ROLE_LABELS[me.role]}{me.area ? ` · ${me.area.name}` : ''}</div>
+            </div>
+            <MenuItem onClick={() => { setOpen(false); navigate('/trocar-senha'); }}><KeyRound size={16} />Alterar senha</MenuItem>
+            <MenuItem onClick={() => { setOpen(false); navigate('/notificacoes'); }}><ClipboardList size={16} />Notificações</MenuItem>
+            <MenuItem onClick={() => logout().then(() => navigate('/login'))}><LogOut size={16} />Sair</MenuItem>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const MenuItem = ({ onClick, children }: { onClick: () => void; children: ReactNode }) => (
+  <button onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-gray-100">{children}</button>
+);

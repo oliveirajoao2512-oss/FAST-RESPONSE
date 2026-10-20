@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* Identidade visual Neo Polímeros — branco + laranja (mesma base do ControleSETUP) */
+@theme {
+  --color-brand-50: #fff5ed;
+  --color-brand-100: #ffe8d4;
+  --color-brand-200: #ffcda8;
+  --color-brand-300: #ffab70;
+  --color-brand-400: #fb8a3c;
+  --color-brand-500: #f47216;
+  --color-brand-600: #ea6a1f;
+  --color-brand-700: #c2500f;
+  --color-brand-800: #9a3f12;
+  --color-brand-900: #7c3512;
+  --color-chart-a: #2a78d6;
+  --color-chart-b: #ea6a1f;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body, #root { height: 100%; }
+body { background: #f5f6f8; color: #1f2937; -webkit-font-smoothing: antialiased; }
+.tabular { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--color-brand-600); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

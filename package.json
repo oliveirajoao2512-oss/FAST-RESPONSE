@@ -1,0 +1,26 @@
+{
+  "name": "fast-response",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fast Response — gestão corporativa de pendências industriais",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "migrate": "npm run migrate -w server",
+    "test": "npm run test -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "e2e": "playwright test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}
