@@ -1,20 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  Award, Bell, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
+  Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
   ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROLE_LABELS } from '@shared/constants';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
+import { isIos, useInstall } from '../lib/install';
 import { useRealtime } from '../lib/realtime';
 import { can, useMe, useSession } from '../lib/session';
 import { IssueOverlay } from './IssueDetail';
 import { useOpenIssue } from './issues';
 import { NewIssueModal } from './NewIssueModal';
-import { AreaDot, Button, cx } from './ui';
+import { AreaDot, Button, cx, Modal } from './ui';
 
 export function Layout() {
   const me = useMe();
@@ -22,6 +23,15 @@ export function Layout() {
   const conn = useRealtime(true);
   const [menu, setMenu] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  // "Nova pendência" shortcut of the installed app opens /?nova=1
+  useEffect(() => {
+    if (params.get('nova') === '1') {
+      setCreating(true);
+      params.delete('nova');
+      setParams(params, { replace: true });
+    }
+  }, [params, setParams]);
   const counts = useQuery({ queryKey: ['area-counts'], queryFn: () => get('/api/dashboard'), staleTime: 30_000 });
 
   useEffect(() => {
@@ -203,8 +213,14 @@ function NotificationsBell() {
 function UserMenu() {
   const { me, logout } = useSession();
   const [open, setOpen] = useState(false);
+  const [howTo, setHowTo] = useState(false);
+  const install = useInstall();
   const navigate = useNavigate();
   if (!me) return null;
+  const installApp = async () => {
+    setOpen(false);
+    if (!(install.canPrompt && (await install.prompt()))) setHowTo(true);
+  };
   const initials = me.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
   return (
     <div className="relative">
@@ -221,11 +237,33 @@ function UserMenu() {
             </div>
             <MenuItem onClick={() => { setOpen(false); navigate('/trocar-senha'); }}><KeyRound size={16} />Alterar senha</MenuItem>
             <MenuItem onClick={() => { setOpen(false); navigate('/notificacoes'); }}><ClipboardList size={16} />Notificações</MenuItem>
+            {!install.installed && <MenuItem onClick={installApp}><Download size={16} />Instalar aplicativo</MenuItem>}
             <MenuItem onClick={() => logout().then(() => navigate('/login'))}><LogOut size={16} />Sair</MenuItem>
           </div>
         </>
       )}
+      {howTo && <InstallHelp onClose={() => setHowTo(false)} />}
     </div>
+  );
+}
+
+function InstallHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title="Instalar o Fast Response" footer={<Button kind="primary" onClick={onClose}>Entendi</Button>}>
+      <p className="mb-3 text-sm text-gray-600">Instalado, o sistema abre direto por um ícone na tela inicial ou na área de trabalho, em janela própria, sem barra de endereço.</p>
+      {isIos() ? (
+        <ol className="list-decimal space-y-1 pl-5 text-sm">
+          <li>Abra este endereço no <strong>Safari</strong>.</li>
+          <li>Toque em <strong>Compartilhar</strong> (quadrado com seta para cima).</li>
+          <li>Escolha <strong>Adicionar à Tela de Início</strong> e confirme.</li>
+        </ol>
+      ) : (
+        <ol className="list-decimal space-y-1 pl-5 text-sm">
+          <li><strong>Android (Chrome):</strong> menu ⋮ → <strong>Instalar app</strong> ou <strong>Adicionar à tela inicial</strong>.</li>
+          <li><strong>Computador (Chrome ou Edge):</strong> clique no ícone de instalar no fim da barra de endereço, ou menu ⋮ → <strong>Transmitir, salvar e compartilhar → Instalar página como app</strong>.</li>
+        </ol>
+      )}
+    </Modal>
   );
 }
 

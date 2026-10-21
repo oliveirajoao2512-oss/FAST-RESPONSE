@@ -23,7 +23,7 @@ Lista transparente do que **não** está implementado ou depende de configuraç�
 - **Armazenamento de anexos em S3/Azure Blob:** anexos ficam em disco local/volume Docker ou no Supabase Storage.
 - **Apontamento de horas trabalhadas:** os tempos medidos são de calendário (abertura → conclusão, tempo em cada status).
 - **Relatórios agendados por e-mail e exportação em Excel/PDF:** há exportação CSV (abre no Excel) e telas de relatório.
-- **Aplicativo instalável (PWA) e uso offline:** sem conexão, o sistema avisa e reconecta sozinho, mas não grava offline.
+- **Uso offline:** o sistema é instalável como aplicativo (PWA) e abre sem conexão, mas não grava alterações offline: avisa e reconecta sozinho.
 
 ## Limitações conhecidas
 

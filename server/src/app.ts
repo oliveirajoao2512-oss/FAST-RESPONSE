@@ -75,7 +75,13 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
 
   // Serve the built web app (single-page app) when available.
   if (fs.existsSync(path.join(env.webDist, 'index.html'))) {
-    await app.register(fastifyStatic, { root: env.webDist, wildcard: false, index: false, maxAge: '1h' });
+    await app.register(fastifyStatic, {
+      root: env.webDist, wildcard: false, index: false, maxAge: '1h',
+      // hashed assets may be cached; the page, service worker and manifest must be revalidated after each deploy
+      setHeaders: (res, file) => {
+        if (/(index\.html|sw\.js|manifest\.webmanifest)$/.test(file)) res.header('Cache-Control', 'no-cache');
+      },
+    });
     app.setNotFoundHandler((req, reply) => {
       if (req.method === 'GET' && !req.url.startsWith('/api/')) {
         reply.header('Cache-Control', 'no-cache');

@@ -185,3 +185,18 @@ Limites do gratuito: o Render tem 512 MB de RAM e o primeiro acesso após um dep
 o Supabase tem 500 MB de banco e 1 GB de arquivos, não faz backup automático e pausa projetos sem atividade
 por 7 dias (o monitor evita isso). Faça backups periódicos do banco (`pg_dump` com a string do Supabase).
 Se o uso crescer: Render Starter (US$ 7/mês, sem hibernação) e Supabase Pro (US$ 25/mês, backups diários).
+
+## 11. Acesso pelos usuários (aplicativo instalável)
+
+O sistema é um PWA: pode ser instalado como aplicativo, com ícone próprio e janela sem barra de endereço,
+sem loja de aplicativos.
+
+- **Android / Chrome / Edge:** o navegador oferece "Instalar app"; dentro do sistema há também o menu do usuário → **Instalar aplicativo**.
+- **iPhone / iPad:** Safari → Compartilhar → **Adicionar à Tela de Início**.
+- **Computadores da fábrica:** instale uma vez em cada máquina (Chrome/Edge) ou crie um atalho na área de trabalho.
+
+Atualizações publicadas chegam sozinhas ao aplicativo instalado. Para divulgar, um QR code com o endereço
+do sistema afixado nas áreas permite que cada pessoa instale no próprio celular. Um domínio próprio
+(ex.: `pendencias.suaempresa.com.br`) pode ser configurado em Render → Settings → Custom Domains, com um registro
+CNAME no DNS da empresa; depois, atualize `APP_URL`.
+

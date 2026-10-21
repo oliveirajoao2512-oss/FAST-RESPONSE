@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import './index.css';
 import { ApiError } from './lib/api';
+import { registerServiceWorker } from './lib/install';
 import { SessionProvider } from './lib/session';
 import { ToastProvider } from './lib/toast';
 
@@ -19,6 +20,8 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+registerServiceWorker();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
