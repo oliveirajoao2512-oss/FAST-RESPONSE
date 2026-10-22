@@ -166,3 +166,6 @@ export function nextNumber(numbers: string[], today: string): string {
   }
   return `${max + 1}/${yy}`;
 }
+
+/** Suggested actions: the next step of each open NC, when overdue or due within this many days. */
+export const SUGGESTION_HORIZON_DAYS = 7;

@@ -63,3 +63,19 @@ Não há exclusão de ocorrências: um incidente não procedente é marcado como
 
 **Exportar Excel** gera a planilha no mesmo layout (abas NC Externa, NC Interna, NC Fornecedor, duas linhas por
 ocorrência), com status e dias calculados. O arquivo exportado pode ser importado de volta sem alterações.
+
+## Ações sugeridas (viram pendências só com aprovação)
+
+Aba **Ações sugeridas**: para cada ocorrência em aberto e procedente, o sistema sugere **apenas a próxima etapa**
+(a primeira sem data realizada), quando ela está vencida ou vence nos próximos 7 dias (ajustável para 15 ou 30).
+Assim a lista não acumula: quando a etapa é registrada como realizada, na planilha ou no sistema, a etapa seguinte aparece.
+
+- **Área e responsável sugeridos** pelo nome do líder na planilha ("Leonardo" → usuário ativo cujo nome começa
+  por Leonardo, se houver só um). Sem correspondência, a sugestão vai para a área Qualidade sem responsável.
+- Antes de aprovar dá para mudar título, área, responsável e prioridade; aprovação individual ou em lote.
+- **Criar pendência** abre a pendência na área escolhida (origem "direto"), com os dados da NC na descrição. Prazo:
+  o da etapa, quando ainda está no futuro e quem aprova pode definir prazo naquela área; senão, o prazo padrão (D+1).
+- Quem aprova só define o responsável onde tem permissão de atribuir (admin, gestor, líder da própria área). Nos
+  outros casos a pendência fica "aguardando responsável" e o líder da área é notificado, como em qualquer pendência.
+- **Descartar** registra a decisão (com motivo opcional) e a etapa não é sugerida de novo.
+- Cada etapa vira no máximo uma pendência. A pendência aparece na etapa da ocorrência e no histórico dela.

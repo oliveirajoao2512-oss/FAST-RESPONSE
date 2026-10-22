@@ -14,6 +14,7 @@ import { authRoutes } from './routes/auth.js';
 import { issueRoutes } from './routes/issues.js';
 import { metaRoutes } from './routes/meta.js';
 import { qualityRoutes } from './routes/quality.js';
+import { qualityActionRoutes } from './routes/qualityActions.js';
 
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
@@ -72,6 +73,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(adminRoutes);
   await app.register(metaRoutes);
   await app.register(qualityRoutes);
+  await app.register(qualityActionRoutes);
 
   app.all('/api/*', async (_req, reply) => reply.code(404).send({ erro: 'Rota não encontrada.', codigo: 'nao_encontrado' }));
 

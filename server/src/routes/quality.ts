@@ -20,17 +20,17 @@ import { readXlsx, writeXlsx, XlsxError } from '../services/xlsx.js';
 import { getConfig } from '../settings.js';
 import { optText, parse } from '../validation.js';
 
-const COLS = `n.id, n.origin, n.number, n.opened_on::text AS opened_on, n.kind, n.partner, n.claim_type, n.product, n.internal_code,
+export const COLS = `n.id, n.origin, n.number, n.opened_on::text AS opened_on, n.kind, n.partner, n.claim_type, n.product, n.internal_code,
   n.customer_code, n.customer_claim, n.description, n.primary_problem, n.safety, n.recurrent, n.leader, n.steps, n.action_plan,
   n.due_on::text AS due_on, n.on_hold, n.on_hold_reason, n.procedente, n.source, n.version, n.created_at, n.updated_at,
   u.name AS updated_by_name`;
-const FROM = 'quality_ncs n LEFT JOIN users u ON u.id = n.updated_by';
+export const FROM = 'quality_ncs n LEFT JOIN users u ON u.id = n.updated_by';
 
-type Row = QualityRecord & { id: number; version: number; source: string; updated_at: Date; created_at: Date; updated_by_name: string | null };
+export type Row = QualityRecord & { id: number; version: number; source: string; updated_at: Date; created_at: Date; updated_by_name: string | null };
 
-const fromDb = (r: any): Row => ({ ...r, steps: normalizeSteps(r.opened_on, r.steps) });
+export const fromDb = (r: any): Row => ({ ...r, steps: normalizeSteps(r.opened_on, r.steps) });
 
-async function today(): Promise<string> {
+export async function today(): Promise<string> {
   return DateTime.now().setZone((await getConfig()).timezone).toISODate()!;
 }
 
@@ -139,13 +139,15 @@ async function insertRecord(db: Db, r: QualityRecord, userId: string, source: 'm
     db))!.id;
 }
 
+export async function qualityGuard(req: FastifyRequest) {
+  const u = requireUser(req);
+  const area = await one<{ id: number }>(`SELECT id FROM areas WHERE slug = 'qualidade'`);
+  if (!can.manageQuality(u, area?.id)) throw forbidden('A área de Qualidade é restrita aos líderes e gestores da Qualidade.');
+  return u;
+}
+
 export async function qualityRoutes(app: FastifyInstance) {
-  const guard = async (req: FastifyRequest) => {
-    const u = requireUser(req);
-    const area = await one<{ id: number }>(`SELECT id FROM areas WHERE slug = 'qualidade'`);
-    if (!can.manageQuality(u, area?.id)) throw forbidden('A área de Qualidade é restrita aos líderes e gestores da Qualidade.');
-    return u;
-  };
+  const guard = qualityGuard;
 
   app.get('/api/quality/ncs', async (req) => {
     await guard(req);
@@ -165,7 +167,13 @@ export async function qualityRoutes(app: FastifyInstance) {
     const history = await q(
       `SELECT a.id, a.at, a.action, a.data, u.name AS actor_name FROM audit_events a LEFT JOIN users u ON u.id = a.actor_id
         WHERE a.entity_type = 'quality_nc' AND a.entity_id = $1 ORDER BY a.at DESC, a.id DESC LIMIT 200`, [String(id)]);
-    return { nc: { ...r, eval: evaluate(r, await today()) }, history };
+    const actions = await q(
+      `SELECT qa.step, qa.decision, qa.decided_at, qa.note, u.name AS decided_by_name, i.id AS issue_id, i.code AS issue_code, i.status AS issue_status,
+              a.name AS area_name, au.name AS assignee_name
+         FROM quality_actions qa JOIN users u ON u.id = qa.decided_by
+         LEFT JOIN issues i ON i.id = qa.issue_id LEFT JOIN areas a ON a.id = i.area_id LEFT JOIN users au ON au.id = i.assignee_id
+        WHERE qa.nc_id = $1 ORDER BY qa.decided_at DESC`, [id]);
+    return { nc: { ...r, eval: evaluate(r, await today()) }, history, actions };
   });
 
   app.get('/api/quality/options', async (req) => {

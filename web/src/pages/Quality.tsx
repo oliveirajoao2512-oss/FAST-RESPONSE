@@ -11,6 +11,7 @@ import { ImportModal } from '../components/quality/ImportModal';
 import { NcDetail } from '../components/quality/NcDetail';
 import { NewNcModal } from '../components/quality/NewNcModal';
 import { OriginTag, QStatusBadge, StepDots, StepLegend } from '../components/quality/parts';
+import { SuggestionsTab, useSuggestions } from '../components/quality/Suggestions';
 import { Button, Card, cx, Empty, ErrorBox, Input, Kpi, Segmented, Select, Spinner } from '../components/ui';
 import { get } from '../lib/api';
 import { fmtDateTime } from '../lib/format';
@@ -43,7 +44,10 @@ export function QualityPage() {
   const toast = useToast();
   const data = q.data;
   const today = data?.today ?? new Date().toISOString().slice(0, 10);
-  const [tab, setTab] = usePersistentState<'painel' | 'ocorrencias' | 'importacoes'>('fr-quality-tab', 'painel');
+  const [tab, setTab] = usePersistentState<'painel' | 'acoes' | 'ocorrencias' | 'importacoes'>('fr-quality-tab', 'painel');
+  const [horizon, setHorizon] = useState(7);
+  const sugg = useSuggestions(horizon);
+  const pendingActions = sugg.data?.pending.length;
   const [f, setF] = useState<Filters>({ ...EMPTY, year: today.slice(0, 4) });
   const set = (p: Partial<Filters>) => setF((x) => ({ ...x, ...p }));
   const [openId, setOpenId] = useState<number | null>(null);
@@ -126,7 +130,7 @@ export function QualityPage() {
       </div>
 
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
-        <Segmented value={tab} onChange={setTab} options={[{ value: 'painel', label: 'Painel' }, { value: 'ocorrencias', label: `Ocorrências${data ? ` (${filtered.length})` : ''}` }, { value: 'importacoes', label: 'Importações' }]} />
+        <Segmented value={tab} onChange={setTab} options={[{ value: 'painel', label: 'Painel' }, { value: 'acoes', label: <>Ações sugeridas{pendingActions ? <span className="ml-1 rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">{pendingActions}</span> : null}</> }, { value: 'ocorrencias', label: `Ocorrências${data ? ` (${filtered.length})` : ''}` }, { value: 'importacoes', label: 'Importações' }]} />
         {tab === 'painel' && (
           <div className="flex flex-wrap gap-1">
             <Button kind="ghost" size="sm" onClick={copySummary}><ClipboardCopy size={16} />Copiar resumo</Button>
@@ -136,7 +140,7 @@ export function QualityPage() {
         )}
       </div>
 
-      {tab !== 'importacoes' && (
+      {(tab === 'painel' || tab === 'ocorrencias') && (
         <div className="no-print grid grid-cols-2 gap-2 rounded-xl border border-gray-200 bg-white p-3 lg:grid-cols-4">
           <Select aria-label="Origem" value={f.origin} onChange={(e) => set({ origin: e.target.value as OriginFilter })}>
             <option value="todas">Todas as origens</option>
@@ -178,7 +182,7 @@ export function QualityPage() {
       {q.isLoading && <Spinner />}
       {q.error && <ErrorBox error={q.error} onRetry={() => q.refetch()} />}
 
-      {data && all.length === 0 && tab !== 'importacoes' && (
+      {data && all.length === 0 && (tab === 'painel' || tab === 'ocorrencias') && (
         <button onClick={() => setImporting({ file: null })} className="flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-gray-300 bg-white px-6 py-12 text-center hover:border-brand-400">
           <FileSpreadsheet size={44} className="text-emerald-700" />
           <span className="text-lg font-semibold">Comece importando a planilha Resposta Rápida</span>
@@ -201,6 +205,7 @@ export function QualityPage() {
       )}
 
       {tab === 'importacoes' && <ImportHistory />}
+      {tab === 'acoes' && <SuggestionsTab horizon={horizon} setHorizon={setHorizon} onOpenNc={setOpenId} />}
 
       {openId != null && <NcDetail id={openId} today={today} onClose={() => setOpenId(null)} />}
       {creating && <NewNcModal today={today} onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setOpenId(id); }} />}

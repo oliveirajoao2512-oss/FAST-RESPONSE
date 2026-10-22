@@ -63,7 +63,9 @@ export function ImportModal({ initialFile, onClose }: { initialFile?: File | nul
     try {
       const r = await send(file, true, keepEdited);
       const upd = r.updated.length - r.kept;
-      toast('ok', `Planilha importada: ${r.created.length} nova(s), ${upd} atualizada(s), ${r.unchanged} sem alteração.`);
+      const sugg = await api<{ pending: unknown[] }>('GET', '/api/quality/suggestions').catch(() => null);
+      const n = sugg?.pending.length ?? 0;
+      toast('ok', `Planilha importada: ${r.created.length} nova(s), ${upd} atualizada(s), ${r.unchanged} sem alteração.${n ? ` ${n} ação(ões) sugerida(s) aguardam aprovação na aba Ações sugeridas.` : ''}`);
       await qc.invalidateQueries({ queryKey: ['quality'] });
       onClose();
     } catch (e) {

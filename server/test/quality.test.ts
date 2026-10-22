@@ -228,3 +228,60 @@ describe('Qualidade — edição e cadastro', () => {
     expect(back.body.unchanged).toBe(5);
   });
 });
+
+describe('Qualidade — ações sugeridas com aprovação', () => {
+  const todaySP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  let jef: { id: string };
+  let MAN: number;
+  beforeAll(async () => {
+    jef = await createUser('Jeferson Souza', 'colaborador', 'manutencao');
+    MAN = (await one<{ id: number }>(`SELECT id FROM areas WHERE slug = 'manutencao'`))!.id;
+  });
+  const pending = async (cl: Client) => (await cl.get('/api/quality/suggestions')).body.pending as any[];
+
+  it('sugere só a próxima etapa, com área e responsável pelo nome do líder', async () => {
+    const r = await liderQual.post('/api/quality/ncs', { origin: 'externa', number: '300/26', opened_on: day(todaySP, -3), partner: 'GM-SCS', leader: 'Jeferson', description: 'Rebarba' });
+    expect(r.status).toBe(201);
+    await liderQual.post('/api/quality/ncs', { origin: 'interna', number: '301/26', opened_on: day(todaySP, -3), leader: 'Fulano' });
+    const p = await pending(liderQual);
+    const s = p.find((x) => x.number === '300/26');
+    expect(s).toMatchObject({ step: 'contencao', areaId: MAN, assigneeId: jef.id, priority: 'alta' });
+    expect(p.filter((x) => x.number === '300/26')).toHaveLength(1);
+    const unknown = p.find((x) => x.number === '301/26');
+    expect(unknown.assigneeId).toBeNull(); // líder não cadastrado: fica na área Qualidade, sem responsável
+    expect((await operador.get('/api/quality/suggestions')).status).toBe(403);
+  });
+
+  it('aprovar cria a pendência na área; não duplica; a próxima etapa aparece depois', async () => {
+    const s = (await pending(gestorQual)).find((x) => x.number === '300/26');
+    const ok = await gestorQual.post('/api/quality/suggestions/approve', { items: [{ ncId: s.ncId, step: s.step, areaId: s.areaId, assigneeId: s.assigneeId, title: s.title, priority: s.priority }] });
+    expect(ok.status).toBe(200);
+    const issue = await one<any>('SELECT * FROM issues WHERE id = $1', [ok.body.created[0].issueId]);
+    expect(issue).toMatchObject({ area_id: MAN, assignee_id: jef.id, status: 'aberta', priority: 'alta' });
+    expect(issue.description).toContain('300/26');
+    expect((await gestorQual.post('/api/quality/suggestions/approve', { items: [{ ncId: s.ncId, step: s.step, areaId: s.areaId, title: s.title, priority: 'media' }] })).status).toBe(409);
+    expect((await pending(gestorQual)).some((x) => x.number === '300/26')).toBe(false);
+    const det = (await liderQual.get(`/api/quality/ncs/${s.ncId}`)).body;
+    expect(det.actions[0]).toMatchObject({ decision: 'criada', issue_code: issue.code, area_name: 'Manutenção' });
+    expect(det.history.some((h: any) => h.action === 'quality.action_create')).toBe(true);
+    // registering the step done brings the next step (causa raiz, due in 4 days)
+    await liderQual.patch(`/api/quality/ncs/${s.ncId}`, { version: det.nc.version, steps: { contencao: { done: todaySP } } });
+    expect((await pending(liderQual)).find((x) => x.number === '300/26')?.step).toBe('causa_raiz');
+  });
+
+  it('líder da Qualidade sem permissão na outra área cria sem responsável (o líder da área atribui)', async () => {
+    const s = (await pending(liderQual)).find((x) => x.number === '300/26');
+    const ok = await liderQual.post('/api/quality/suggestions/approve', { items: [{ ncId: s.ncId, step: s.step, areaId: MAN, assigneeId: jef.id, title: s.title, priority: 'media' }] });
+    expect(ok.status).toBe(200);
+    expect(ok.body.created[0].assigned).toBe(false);
+    expect((await one<any>('SELECT status, assignee_id FROM issues WHERE id = $1', [ok.body.created[0].issueId]))).toMatchObject({ status: 'aguardando_responsavel', assignee_id: null });
+  });
+
+  it('descartar tira da fila e fica registrado', async () => {
+    const s = (await pending(liderQual)).find((x) => x.number === '301/26');
+    expect((await liderQual.post('/api/quality/suggestions/dismiss', { items: [{ ncId: s.ncId, step: s.step }], note: 'tratado na reunião' })).status).toBe(200);
+    const r = (await liderQual.get('/api/quality/suggestions')).body;
+    expect(r.pending.some((x: any) => x.number === '301/26')).toBe(false);
+    expect(r.decided.find((d: any) => d.number === '301/26')).toMatchObject({ decision: 'descartada', note: 'tratado na reunião' });
+  });
+});

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, CalendarCheck, History, PauseCircle, RotateCcw, ShieldAlert, Repeat } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { STATUS_LABELS, type Status } from '@shared/constants';
 import {
   evaluate, PARTNER_LABELS, PROCEDENTE, QUALITY_STEPS, type QSteps, type StepKey,
 } from '@shared/quality';
@@ -9,6 +10,7 @@ import { fmtDateTime } from '../../lib/format';
 import { dmy, STEP_STATE_LABELS, STEP_TONE, useQualityOptions, type QualityNc } from '../../lib/quality';
 import { useToast } from '../../lib/toast';
 import { Button, cx, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../ui';
+import { useOpenIssue } from '../issues';
 import { OriginTag, QStatusBadge } from './parts';
 
 type Draft = Omit<QualityNc, 'eval' | 'id' | 'version' | 'source' | 'updated_at' | 'updated_by_name'>;
@@ -46,7 +48,8 @@ export function NcDetail({ id, today, onClose }: { id: number; today: string; on
   const qc = useQueryClient();
   const toast = useToast();
   const opts = useQualityOptions();
-  const q = useQuery({ queryKey: ['quality', 'nc', id], queryFn: () => get<{ nc: QualityNc; history: any[] }>(`/api/quality/ncs/${id}`) });
+  const openIssue = useOpenIssue();
+  const q = useQuery({ queryKey: ['quality', 'nc', id], queryFn: () => get<{ nc: QualityNc; history: any[]; actions: { step: StepKey; decision: 'criada' | 'descartada'; issue_id: string | null; issue_code: string | null; issue_status: Status | null; area_name: string | null; assignee_name: string | null }[] }>(`/api/quality/ncs/${id}`) });
   const nc = q.data?.nc;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -135,6 +138,13 @@ export function NcDetail({ id, today, onClose }: { id: number; today: string; on
                         {STEP_STATE_LABELS[state]}{state === 'atrasado' && st.plan && ` há ${Math.round((Date.parse(today) - Date.parse(st.plan)) / 86400000)} dia(s)`}
                         <span className="text-gray-400"> · critério {s.days === 1 ? '24 h' : `${s.days} dias`}</span>
                       </div>
+                      {q.data!.actions.filter((a) => a.step === s.key).map((a, j) => (
+                        <div key={j} className="text-xs">
+                          {a.decision === 'criada' && a.issue_id
+                            ? <button className="text-brand-700 hover:underline" onClick={() => openIssue(a.issue_id!)}>Pendência {a.issue_code} · {a.area_name}{a.assignee_name ? ` · ${a.assignee_name}` : ''} · {STATUS_LABELS[a.issue_status!]}</button>
+                            : <span className="text-gray-400">Sugestão de ação descartada</span>}
+                        </div>
+                      ))}
                     </div>
                     <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-500 sm:col-span-1">Prazo
                       <Input type="date" className="w-36 py-1" value={st.plan ?? ''} onChange={(e) => setStep(s.key, { plan: e.target.value || null })} />
@@ -209,6 +219,8 @@ export function NcDetail({ id, today, onClose }: { id: number; today: string; on
                       'quality.update': 'Alterou',
                       'quality.import_create': `Importou da planilha ${h.data.arquivo ?? ''}`,
                       'quality.import_update': `Atualizou pela planilha ${h.data.arquivo ?? ''}`,
+                      'quality.action_create': 'Aprovou ação',
+                      'quality.action_dismiss': 'Descartou sugestão de ação',
                     }[h.action as string] ?? h.action}</span>
                   </div>
                   {Array.isArray(h.data.alteracoes) && h.data.alteracoes.length > 0 && (
