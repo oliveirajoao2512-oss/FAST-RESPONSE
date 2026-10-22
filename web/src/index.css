@@ -22,3 +22,10 @@ body { background: #f5f6f8; color: #1f2937; -webkit-font-smoothing: antialiased;
 .tabular { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--color-brand-600); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Quality panel "Imprimir / PDF": only the panel, without menus and buttons */
+@media print {
+  body.print-quality aside, body.print-quality header, body.print-quality .no-print { display: none !important; }
+  body.print-quality, body.print-quality #root, body.print-quality main { height: auto !important; overflow: visible !important; background: #fff; }
+  body.print-quality section { break-inside: avoid; }
+}

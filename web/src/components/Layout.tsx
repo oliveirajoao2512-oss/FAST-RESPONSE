@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
-  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database,
+  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,6 +10,7 @@ import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
 import { isIos, useInstall } from '../lib/install';
+import { useQualityAccess } from '../lib/quality';
 import { useRealtime } from '../lib/realtime';
 import { can, useMe, useSession } from '../lib/session';
 import { IssueOverlay } from './IssueDetail';
@@ -32,6 +33,7 @@ export function Layout() {
       setParams(params, { replace: true });
     }
   }, [params, setParams]);
+  const quality = useQualityAccess(me);
   const counts = useQuery({ queryKey: ['area-counts'], queryFn: () => get('/api/dashboard'), staleTime: 30_000 });
 
   useEffect(() => {
@@ -71,6 +73,7 @@ export function Layout() {
       {can.manageCatalog(me) && <NavLink to="/admin/cadastros" className={link}><Database size={18} />Cadastros</NavLink>}
       {(can.manageSettings(me) || can.viewAudit(me)) && <NavLink to="/admin/configuracoes" className={link}><Settings size={18} />Configurações</NavLink>}
       {can.viewAudit(me) && <NavLink to="/admin/auditoria" className={link}><ScrollText size={18} />Auditoria</NavLink>}
+      {quality && <NavLink to="/qualidade" className={link}><ClipboardCheck size={18} />Resposta Rápida</NavLink>}
     </nav>
   );
 

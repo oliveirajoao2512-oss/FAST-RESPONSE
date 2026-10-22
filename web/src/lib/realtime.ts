@@ -26,6 +26,7 @@ export function useRealtime(enabled: boolean): ConnState {
         qc.invalidateQueries({ queryKey: ['me'] });
       }
       if (keys.includes('config')) qc.invalidateQueries({ queryKey: ['meta'] });
+      if (keys.includes('quality')) qc.invalidateQueries({ queryKey: ['quality'] });
       if (keys.some((k) => k.startsWith('issue'))) {
         qc.invalidateQueries({ predicate: (q) => !['me', 'meta', 'notifications'].includes(String(q.queryKey[0])) });
       }
@@ -48,6 +49,7 @@ export function useRealtime(enabled: boolean): ConnState {
       es.addEventListener('issue.changed', () => schedule('issue'));
       es.addEventListener('notification', () => schedule('notification'));
       es.addEventListener('config.changed', () => schedule('config'));
+      es.addEventListener('quality.changed', () => schedule('quality'));
       es.onerror = () => {
         if (!lostAt) lostAt = Date.now();
         setState(navigator.onLine ? 'reconnecting' : 'offline');

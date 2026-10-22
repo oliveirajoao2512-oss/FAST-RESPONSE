@@ -2,7 +2,7 @@
 
 ## 1. Automatizados
 
-### Servidor (unitários + integração) — 57 testes
+### Servidor (unitários + integração) — 72 testes
 
 ```bash
 createdb fastresponse_test          # uma vez; o nome precisa conter "test" (o banco é recriado a cada execução)
@@ -40,6 +40,7 @@ Capturas de tela ficam em `test-results/screens/`.
 | 13 | Falhas e entradas inválidas | integração §13 + navegador (modo offline) |
 | 14 | Responsividade | navegador (tablet 820 px e celular 390 px, sem rolagem horizontal) |
 | — | Fast Response, reincidência, relatórios/CSV | integração + navegador |
+| — | Qualidade: leitura da planilha, prévia, importação, edição com histórico, exportação e acesso | `quality.test.ts` |
 
 ## 2. Roteiro de teste manual (homologação)
 

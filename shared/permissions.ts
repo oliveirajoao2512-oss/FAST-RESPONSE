@@ -55,4 +55,7 @@ export const can = {
   manageSettings: (a: Actor) => a.role === 'admin',
   manageCatalog: (a: Actor) => isManager(a),
   recomputeRanking: (a: Actor) => isManager(a),
+  /** Quality module (Resposta Rápida): administrators, and leaders/managers of the Quality area. */
+  manageQuality: (a: Actor, qualityAreaId: number | null | undefined) =>
+    a.role === 'admin' || ((a.role === 'gestor' || a.role === 'lider') && a.areaId != null && a.areaId === qualityAreaId),
 };
