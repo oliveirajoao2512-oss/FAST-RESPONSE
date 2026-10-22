@@ -55,7 +55,7 @@ export function FormError({ error }: { error: { msg: string; details?: string[] 
 
 export function UserSelect({ value, onChange, areaId, allowEmpty = 'Sem responsável', id }: { value: string; onChange: (v: string) => void; areaId?: number | null; allowEmpty?: string | false; id?: string }) {
   const meta = useMeta();
-  const users = (meta?.users ?? []).filter((u) => u.active);
+  const users = (meta?.users ?? []).filter((u) => u.active && u.role !== 'manutentor');
   const inArea = users.filter((u) => u.area_id === areaId);
   const others = users.filter((u) => u.area_id !== areaId);
   const label = (u: any) => `${u.name}${u.role !== 'colaborador' ? ` (${ROLE_LABELS[u.role as Role]})` : ''}`;

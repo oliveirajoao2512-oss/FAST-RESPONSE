@@ -33,3 +33,16 @@ export async function purgeQualityNc(db: Db, id: number, withIssues: boolean): P
   await q('DELETE FROM quality_ncs WHERE id = $1', [id], db);
   return files;
 }
+
+export async function purgeWorkOrder(db: Db, id: string): Promise<string[]> {
+  await q(`SET LOCAL fr.purge = 'on'`, [], db);
+  const files = (await q<{ storage_path: string }>('SELECT storage_path FROM work_order_attachments WHERE work_order_id = $1', [id], db)).map((r) => r.storage_path);
+  await q('DELETE FROM notification_deliveries WHERE notification_id IN (SELECT id FROM notifications WHERE work_order_id = $1)', [id], db);
+  await q('DELETE FROM notifications WHERE work_order_id = $1', [id], db);
+  for (const t of ['work_order_attachments', 'work_order_events', 'work_order_pauses', 'work_order_workers']) {
+    await q(`DELETE FROM ${t} WHERE work_order_id = $1`, [id], db);
+  }
+  await q(`DELETE FROM audit_events WHERE entity_type = 'work_order' AND entity_id = $1::text`, [id], db);
+  await q('DELETE FROM work_orders WHERE id = $1', [id], db);
+  return files;
+}

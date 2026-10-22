@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Download, Printer } from 'lucide-react';
+import { Download, Printer, Wrench } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { STATUS_LABELS, type Status } from '@shared/constants';
 import { useOpenIssue } from '../components/issues';
@@ -31,7 +32,10 @@ export function ReportsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-bold">Indicadores gerenciais</h1>
-        <Button onClick={() => window.print()}><Printer size={16} />Imprimir / PDF</Button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/os?tab=indicadores"><Button><Wrench size={16} />Painel de manutenção</Button></Link>
+          <Button onClick={() => window.print()}><Printer size={16} />Imprimir / PDF</Button>
+        </div>
       </div>
       <div className="grid gap-2 rounded-xl border border-gray-200 bg-white p-3 sm:grid-cols-3 lg:grid-cols-5">
         <label className="text-xs text-gray-600">De<Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>

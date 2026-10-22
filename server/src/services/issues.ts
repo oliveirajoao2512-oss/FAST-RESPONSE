@@ -88,8 +88,9 @@ async function setStatus(ctx: Ctx, issue: IssueRow, to: Status, reason?: string 
 }
 
 async function assertActiveUser(ctx: Ctx, userId: string) {
-  const u = await one<{ id: string }>('SELECT id FROM users WHERE id = $1 AND active', [userId], ctx.db);
-  if (!u) throw badRequest('Responsável inválido ou inativo.');
+  // maintainers ("manutentor") only access work orders, so they cannot own issues
+  const u = await one<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND active AND role <> 'manutentor'`, [userId], ctx.db);
+  if (!u) throw badRequest('Responsável inválido, inativo ou sem acesso às pendências.');
 }
 
 async function assertArea(ctx: Ctx, areaId: number) {

@@ -15,6 +15,10 @@ import { issueRoutes } from './routes/issues.js';
 import { metaRoutes } from './routes/meta.js';
 import { qualityRoutes } from './routes/quality.js';
 import { qualityActionRoutes } from './routes/qualityActions.js';
+import { workOrderRoutes } from './routes/workOrders.js';
+
+/** API routes a maintainer ("manutentor") may call. */
+const MAINTAINER_ROUTES = /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/;
 
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
@@ -37,6 +41,10 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
       return reply.code(403).send({ erro: 'Requisição recusada (cabeçalho de segurança ausente).', codigo: 'csrf' });
     }
     req.user = await loadSessionUser(req);
+    // Maintainers only use the work-order module: everything else is refused here, not just hidden.
+    if (req.user?.role === 'manutentor' && !MAINTAINER_ROUTES.test(req.url)) {
+      return reply.code(403).send({ erro: 'Seu acesso é somente às Ordens de Manutenção.', codigo: 'sem_permissao' });
+    }
   });
 
   app.addHook('onSend', async (_req, reply, payload) => {
@@ -74,6 +82,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(metaRoutes);
   await app.register(qualityRoutes);
   await app.register(qualityActionRoutes);
+  await app.register(workOrderRoutes);
 
   app.all('/api/*', async (_req, reply) => reply.code(404).send({ erro: 'Rota não encontrada.', codigo: 'nao_encontrado' }));
 

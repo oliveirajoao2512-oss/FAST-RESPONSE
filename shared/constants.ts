@@ -1,12 +1,13 @@
 // Domain constants shared by server and web. Server is the source of truth for every rule.
 
-export const ROLES = ['admin', 'gestor', 'lider', 'colaborador'] as const;
+export const ROLES = ['admin', 'gestor', 'lider', 'colaborador', 'manutentor'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABELS: Record<Role, string> = {
   admin: 'Administrador',
   gestor: 'Gestor',
   lider: 'Líder de área',
   colaborador: 'Colaborador',
+  manutentor: 'Manutentor',
 };
 
 export const STATUSES = [
@@ -107,5 +108,11 @@ export const NOTIFICATION_TYPES = [
   'validacao_rejeitada',
   'reaberta',
   'etapa_atribuida',
+  'os_aberta',
+  'os_aceita',
+  'os_finalizada',
+  'os_transferida',
+  'os_indicada',
+  'os_devolvida',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

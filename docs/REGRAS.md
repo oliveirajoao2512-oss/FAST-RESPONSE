@@ -20,6 +20,9 @@ Os valores entre parênteses são os padrões e podem ser alterados em **Adminis
 \* Área atualmente responsável **ou** área de origem da pendência. Quem concluiu não pode validar a própria
 conclusão. Nenhum perfil apaga pendências; usuários são desativados, nunca excluídos.
 
+O perfil **Manutentor** acessa somente as Ordens de Manutenção (o servidor recusa o resto) e não pode ser
+responsável por pendências. Regras da OS em [MANUTENCAO.md](MANUTENCAO.md).
+
 ## Prazos
 
 - **Padrão D+1:** dia seguinte à abertura, às 23:59 no fuso da fábrica (dias e horário configuráveis;

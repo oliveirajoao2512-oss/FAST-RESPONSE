@@ -51,5 +51,6 @@ Build de produção sem Docker: `npm run build && npm start` (a API serve a inte
 - [Arquitetura e decisões](docs/ARQUITETURA.md)
 - [Regras de negócio (prazos, fluxo, pontuação)](docs/REGRAS.md)
 - [Qualidade · Resposta Rápida (importação da planilha e painel)](docs/QUALIDADE.md)
+- [Ordens de Manutenção (perfil Manutentor, fluxo e indicadores)](docs/MANUTENCAO.md)
 - [Testes automatizados e roteiro de teste manual](docs/TESTES.md)
 - [Limitações e integrações pendentes](docs/LIMITACOES.md)

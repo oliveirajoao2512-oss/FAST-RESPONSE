@@ -12,7 +12,7 @@ let listener: pg.Client | null = null;
 let publisher: pg.Pool | null = null;
 
 export interface RealtimeEvent {
-  type: string; // issue.changed | notification | config.changed | quality.changed
+  type: string; // issue.changed | notification | config.changed | quality.changed | os.changed
   issueId?: string;
   userId?: string; // restricts delivery to one user
 }

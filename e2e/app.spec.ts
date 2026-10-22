@@ -16,6 +16,7 @@ const users: Record<string, { email: string; id?: string }> = {
   lider: { email: 'lider.man@e2e.local' },
   tecnico: { email: 'tecnico.man@e2e.local' },
   operador: { email: 'operador.prod@e2e.local' },
+  manutentor: { email: 'joao.manutentor@e2e.local' },
 };
 
 async function login(page: Page, email: string, password = PW) {
@@ -60,6 +61,7 @@ test('1. primeiro acesso do administrador exige troca de senha', async ({ page, 
   await mk('lider', 'Lider Manutencao', 'lider', 'manutencao');
   await mk('tecnico', 'Tecnico Manutencao', 'colaborador', 'manutencao');
   await mk('operador', 'Operador Producao', 'colaborador', 'producao');
+  await mk('manutentor', 'Joao Manutentor', 'manutentor', 'manutencao');
   for (const k of Object.keys(users)) {
     const c = await playwright.request.newContext({ baseURL: page.url().replace(/\/$/, ''), extraHTTPHeaders: H });
     await c.post('/api/auth/login', { data: { login: users[k].email, password: 'Provisoria1' } });
@@ -74,7 +76,7 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
   const tecnico = await newUserPage(browser, users.tecnico.email);
 
   // líder deixa a página da área aberta (para verificar sincronização sem recarregar)
-  await lider.getByRole('link', { name: /Manutenção/ }).first().click();
+  await lider.getByRole('link', { name: 'Manutenção', exact: true }).click();
   await expect(lider.getByRole('heading', { name: 'Manutenção' })).toBeVisible();
 
   // --- cadastro rápido pelo operador
@@ -173,6 +175,7 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
 
   // --- ranking reflete a conclusão validada
   await closeIssue(tecnico);
+  await tecnico.getByRole('button', { name: 'Gestão' }).click();
   await tecnico.getByRole('link', { name: 'Ranking mensal' }).click();
   await expect(tecnico.getByText('Como a pontuação é calculada')).toBeVisible();
   await expect(tecnico.getByRole('cell', { name: /Tecnico Manutencao/ })).toBeVisible();
@@ -226,6 +229,7 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
   await expect(operador.getByRole('link', { name: 'Relatórios' })).toHaveCount(0);
   await expect(operador.getByRole('link', { name: 'Usuários' })).toHaveCount(0);
   await closeIssue(lider);
+  await lider.getByRole('button', { name: 'Gestão' }).click();
   await lider.getByRole('link', { name: 'Relatórios' }).click();
   await expect(lider.getByRole('heading', { name: 'Indicadores gerenciais' })).toBeVisible();
   await expect(lider.getByText('Comparativo entre áreas')).toBeVisible();
@@ -241,7 +245,7 @@ for (const [name, viewport] of [['tablet', { width: 820, height: 1180 }], ['celu
     await noHorizontalScroll();
     await page.screenshot({ path: `${SHOTS}/${name}-dashboard.png`, fullPage: true });
     await page.getByRole('button', { name: 'Abrir menu' }).click();
-    await page.getByRole('link', { name: /Manutenção/ }).first().click();
+    await page.getByRole('link', { name: 'Manutenção', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Manutenção' })).toBeVisible();
     await noHorizontalScroll();
     await page.screenshot({ path: `${SHOTS}/${name}-area.png` });
@@ -260,3 +264,69 @@ for (const [name, viewport] of [['tablet', { width: 820, height: 1180 }], ['celu
     await page.screenshot({ path: `${SHOTS}/${name}-nova.png` });
   });
 }
+
+test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async ({ browser }) => {
+  const operador = await newUserPage(browser, users.operador.email);
+  // the maintainer lands straight on the work orders, on a phone
+  const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+  const man = await mctx.newPage();
+  await login(man, users.manutentor.email);
+  await expect(man.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
+  await expect(man.getByRole('link', { name: 'Todas as pendências' })).toHaveCount(0);
+  await man.goto('/pendencias');
+  await expect(man).toHaveURL(/\/os$/);
+
+  // anyone opens an order in a few taps
+  await operador.getByRole('link', { name: 'Ordens de Manutenção' }).click();
+  await operador.getByRole('button', { name: 'Abrir OS' }).click();
+  const dlg = operador.getByRole('dialog', { name: 'Abrir ordem de manutenção' });
+  await dlg.getByLabel('Setor').selectOption({ label: 'Produção' });
+  await dlg.getByLabel('Máquina / dispositivo').fill('INJ-07');
+  await dlg.getByRole('radio', { name: 'Mecânica' }).click();
+  await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
+  await dlg.getByLabel('O que está acontecendo?').fill('Vazamento de óleo no cilindro do molde');
+  await operador.screenshot({ path: `${SHOTS}/os-abrir.png` });
+  await dlg.getByRole('button', { name: 'Abrir OS' }).click();
+  await expect(operador.getByText(/OS-\d{4}-\d{5} aberta como crítica/)).toBeVisible();
+  const detail = operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ });
+  await expect(detail.getByText(/Aguardando aceite/).first()).toBeVisible();
+
+  // the maintainer sees it at once (critical, first in the queue) and accepts
+  await expect(man.getByText('Vazamento de óleo no cilindro do molde')).toBeVisible({ timeout: 10_000 });
+  await expect(man.getByText('MÁQUINA PARADA')).toBeVisible();
+  await man.screenshot({ path: `${SHOTS}/os-fila-celular.png`, fullPage: true });
+  await man.getByRole('button', { name: 'Aceitar', exact: true }).click();
+
+  // the requester sees who is working, without reloading
+  await expect(detail.getByText('Joao Manutentor está atuando')).toBeVisible({ timeout: 10_000 });
+  await operador.screenshot({ path: `${SHOTS}/os-detalhe-solicitante.png` });
+
+  // pause and finish on the phone
+  await man.getByText('Vazamento de óleo no cilindro do molde').click();
+  const md = man.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ });
+  await md.getByRole('button', { name: 'Pausar' }).click();
+  await man.getByRole('dialog', { name: 'Pausar OS' }).getByRole('button', { name: 'Pausar' }).click();
+  await expect(md.getByText('Pausada: Aguardando peça')).toBeVisible();
+  await md.getByRole('button', { name: 'Retomar' }).click();
+  await expect(md.getByText('Pausada: Aguardando peça')).toHaveCount(0);
+  await man.screenshot({ path: `${SHOTS}/os-detalhe-celular.png`, fullPage: true });
+  await md.getByRole('button', { name: 'Finalizar' }).click();
+  const fin = man.getByRole('dialog', { name: /Finalizar OS-/ });
+  await fin.getByLabel('O que foi feito?').fill('Troca do retentor do cilindro');
+  await fin.getByRole('button', { name: 'Finalizar' }).click();
+  await expect(man.getByText(/finalizada\. Quem abriu foi avisado/)).toBeVisible();
+
+  await expect(detail.getByText('Troca do retentor do cilindro')).toBeVisible({ timeout: 10_000 });
+  await expect(detail.getByText(/Joao Manutentor finalizou a OS/)).toBeVisible();
+  await detail.getByRole('button', { name: 'Fechar' }).click();
+  await operador.getByRole('tab', { name: 'Finalizadas' }).click();
+  await expect(operador.getByText('Troca do retentor do cilindro')).toBeVisible();
+  await operador.screenshot({ path: `${SHOTS}/os-finalizadas.png` });
+
+  // the maintenance leader sees the indicators
+  const lider = await newUserPage(browser, users.lider.email);
+  await lider.goto('/os?tab=indicadores');
+  await expect(lider.getByText('Máquinas com mais horas paradas')).toBeVisible();
+  await expect(lider.getByRole('cell', { name: 'INJ-07' })).toBeVisible();
+  await lider.screenshot({ path: `${SHOTS}/os-indicadores.png`, fullPage: true });
+});

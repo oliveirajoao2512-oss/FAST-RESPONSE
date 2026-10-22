@@ -2,7 +2,7 @@
 
 ## 1. Automatizados
 
-### Servidor (unitários + integração) — 78 testes
+### Servidor (unitários + integração) — 94 testes
 
 ```bash
 createdb fastresponse_test          # uma vez; o nome precisa conter "test" (o banco é recriado a cada execução)
@@ -12,7 +12,7 @@ npm test
 Para outro banco: `DATABASE_URL=postgresql://…/fastresponse_test npm test`.
 Os testes de integração sobem a API real contra PostgreSQL real (sem mocks), com 8 usuários de perfis diferentes.
 
-### Navegador (Playwright) — 4 cenários
+### Navegador (Playwright) — 5 cenários
 
 ```bash
 scripts/e2e-local.sh                # cria o banco descartável fastresponse_e2e, sobe a aplicação na porta 3100 e executa

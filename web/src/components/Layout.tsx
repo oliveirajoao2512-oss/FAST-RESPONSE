@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
-  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck,
+  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROLE_LABELS } from '@shared/constants';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
@@ -12,6 +12,7 @@ import { useMeta } from '../lib/meta';
 import { isIos, useInstall } from '../lib/install';
 import { useQualityAccess } from '../lib/quality';
 import { useRealtime } from '../lib/realtime';
+import { useWoList } from '../lib/workOrders';
 import { can, useMe, useSession } from '../lib/session';
 import { IssueOverlay } from './IssueDetail';
 import { useOpenIssue } from './issues';
@@ -51,6 +52,18 @@ export function Layout() {
   const link = ({ isActive }: { isActive: boolean }) =>
     cx('flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm', isActive ? 'bg-brand-600 text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white');
   const overdueBy = (id: number) => counts.data?.byArea.find((a: any) => a.id === id)?.overdue ?? 0;
+  const workOrders = useWoList('abertas');
+  const waitingOs = workOrders.data?.filter((o) => o.status === 'aberta').length ?? 0;
+  const { pathname } = useLocation();
+  const inGestao = ['/ranking', '/relatorios', '/admin', '/qualidade'].some((p) => pathname.startsWith(p));
+  const [gestao, setGestao] = useState(() => {
+    try { return localStorage.getItem('fr-nav-gestao') === '1'; } catch { return false; }
+  });
+  const toggleGestao = () => {
+    setGestao(!gestao);
+    try { localStorage.setItem('fr-nav-gestao', gestao ? '0' : '1'); } catch {}
+  };
+  const gestaoOpen = gestao || inGestao;
 
   const nav = (
     <nav className="flex flex-col gap-0.5 p-3" onClick={() => setMenu(false)}>
@@ -59,6 +72,10 @@ export function Layout() {
       <NavLink to="/minhas" className={link}><CheckSquare size={18} />Minhas pendências</NavLink>
       <NavLink to="/pendencias" className={link}><LayoutList size={18} />Todas as pendências</NavLink>
       <NavLink to="/aprovacoes" className={link}><ShieldCheck size={18} />Aprovações</NavLink>
+      <NavLink to="/os" className={link}>
+        <Wrench size={18} /><span className="flex-1">Ordens de Manutenção</span>
+        {waitingOs > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite">{waitingOs}</span>}
+      </NavLink>
       <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Áreas</div>
       {meta?.areas.map((a) => (
         <NavLink key={a.id} to={`/areas/${a.slug}`} className={link}>
@@ -66,14 +83,21 @@ export function Layout() {
           {overdueBy(a.id) > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Atrasadas">{overdueBy(a.id)}</span>}
         </NavLink>
       ))}
-      <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Gestão</div>
-      <NavLink to="/ranking" className={link}><Award size={18} />Ranking mensal</NavLink>
-      {can.viewReports(me) && <NavLink to="/relatorios" className={link}><BarChart3 size={18} />Relatórios</NavLink>}
-      {can.manageUsers(me) && <NavLink to="/admin/usuarios" className={link}><Users size={18} />Usuários</NavLink>}
-      {can.manageCatalog(me) && <NavLink to="/admin/cadastros" className={link}><Database size={18} />Cadastros</NavLink>}
-      {(can.manageSettings(me) || can.viewAudit(me)) && <NavLink to="/admin/configuracoes" className={link}><Settings size={18} />Configurações</NavLink>}
-      {can.viewAudit(me) && <NavLink to="/admin/auditoria" className={link}><ScrollText size={18} />Auditoria</NavLink>}
-      {quality && <NavLink to="/qualidade" className={link}><ClipboardCheck size={18} />Resposta Rápida</NavLink>}
+      <button type="button" onClick={(e) => { e.stopPropagation(); toggleGestao(); }} aria-expanded={gestaoOpen}
+        className="mt-4 mb-1 flex items-center justify-between rounded-lg px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:bg-white/10 hover:text-white">
+        Gestão<ChevronDown size={16} className={cx('transition-transform', gestaoOpen && 'rotate-180')} />
+      </button>
+      {gestaoOpen && (
+        <>
+          <NavLink to="/ranking" className={link}><Award size={18} />Ranking mensal</NavLink>
+          {can.viewReports(me) && <NavLink to="/relatorios" className={link}><BarChart3 size={18} />Relatórios</NavLink>}
+          {quality && <NavLink to="/qualidade" className={link}><ClipboardCheck size={18} />Resposta Rápida</NavLink>}
+          {can.manageUsers(me) && <NavLink to="/admin/usuarios" className={link}><Users size={18} />Usuários</NavLink>}
+          {can.manageCatalog(me) && <NavLink to="/admin/cadastros" className={link}><Database size={18} />Cadastros</NavLink>}
+          {(can.manageSettings(me) || can.viewAudit(me)) && <NavLink to="/admin/configuracoes" className={link}><Settings size={18} />Configurações</NavLink>}
+          {can.viewAudit(me) && <NavLink to="/admin/auditoria" className={link}><ScrollText size={18} />Auditoria</NavLink>}
+        </>
+      )}
     </nav>
   );
 
@@ -174,7 +198,7 @@ function GlobalSearch() {
   );
 }
 
-function NotificationsBell() {
+export function NotificationsBell() {
   const { unread } = useSession();
   const [open, setOpen] = useState(false);
   const list = useQuery({ queryKey: ['notifications'], queryFn: () => get('/api/notifications?limit=30'), enabled: open });
@@ -197,9 +221,9 @@ function NotificationsBell() {
             <div className="max-h-[60vh] overflow-y-auto">
               {list.data?.length === 0 && <div className="px-3 py-6 text-center text-sm text-gray-500">Nenhuma notificação.</div>}
               {list.data?.map((n: any) => (
-                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.issue_id) openIssue(n.issue_id); }}
+                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.work_order_id) navigate(`/os?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}
                   className={cx('block w-full border-b px-3 py-2 text-left text-sm hover:bg-gray-50', !n.read_at && 'bg-brand-50')}>
-                  <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento'].includes(n.type) && 'text-red-700')}>{n.title}</div>
+                  <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento', 'os_aberta'].includes(n.type) && 'text-red-700')}>{n.title}</div>
                   {n.body && <div className="line-clamp-2 text-gray-600">{n.body}</div>}
                   <div className="text-xs text-gray-400">{fmtShort(n.created_at)}</div>
                 </button>
@@ -213,7 +237,7 @@ function NotificationsBell() {
   );
 }
 
-function UserMenu() {
+export function UserMenu() {
   const { me, logout } = useSession();
   const [open, setOpen] = useState(false);
   const [howTo, setHowTo] = useState(false);
@@ -273,3 +297,30 @@ function InstallHelp({ onClose }: { onClose: () => void }) {
 const MenuItem = ({ onClick, children }: { onClick: () => void; children: ReactNode }) => (
   <button onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-gray-100">{children}</button>
 );
+
+/** Shell for maintainers ("manutentor"): only the work orders, notifications and their own account. */
+export function MaintainerLayout() {
+  const conn = useRealtime(true);
+  return (
+    <div className="flex h-full flex-col">
+      <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white"><Wrench size={18} /></span>
+        <div className="flex-1 leading-tight">
+          <div className="font-bold">Fast Response</div>
+          <div className="text-xs text-gray-500">Ordens de Manutenção</div>
+        </div>
+        <NotificationsBell />
+        <UserMenu />
+      </header>
+      {conn !== 'online' && (
+        <div className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900" role="status">
+          <WifiOff size={16} />
+          {conn === 'offline' ? 'Sem conexão. A fila pode estar desatualizada.' : 'Reconectando… a fila será atualizada automaticamente.'}
+        </div>
+      )}
+      <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
