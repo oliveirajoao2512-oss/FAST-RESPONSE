@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, CalendarCheck, History, PauseCircle, RotateCcw, ShieldAlert, Repeat } from 'lucide-react';
+import { Trash2, Ban, CalendarCheck, History, PauseCircle, RotateCcw, ShieldAlert, Repeat } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { STATUS_LABELS, type Status } from '@shared/constants';
 import {
   evaluate, PARTNER_LABELS, PROCEDENTE, QUALITY_STEPS, type QSteps, type StepKey,
 } from '@shared/quality';
-import { ApiError, errorMessage, get, patch } from '../../lib/api';
+import { ApiError, errorMessage, get, patch, post } from '../../lib/api';
 import { fmtDateTime } from '../../lib/format';
 import { dmy, STEP_STATE_LABELS, STEP_TONE, useQualityOptions, type QualityNc } from '../../lib/quality';
 import { useToast } from '../../lib/toast';
+import { can, useMe } from '../../lib/session';
 import { Button, cx, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../ui';
 import { useOpenIssue } from '../issues';
 import { OriginTag, QStatusBadge } from './parts';
@@ -49,6 +50,22 @@ export function NcDetail({ id, today, onClose }: { id: number; today: string; on
   const toast = useToast();
   const opts = useQualityOptions();
   const openIssue = useOpenIssue();
+  const me = useMe();
+  const purge = async () => {
+    if (!nc) return;
+    const linked = q.data?.actions.filter((a) => a.issue_id).length ?? 0;
+    const typed = prompt(`EXCLUSÃO DEFINITIVA, sem histórico e sem volta. Use só para ocorrências de teste.${linked ? `\nAs ${linked} pendência(s) criadas a partir dela também serão excluídas.` : ''}\n\nDigite o número ${nc.number} para confirmar:`);
+    if (typed === null) return;
+    try {
+      await post(`/api/quality/ncs/${nc.id}/purge`, { confirm: typed.trim(), withIssues: true });
+      toast('ok', `Ocorrência ${nc.number} excluída definitivamente.`);
+      setDraft(null);
+      onClose();
+      qc.invalidateQueries();
+    } catch (e) {
+      toast('error', errorMessage(e));
+    }
+  };
   const q = useQuery({ queryKey: ['quality', 'nc', id], queryFn: () => get<{ nc: QualityNc; history: any[]; actions: { step: StepKey; decision: 'criada' | 'descartada'; issue_id: string | null; issue_code: string | null; issue_status: Status | null; area_name: string | null; assignee_name: string | null }[] }>(`/api/quality/ncs/${id}`) });
   const nc = q.data?.nc;
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -93,7 +110,8 @@ export function NcDetail({ id, today, onClose }: { id: number; today: string; on
       title={nc ? <span className="flex flex-wrap items-center gap-2">Ocorrência {nc.number}<OriginTag origin={nc.origin} />{live && <QStatusBadge status={live.status} />}</span> : 'Ocorrência'}
       footer={draft && (
         <>
-          {dirty && <span className="mr-auto self-center text-xs text-amber-700">Alterações não salvas</span>}
+          {can.purgeRecords(me) && <Button kind="ghost" className="mr-auto text-red-700" onClick={purge}><Trash2 size={16} />Excluir definitivamente</Button>}
+          {dirty && <span className="self-center text-xs text-amber-700">Alterações não salvas</span>}
           <Button onClick={() => setDraft(structuredClone(orig!))} disabled={!dirty || saving}><RotateCcw size={16} />Desfazer</Button>
           <Button kind="primary" onClick={save} loading={saving} disabled={!dirty}>Salvar alterações</Button>
         </>

@@ -18,6 +18,8 @@ import {
 } from '../services/quality.js';
 import { readXlsx, writeXlsx, XlsxError } from '../services/xlsx.js';
 import { getConfig } from '../settings.js';
+import { purgeQualityNc } from '../services/purge.js';
+import { storage } from '../storage.js';
 import { optText, parse } from '../validation.js';
 
 export const COLS = `n.id, n.origin, n.number, n.opened_on::text AS opened_on, n.kind, n.partner, n.claim_type, n.product, n.internal_code,
@@ -274,6 +276,24 @@ export async function qualityRoutes(app: FastifyInstance) {
       if (e.code === '23505') throw conflict('Já existe outra ocorrência com este número nesta origem.');
       throw e;
     }
+  });
+
+  /** Administrators only: deletes a test occurrence and its history (optionally the issues created from it). */
+  app.post('/api/quality/ncs/:id/purge', async (req) => {
+    const u = await guard(req);
+    if (!can.purgeRecords(u)) throw forbidden('Somente administradores podem excluir definitivamente.');
+    const { id } = parse(z.object({ id: z.coerce.number().int().positive() }), req.params);
+    const b = parse(z.object({ confirm: z.string().trim(), withIssues: z.boolean().default(true) }), req.body);
+    const nc = await one<{ number: string }>('SELECT number FROM quality_ncs WHERE id = $1', [id]);
+    if (!nc) throw notFound('Ocorrência não encontrada.');
+    if (b.confirm !== nc.number) throw badRequest(`Digite o número ${nc.number} para confirmar.`);
+    const files = await withTx(u, req.ip, async (ctx) => {
+      const f = await purgeQualityNc(ctx.db, id, b.withIssues);
+      ctx.events.push({ type: 'quality.changed' }, { type: 'issue.changed' });
+      return f;
+    });
+    for (const f of files) await storage.remove(f);
+    return { ok: true };
   });
 
   /** Import the "Resposta Rápida" spreadsheet. Without ?commit=1 it only returns the preview. */

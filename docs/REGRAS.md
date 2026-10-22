@@ -84,3 +84,11 @@ Regras antimanipulação: pendência simples aberta e concluída pela mesma pess
 no máximo 40 pendências simples pontuadas por pessoa no mês; canceladas e não validadas não contam; validação
 por terceiro. Campeão do mês: maior pontuação com pelo menos 3 pendências validadas (desempate: % no prazo).
 O detalhamento de cada pontuação (pendência por pendência, com bônus e descontos) é visível a todos. Gestores fecham meses anteriores, congelando o resultado.
+
+## Exclusão definitiva (somente administrador)
+
+Para limpar **registros de teste**, o administrador tem o botão **Excluir definitivamente** na pendência e na
+ocorrência da Resposta Rápida. A confirmação exige digitar o código da pendência (ex.: FR-2026-00012) ou o número da
+ocorrência (ex.: 108/26). A exclusão remove o registro e todo o histórico ligado a ele (comentários, anexos, etapas,
+notificações e auditoria); na ocorrência, remove também as pendências criadas a partir dela. Não há como desfazer.
+Fora dessa operação, o histórico continua imutável no banco. Para registros reais, use **Cancelar**.

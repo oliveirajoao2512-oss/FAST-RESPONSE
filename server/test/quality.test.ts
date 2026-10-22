@@ -285,3 +285,28 @@ describe('Qualidade — ações sugeridas com aprovação', () => {
     expect(r.decided.find((d: any) => d.number === '301/26')).toMatchObject({ decision: 'descartada', note: 'tratado na reunião' });
   });
 });
+
+describe('Exclusão definitiva (somente administrador)', () => {
+  it('pendência de teste: some com todo o histórico; histórico continua imutável fora disso', async () => {
+    const r = await admin.post('/api/issues', { title: 'Pendência de teste', areaId: (await one<{ id: number }>(`SELECT id FROM areas WHERE slug = 'producao'`))!.id, priority: 'media' });
+    const id = r.body.id;
+    await admin.post(`/api/issues/${id}/comments`, { body: 'teste' });
+    expect((await gestorQual.post(`/api/admin/issues/${id}/purge`, { confirm: r.body.code })).status).toBe(403);
+    expect((await admin.post(`/api/admin/issues/${id}/purge`, { confirm: 'errado' })).status).toBe(400);
+    expect((await admin.post(`/api/admin/issues/${id}/purge`, { confirm: r.body.code.toLowerCase() })).status).toBe(200);
+    expect(await one('SELECT 1 FROM issues WHERE id = $1', [id])).toBeUndefined();
+    expect((await q(`SELECT 1 FROM audit_events WHERE issue_id = $1::uuid OR entity_id = $1::text`, [id])).length).toBe(0);
+    await expect(q('DELETE FROM audit_events WHERE id = (SELECT min(id) FROM audit_events)')).rejects.toThrow(/imutáveis/);
+  });
+
+  it('ocorrência de teste: some com o histórico e as pendências geradas; gestor da Qualidade não pode', async () => {
+    const nc = await byNumber('300/26');
+    const linked = (await q<{ issue_id: string }>('SELECT issue_id FROM quality_actions WHERE nc_id = $1 AND issue_id IS NOT NULL', [nc.id])).map((x) => x.issue_id);
+    expect(linked.length).toBeGreaterThan(0);
+    expect((await gestorQual.post(`/api/quality/ncs/${nc.id}/purge`, { confirm: '300/26' })).status).toBe(403);
+    expect((await admin.post(`/api/quality/ncs/${nc.id}/purge`, { confirm: '300/26', withIssues: true })).status).toBe(200);
+    expect(await byNumber('300/26')).toBeUndefined();
+    expect((await q('SELECT 1 FROM issues WHERE id = ANY($1)', [linked])).length).toBe(0);
+    expect((await q(`SELECT 1 FROM audit_events WHERE entity_type = 'quality_nc' AND entity_id = $1`, [String(nc.id)])).length).toBe(0);
+  });
+});

@@ -11,6 +11,8 @@ import { storage } from '../storage.js';
 import { badRequest, conflict, forbidden, notFound } from '../errors.js';
 import { publish } from '../realtime.js';
 import { getConfig, invalidateConfig } from '../settings.js';
+import { withTx } from '../context.js';
+import { purgeIssue } from '../services/purge.js';
 import { optText, parse, uuid } from '../validation.js';
 
 const userBody = z.object({
@@ -73,6 +75,24 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     if (!b.active || b.role !== before.role) await revokeUserSessions(id);
     await audit(pool, { actorId: me.id, action: 'user.update', entityType: 'user', entityId: id, data: { antes: before, depois: b }, ip: req.ip });
+    return { ok: true };
+  });
+
+  /** Administrators only: deletes a test issue and all its history. Confirmation = the issue code. */
+  app.post('/api/admin/issues/:id/purge', async (req) => {
+    const u = requireUser(req);
+    if (!can.purgeRecords(u)) throw forbidden('Somente administradores podem excluir definitivamente.');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const { confirm } = parse(z.object({ confirm: z.string().trim() }), req.body);
+    const issue = await one<{ code: string }>('SELECT code FROM issues WHERE id = $1', [id]);
+    if (!issue) throw notFound('Pendência não encontrada.');
+    if (confirm.toUpperCase() !== issue.code) throw badRequest(`Digite o código ${issue.code} para confirmar.`);
+    const files = await withTx(u, req.ip, async (ctx) => {
+      const f = await purgeIssue(ctx.db, id);
+      ctx.events.push({ type: 'issue.changed', issueId: id }, { type: 'quality.changed' });
+      return f;
+    });
+    for (const f of files) await storage.remove(f);
     return { ok: true };
   });
 

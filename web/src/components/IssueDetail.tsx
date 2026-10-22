@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRightLeft, Ban, CalendarClock, CheckCircle2, ChevronDown, ChevronUp, CircleSlash, FileText, History, Link2, ListChecks, Lock,
-  MessageSquare, Play, Plus, RotateCcw, ShieldAlert, ThumbsUp, UserCheck, UserPlus,
+  MessageSquare, Play, Plus, RotateCcw, ShieldAlert, ThumbsUp, Trash2, UserCheck, UserPlus,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { COMPLEXITY_LABELS, SOURCE_LABELS, STATUS_LABELS, STEP_STATUS_LABELS, AS
 import { errorMessage, get, patch, post } from '../lib/api';
 import { age, fmtDateTime, fromLocalInput } from '../lib/format';
 import { useMeta } from '../lib/meta';
-import { useMe } from '../lib/session';
+import { can, useMe } from '../lib/session';
 import { useToast } from '../lib/toast';
 import {
   AssignModal, AttachButton, BlockModal, CancelModal, CompleteModal, DeadlineModal, ReopenModal, TransferModal, UserSelect, ValidateModal,
@@ -42,6 +42,7 @@ export function IssueDetail({ id }: { id: string }) {
   const toast = useToast();
   const q = useQuery({ queryKey: ['issue', id], queryFn: () => get(`/api/issues/${id}`) });
   const [modal, setModal] = useState<ModalKind>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stepDeadline, setStepDeadline] = useState<any>(null);
   const [tab, setTab] = useState<'comments' | 'history'>('comments');
   const [editNext, setEditNext] = useState<string | null>(null);
@@ -62,6 +63,22 @@ export function IssueDetail({ id }: { id: string }) {
     qc.invalidateQueries();
   };
 
+  // administrators only: removes test records with all their history
+  const purge = async () => {
+    const typed = prompt(`EXCLUSÃO DEFINITIVA, sem histórico e sem volta.\nUse só para pendências de teste.\n\nDigite o código ${i.code} para confirmar:`);
+    if (typed === null) return;
+    try {
+      await post(`/api/admin/issues/${id}/purge`, { confirm: typed });
+      toast('ok', `Pendência ${i.code} excluída definitivamente.`);
+      const next = new URLSearchParams(searchParams);
+      next.delete('p');
+      setSearchParams(next);
+      qc.invalidateQueries();
+    } catch (e) {
+      toast('error', errorMessage(e));
+    }
+  };
+
   const actions: React.ReactElement[] = [];
   if (p.selfAssign && !i.assignee_id && active) actions.push(<Button key="take" kind="primary" onClick={() => act(() => post(`/api/issues/${id}/assign`, { version: i.version, assigneeId: me.id }), 'Você assumiu a pendência')}><UserCheck size={16} />Assumir</Button>);
   if (p.changeStatus && ['aberta', 'planejada'].includes(status) && i.assignee_id) actions.push(<Button key="start" kind="primary" onClick={() => act(() => post(`/api/issues/${id}/status`, { version: i.version, status: 'em_andamento' }), 'Execução iniciada')}><Play size={16} />Iniciar</Button>);
@@ -73,6 +90,7 @@ export function IssueDetail({ id }: { id: string }) {
   if (p.transfer && active) actions.push(<Button key="transfer" onClick={() => setModal('transfer')}><ArrowRightLeft size={16} />Transferir</Button>);
   if ((p.changeDeadline || p.requestDeadline) && active) actions.push(<Button key="deadline" onClick={() => setModal('deadline')}><CalendarClock size={16} />{p.changeDeadline ? 'Prazo' : 'Solicitar prazo'}</Button>);
   if (p.reopen && status === 'concluida') actions.push(<Button key="reopen" kind="danger" onClick={() => setModal('reopen')}><RotateCcw size={16} />Reabrir</Button>);
+  if (can.purgeRecords(me)) actions.push(<Button key="purge" kind="ghost" className="text-red-700" onClick={purge}><Trash2 size={16} />Excluir definitivamente</Button>);
   if (p.cancel && !['concluida', 'cancelada'].includes(status)) actions.push(<Button key="cancel" kind="ghost" onClick={() => setModal('cancel')}><CircleSlash size={16} />Cancelar</Button>);
 
   const openImpediments = i.impediments.filter((x: any) => !x.resolved_at);
