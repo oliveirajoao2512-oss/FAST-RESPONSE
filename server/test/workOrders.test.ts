@@ -199,3 +199,29 @@ describe('fluxo da OS', () => {
     expect((await q('SELECT id FROM notifications WHERE work_order_id = $1', [id])).length).toBe(0);
   });
 });
+
+describe('administrador: visualizar como outro perfil', () => {
+  const as = (cl: Client, view: string) => Object.assign(new Client(ctx.app), { cookie: `${cl.cookie}; fr_view_as=${view}` });
+
+  it('vê com as permissões do perfil escolhido, somente leitura', async () => {
+    const man = as(admin, 'manutentor');
+    const me = (await man.get('/api/auth/me')).body.user;
+    expect(me).toMatchObject({ role: 'manutentor', preview: true, name: 'Admin Teste' });
+    expect((await man.get('/api/os')).status).toBe(200);
+    expect((await man.get('/api/issues')).status).toBe(403);
+    const w = await man.post('/api/os', { areaId: prod, assetRef: 'X', kind: 'outros', machineStopped: false, description: 'teste' });
+    expect(w.status).toBe(403);
+    expect(w.body.erro).toMatch(/somente leitura/);
+
+    const col = as(admin, `colaborador:${prod}`);
+    expect((await col.get('/api/auth/me')).body.user).toMatchObject({ role: 'colaborador', area: { slug: 'producao' } });
+    expect((await col.get('/api/admin/users')).status).toBe(403);
+    expect((await col.get('/api/issues')).status).toBe(200);
+  });
+
+  it('só vale para administrador e para perfis conhecidos', async () => {
+    expect((await as(operador, 'gestor').get('/api/auth/me')).body.user).toMatchObject({ role: 'colaborador' });
+    expect((await as(operador, 'gestor').get('/api/admin/audit')).status).toBe(403);
+    expect((await as(admin, 'superuser').get('/api/auth/me')).body.user.role).toBe('admin');
+  });
+});

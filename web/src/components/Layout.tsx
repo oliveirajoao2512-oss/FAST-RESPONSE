@@ -1,15 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
-  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench,
+  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench, Eye,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ROLE_LABELS } from '@shared/constants';
+import { ROLE_LABELS, type Role } from '@shared/constants';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
 import { isIos, useInstall } from '../lib/install';
+import { startPreview, stopPreview } from '../lib/preview';
 import { useQualityAccess } from '../lib/quality';
 import { useRealtime } from '../lib/realtime';
 import { useWoList } from '../lib/workOrders';
@@ -17,7 +18,7 @@ import { can, useMe, useSession } from '../lib/session';
 import { IssueOverlay } from './IssueDetail';
 import { useOpenIssue } from './issues';
 import { NewIssueModal } from './NewIssueModal';
-import { AreaDot, Button, cx, Modal } from './ui';
+import { AreaDot, Button, cx, Field, Modal, Select } from './ui';
 
 export function Layout() {
   const me = useMe();
@@ -117,6 +118,7 @@ export function Layout() {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
+        <PreviewBanner />
         <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4">
           <button className="rounded p-2 text-gray-700 hover:bg-gray-100 lg:hidden" aria-label="Abrir menu" onClick={() => setMenu(true)}><Menu size={20} /></button>
           <GlobalSearch />
@@ -241,6 +243,7 @@ export function UserMenu() {
   const { me, logout } = useSession();
   const [open, setOpen] = useState(false);
   const [howTo, setHowTo] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const install = useInstall();
   const navigate = useNavigate();
   if (!me) return null;
@@ -262,6 +265,8 @@ export function UserMenu() {
               <div className="font-medium">{me.name}</div>
               <div className="text-xs text-gray-500">{ROLE_LABELS[me.role]}{me.area ? ` · ${me.area.name}` : ''}</div>
             </div>
+            {me.role === 'admin' && <MenuItem onClick={() => { setOpen(false); setPreviewing(true); }}><Eye size={16} />Visualizar como…</MenuItem>}
+            {me.preview && <MenuItem onClick={() => stopPreview()}><Eye size={16} />Sair da visualização</MenuItem>}
             <MenuItem onClick={() => { setOpen(false); navigate('/trocar-senha'); }}><KeyRound size={16} />Alterar senha</MenuItem>
             <MenuItem onClick={() => { setOpen(false); navigate('/notificacoes'); }}><ClipboardList size={16} />Notificações</MenuItem>
             {!install.installed && <MenuItem onClick={installApp}><Download size={16} />Instalar aplicativo</MenuItem>}
@@ -270,6 +275,7 @@ export function UserMenu() {
         </>
       )}
       {howTo && <InstallHelp onClose={() => setHowTo(false)} />}
+      {previewing && <PreviewModal onClose={() => setPreviewing(false)} />}
     </div>
   );
 }
@@ -303,6 +309,7 @@ export function MaintainerLayout() {
   const conn = useRealtime(true);
   return (
     <div className="flex h-full flex-col">
+      <PreviewBanner />
       <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white"><Wrench size={18} /></span>
         <div className="flex-1 leading-tight">
@@ -321,6 +328,60 @@ export function MaintainerLayout() {
       <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+const PREVIEW_ROLES: Role[] = ['gestor', 'lider', 'colaborador', 'manutentor'];
+const PREVIEW_HINT: Partial<Record<Role, string>> = {
+  gestor: 'Gestor de Manutenção comanda a fila de OS; gestor de Qualidade vê a Resposta Rápida.',
+  lider: 'O líder enxerga e age nas pendências da própria área.',
+  colaborador: 'O colaborador vê as pendências e age nas que são dele.',
+  manutentor: 'O manutentor vê só as Ordens de Manutenção.',
+};
+
+/** Administrator chooses a profile (and area) to see the system as it does. */
+function PreviewModal({ onClose }: { onClose: () => void }) {
+  const meta = useMeta();
+  const [role, setRole] = useState<Role>('colaborador');
+  const [areaId, setAreaId] = useState('');
+  const needsArea = role === 'lider' || role === 'colaborador';
+  const ok = !needsArea || !!areaId;
+  return (
+    <Modal open onClose={onClose} title="Visualizar como outro perfil"
+      footer={<><Button onClick={onClose}>Cancelar</Button><Button kind="primary" disabled={!ok} onClick={() => startPreview(role, role === 'manutentor' || !areaId ? null : Number(areaId))}><Eye size={16} />Visualizar</Button></>}>
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">Você vê o sistema com as permissões do perfil escolhido, inclusive o que fica escondido. É só para olhar: nenhuma alteração é gravada enquanto a visualização estiver ligada.</p>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Perfil">
+          {PREVIEW_ROLES.map((r) => (
+            <button key={r} type="button" role="radio" aria-checked={role === r} onClick={() => setRole(r)}
+              className={cx('rounded-lg border px-3 py-2.5 text-sm font-medium', role === r ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50')}>
+              {ROLE_LABELS[r]}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500">{PREVIEW_HINT[role]}</p>
+        {role !== 'manutentor' && (
+          <Field label="Área" required={needsArea}>
+            <Select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+              <option value="">{needsArea ? 'Selecione…' : 'Sem área'}</option>
+              {meta?.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+          </Field>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function PreviewBanner() {
+  const { me } = useSession();
+  if (!me?.preview) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 bg-indigo-700 px-3 py-2 text-sm text-white sm:px-4" role="status">
+      <Eye size={16} />
+      <span className="flex-1">Visualizando como <b>{ROLE_LABELS[me.role]}</b>{me.area ? ` · ${me.area.name}` : ''}. Somente leitura.</span>
+      <button onClick={() => stopPreview()} className="rounded-lg bg-white px-3 py-1 font-medium text-indigo-800 hover:bg-indigo-50">Sair da visualização</button>
     </div>
   );
 }

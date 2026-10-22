@@ -23,6 +23,10 @@ conclusão. Nenhum perfil apaga pendências; usuários são desativados, nunca e
 O perfil **Manutentor** acessa somente as Ordens de Manutenção (o servidor recusa o resto) e não pode ser
 responsável por pendências. Regras da OS em [MANUTENCAO.md](MANUTENCAO.md).
 
+**Visualizar como** (somente administrador, menu do usuário): o administrador escolhe um perfil e uma área e vê o
+sistema com as permissões desse perfil, aplicadas pelo servidor. Enquanto a visualização está ligada, nenhuma
+alteração é gravada; uma faixa no topo mostra o perfil e o botão **Sair da visualização**.
+
 ## Prazos
 
 - **Padrão D+1:** dia seguinte à abertura, às 23:59 no fuso da fábrica (dias e horário configuráveis;

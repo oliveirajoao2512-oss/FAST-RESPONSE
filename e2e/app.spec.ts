@@ -330,3 +330,24 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await expect(lider.getByRole('cell', { name: 'INJ-07' })).toBeVisible();
   await lider.screenshot({ path: `${SHOTS}/os-indicadores.png`, fullPage: true });
 });
+
+test('16. administrador visualiza como outro perfil (somente leitura)', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 860 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+  const page = await ctx.newPage();
+  await login(page, ADMIN.login, ADMIN.newPassword);
+  await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  await page.getByRole('button', { name: 'Menu do usuário' }).click();
+  await page.getByRole('button', { name: 'Visualizar como…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Visualizar como outro perfil' });
+  await dlg.getByRole('radio', { name: 'Manutentor' }).click();
+  await page.screenshot({ path: `${SHOTS}/visualizar-como.png` });
+  await dlg.getByRole('button', { name: 'Visualizar' }).click();
+  await expect(page.getByText(/Visualizando como/)).toContainText('Manutentor');
+  await expect(page.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Todas as pendências' })).toHaveCount(0);
+  await page.screenshot({ path: `${SHOTS}/visualizar-como-manutentor.png` });
+  await page.getByRole('button', { name: 'Sair da visualização' }).click();
+  await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  await expect(page.getByText(/Visualizando como/)).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Todas as pendências' })).toBeVisible();
+});

@@ -4,6 +4,7 @@ import type { Role } from '@shared/constants';
 import { can, type Actor } from '@shared/permissions';
 import { get, post, setUnauthorizedHandler } from './api';
 import { setTimezone } from './format';
+import { stopPreview } from './preview';
 
 export interface Me extends Actor {
   name: string;
@@ -11,6 +12,8 @@ export interface Me extends Actor {
   role: Role;
   mustChangePassword: boolean;
   area: { id: number; name: string; slug: string } | null;
+  /** Administrator previewing another profile (read-only). */
+  preview?: boolean;
 }
 
 interface SessionValue {
@@ -48,6 +51,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     unread: q.data?.unreadNotifications ?? 0,
     refresh: () => q.refetch(),
     logout: async () => {
+      stopPreview(false);
       await post('/api/auth/logout').catch(() => {});
       qc.clear();
       qc.setQueryData(['me'], null);

@@ -7,6 +7,8 @@ export interface SessionUser extends Actor {
   name: string;
   email: string;
   mustChangePassword: boolean;
+  /** Administrator previewing the system as another profile (read-only). */
+  preview?: boolean;
 }
 
 /** A unit of work: one transaction + the realtime events to publish after it commits. */

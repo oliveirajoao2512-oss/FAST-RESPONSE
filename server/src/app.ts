@@ -5,6 +5,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError } from 'fastify';
+import type { Role } from '../../shared/constants.js';
 import { loadSessionUser } from './auth.js';
 import { env } from './env.js';
 import { AppError } from './errors.js';
@@ -19,6 +20,10 @@ import { workOrderRoutes } from './routes/workOrders.js';
 
 /** API routes a maintainer ("manutentor") may call. */
 const MAINTAINER_ROUTES = /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/;
+
+/** Cookie set by the web app while an administrator previews another profile: "role" or "role:areaId". */
+const PREVIEW_COOKIE = 'fr_view_as';
+const PREVIEW = /^(gestor|lider|colaborador|manutentor)(?::(\d{1,6}))?$/;
 
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
@@ -41,6 +46,14 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
       return reply.code(403).send({ erro: 'Requisição recusada (cabeçalho de segurança ausente).', codigo: 'csrf' });
     }
     req.user = await loadSessionUser(req);
+    // "Visualizar como": an administrator sees the system with another profile's permissions, read-only.
+    const view = req.user?.role === 'admin' ? PREVIEW.exec(req.cookies[PREVIEW_COOKIE] ?? '') : null;
+    if (req.user && view) {
+      req.user = { ...req.user, role: view[1] as Role, areaId: view[2] ? Number(view[2]) : null, preview: true };
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.url.startsWith('/api/auth/')) {
+        return reply.code(403).send({ erro: 'Modo de visualização: somente leitura. Saia da visualização para fazer alterações.', codigo: 'visualizacao' });
+      }
+    }
     // Maintainers only use the work-order module: everything else is refused here, not just hidden.
     if (req.user?.role === 'manutentor' && !MAINTAINER_ROUTES.test(req.url)) {
       return reply.code(403).send({ erro: 'Seu acesso é somente às Ordens de Manutenção.', codigo: 'sem_permissao' });
