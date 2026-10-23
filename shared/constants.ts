@@ -1,6 +1,6 @@
 // Domain constants shared by server and web. Server is the source of truth for every rule.
 
-export const ROLES = ['admin', 'gestor', 'lider', 'colaborador', 'manutentor'] as const;
+export const ROLES = ['admin', 'gestor', 'lider', 'colaborador', 'manutentor', 'tecnico_processo'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABELS: Record<Role, string> = {
   admin: 'Administrador',
@@ -8,6 +8,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   lider: 'Líder de área',
   colaborador: 'Colaborador',
   manutentor: 'Manutentor',
+  tecnico_processo: 'Técnico de Processo',
 };
 
 export const STATUSES = [
@@ -116,3 +117,6 @@ export const NOTIFICATION_TYPES = [
   'os_devolvida',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+/** Roles that only use one work-order module and nothing else of the system. */
+export const ORDER_ONLY_ROLES: Role[] = ['manutentor', 'tecnico_processo'];

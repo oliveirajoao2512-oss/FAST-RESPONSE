@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Pencil, Plus, Save } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ASSET_TYPE_LABELS, ASSET_TYPES, PRIORITIES, PRIORITY_LABELS, ROLE_LABELS, ROLES } from '@shared/constants';
+import { ASSET_TYPE_LABELS, ASSET_TYPES, PRIORITIES, PRIORITY_LABELS, ORDER_ONLY_ROLES, ROLE_LABELS, ROLES } from '@shared/constants';
 import { FormError } from '../components/actions';
 import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../components/ui';
 import { errorMessage, get, post, put, qs } from '../lib/api';
@@ -92,7 +92,7 @@ function UserModal({ user, areas, onClose }: { user: any; areas: any[]; onClose:
         <Field label="Nome completo" required className="sm:col-span-2"><Input value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
         <Field label="E-mail" required hint="Usado no login e nas notificações."><Input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} /></Field>
         <Field label="Matrícula" hint="Também pode ser usada no login."><Input value={f.registration} onChange={(e) => set('registration', e.target.value)} /></Field>
-        <Field label="Perfil" required hint={f.role === 'manutentor' ? 'Entra só nas Ordens de Manutenção, sem acesso ao resto do sistema.' : undefined}>
+        <Field label="Perfil" required hint={f.role === 'manutentor' ? 'Entra só nas Ordens de Manutenção, sem acesso ao resto do sistema.' : f.role === 'tecnico_processo' ? 'Entra só nas Ordens de Ajuste, sem acesso ao resto do sistema.' : undefined}>
           <Select value={f.role} onChange={(e) => set('role', e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</Select>
         </Field>
         <Field label="Área" required={['lider', 'colaborador'].includes(f.role)}>
@@ -212,7 +212,7 @@ export function SettingsPage() {
           ))}</div>
         </Field>
         <Field label="Alteração de prazo precisa de aprovação para">
-          <div className="flex flex-wrap gap-3">{ROLES.filter((r) => r !== 'admin' && r !== 'manutentor').map((r) => (
+          <div className="flex flex-wrap gap-3">{ROLES.filter((r) => r !== 'admin' && !ORDER_ONLY_ROLES.includes(r)).map((r) => (
             <label key={r} className="flex items-center gap-1 text-sm"><input type="checkbox" className="accent-brand-600" disabled={!editable} checked={cfg.workflow.deadlineChangeRequiresApprovalFor.includes(r)}
               onChange={(e) => set('workflow.deadlineChangeRequiresApprovalFor', e.target.checked ? [...cfg.workflow.deadlineChangeRequiresApprovalFor, r] : cfg.workflow.deadlineChangeRequiresApprovalFor.filter((x: string) => x !== r))} />{ROLE_LABELS[r]}</label>
           ))}</div>

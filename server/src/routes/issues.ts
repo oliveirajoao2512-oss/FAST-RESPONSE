@@ -290,7 +290,7 @@ export async function issueRoutes(app: FastifyInstance) {
     const u = requireUser(req);
     const qs = parse(z.object({ unread: z.coerce.boolean().optional(), limit: z.coerce.number().int().max(200).default(50) }), req.query);
     return q(
-      `SELECT n.*, COALESCE(i.code, w.code) AS code FROM notifications n LEFT JOIN issues i ON i.id = n.issue_id LEFT JOIN work_orders w ON w.id = n.work_order_id
+      `SELECT n.*, COALESCE(i.code, w.code) AS code, w.domain AS work_order_domain FROM notifications n LEFT JOIN issues i ON i.id = n.issue_id LEFT JOIN work_orders w ON w.id = n.work_order_id
         WHERE n.user_id = $1 ${qs.unread ? 'AND n.read_at IS NULL' : ''} ORDER BY n.created_at DESC LIMIT ${qs.limit}`, [u.id]);
   });
 

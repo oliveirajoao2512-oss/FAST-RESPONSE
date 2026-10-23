@@ -88,8 +88,8 @@ async function setStatus(ctx: Ctx, issue: IssueRow, to: Status, reason?: string 
 }
 
 async function assertActiveUser(ctx: Ctx, userId: string) {
-  // maintainers ("manutentor") only access work orders, so they cannot own issues
-  const u = await one<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND active AND role <> 'manutentor'`, [userId], ctx.db);
+  // maintainers and process technicians only access their order module, so they cannot own issues
+  const u = await one<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND active AND role NOT IN ('manutentor', 'tecnico_processo')`, [userId], ctx.db);
   if (!u) throw badRequest('Responsável inválido, inativo ou sem acesso às pendências.');
 }
 

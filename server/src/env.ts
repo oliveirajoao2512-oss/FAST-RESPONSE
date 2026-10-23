@@ -22,6 +22,8 @@ export const env = {
   databaseUrl: (process.env.DATABASE_URL ?? 'postgresql://fr:fr@localhost:5432/fastresponse').trim().replace(/^['"]|['"]$/g, ''),
   uploadDir: path.resolve(process.env.UPLOAD_DIR ?? './data/uploads'),
   maxUploadMb: num('MAX_UPLOAD_MB', 15),
+  /** Login attempts per IP every 5 minutes. */
+  loginRateLimit: num('LOGIN_RATE_LIMIT', 20),
   sessionDays: num('SESSION_DAYS', 7),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',

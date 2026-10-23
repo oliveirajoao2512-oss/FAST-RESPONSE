@@ -18,12 +18,21 @@ import { qualityRoutes } from './routes/quality.js';
 import { qualityActionRoutes } from './routes/qualityActions.js';
 import { workOrderRoutes } from './routes/workOrders.js';
 
-/** API routes a maintainer ("manutentor") may call. */
-const MAINTAINER_ROUTES = /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/;
+/** API routes each single-module profile may call: maintainers the maintenance orders, process technicians the adjustment orders. */
+const ORDER_ONLY: Partial<Record<Role, { routes: RegExp; message: string }>> = {
+  manutentor: {
+    routes: /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/,
+    message: 'Seu acesso é somente às Ordens de Manutenção.',
+  },
+  tecnico_processo: {
+    routes: /^\/api\/(auth\/|oa(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/,
+    message: 'Seu acesso é somente às Ordens de Ajuste.',
+  },
+};
 
 /** Cookie set by the web app while an administrator previews another profile: "role" or "role:areaId". */
 const PREVIEW_COOKIE = 'fr_view_as';
-const PREVIEW = /^(gestor|lider|colaborador|manutentor)(?::(\d{1,6}))?$/;
+const PREVIEW = /^(gestor|lider|colaborador|manutentor|tecnico_processo)(?::(\d{1,6}))?$/;
 
 export async function buildApp(opts: { logger?: boolean } = {}) {
   const app = Fastify({
@@ -54,9 +63,10 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
         return reply.code(403).send({ erro: 'Modo de visualização: somente leitura. Saia da visualização para fazer alterações.', codigo: 'visualizacao' });
       }
     }
-    // Maintainers only use the work-order module: everything else is refused here, not just hidden.
-    if (req.user?.role === 'manutentor' && !MAINTAINER_ROUTES.test(req.url)) {
-      return reply.code(403).send({ erro: 'Seu acesso é somente às Ordens de Manutenção.', codigo: 'sem_permissao' });
+    // Maintainers and process technicians only use their order module: everything else is refused here, not just hidden.
+    const only = req.user ? ORDER_ONLY[req.user.role] : undefined;
+    if (only && !only.routes.test(req.url)) {
+      return reply.code(403).send({ erro: only.message, codigo: 'sem_permissao' });
     }
   });
 

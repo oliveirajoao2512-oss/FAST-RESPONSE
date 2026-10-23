@@ -84,6 +84,7 @@ server {
 | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | — | Administrador inicial (apenas com banco vazio). |
 | `UPLOAD_DIR` | ./data/uploads | Pasta dos anexos (`/data/uploads` no Docker). |
 | `MAX_UPLOAD_MB` | 15 | Tamanho máximo por arquivo. |
+| `LOGIN_RATE_LIMIT` | 20 | Tentativas de login por IP a cada 5 minutos. Aumente se muitos usuários entram ao mesmo tempo pela mesma rede. |
 | `JOBS_ENABLED` | true | Processos automáticos: atraso, aviso de vencimento, escalonamento, envio de e-mails. |
 | `JOB_INTERVAL_SECONDS` | 60 | Intervalo desses processos. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | — | E-mail corporativo. Sem `SMTP_HOST`, só há notificações dentro do sistema. |

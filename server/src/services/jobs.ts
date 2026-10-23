@@ -93,9 +93,9 @@ export async function deliverEmails(limit = 50) {
   let failed = 0;
   for (const r of rows) {
     const n = (await q<any>(
-      `SELECT n.title, n.body, n.issue_id, n.work_order_id, u.email FROM notifications n JOIN users u ON u.id = n.user_id WHERE n.id = $1`, [r.notification_id]))[0];
+      `SELECT n.title, n.body, n.issue_id, n.work_order_id, w.domain, u.email FROM notifications n JOIN users u ON u.id = n.user_id LEFT JOIN work_orders w ON w.id = n.work_order_id WHERE n.id = $1`, [r.notification_id]))[0];
     try {
-      const link = n.issue_id ? `\n\nAbrir: ${env.appUrl}/pendencias/${n.issue_id}` : n.work_order_id ? `\n\nAbrir: ${env.appUrl}/os?id=${n.work_order_id}` : '';
+      const link = n.issue_id ? `\n\nAbrir: ${env.appUrl}/pendencias/${n.issue_id}` : n.work_order_id ? `\n\nAbrir: ${env.appUrl}${n.domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}` : '';
       await sendEmail(n.email, `[Fast Response] ${n.title}`, `${n.title}\n\n${n.body ?? ''}${link}`);
       await q(`UPDATE notification_deliveries SET status = 'enviado', sent_at = now(), last_error = NULL WHERE id = $1`, [r.id]);
       sent++;

@@ -17,6 +17,8 @@ const users: Record<string, { email: string; id?: string }> = {
   tecnico: { email: 'tecnico.man@e2e.local' },
   operador: { email: 'operador.prod@e2e.local' },
   manutentor: { email: 'joao.manutentor@e2e.local' },
+  liderProc: { email: 'lider.proc@e2e.local' },
+  tecProc: { email: 'ana.processo@e2e.local' },
 };
 
 async function login(page: Page, email: string, password = PW) {
@@ -62,6 +64,8 @@ test('1. primeiro acesso do administrador exige troca de senha', async ({ page, 
   await mk('tecnico', 'Tecnico Manutencao', 'colaborador', 'manutencao');
   await mk('operador', 'Operador Producao', 'colaborador', 'producao');
   await mk('manutentor', 'Joao Manutentor', 'manutentor', 'manutencao');
+  await mk('liderProc', 'Lider Processos', 'lider', 'processos');
+  await mk('tecProc', 'Ana Tecnica', 'tecnico_processo', 'processos');
   for (const k of Object.keys(users)) {
     const c = await playwright.request.newContext({ baseURL: page.url().replace(/\/$/, ''), extraHTTPHeaders: H });
     await c.post('/api/auth/login', { data: { login: users[k].email, password: 'Provisoria1' } });
@@ -288,6 +292,8 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await operador.screenshot({ path: `${SHOTS}/os-abrir.png` });
   await dlg.getByRole('button', { name: 'Abrir OS' }).click();
   await expect(operador.getByText(/OS-\d{4}-\d{5} aberta como crítica/)).toBeVisible();
+  // evidence of the opening: a PDF is available right away
+  await expect(operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ }).getByRole('button', { name: 'Comprovante (PDF)' })).toBeVisible();
   const detail = operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ });
   await expect(detail.getByText(/Aguardando aceite/).first()).toBeVisible();
 
@@ -317,18 +323,74 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await expect(man.getByText(/finalizada\. Quem abriu foi avisado/)).toBeVisible();
 
   await expect(detail.getByText('Troca do retentor do cilindro')).toBeVisible({ timeout: 10_000 });
-  await expect(detail.getByText(/Joao Manutentor finalizou a OS/)).toBeVisible();
+  await expect(detail.getByText(/Joao Manutentor finalizou a ordem/)).toBeVisible();
+  const pdfHref = await detail.getByRole('link', { name: 'Comprovante (PDF)' }).getAttribute('href');
+  const pdf = await operador.request.get(pdfHref!);
+  expect(pdf.headers()['content-type']).toBe('application/pdf');
+  expect((await pdf.body()).subarray(0, 5).toString()).toBe('%PDF-');
   await detail.getByRole('button', { name: 'Fechar' }).click();
   await operador.getByRole('tab', { name: 'Finalizadas' }).click();
   await expect(operador.getByText('Troca do retentor do cilindro')).toBeVisible();
   await operador.screenshot({ path: `${SHOTS}/os-finalizadas.png` });
 
-  // the maintenance leader sees the indicators
+  // the dashboard is only for the maintenance leadership
+  await expect(operador.getByRole('tab', { name: 'Dashboard' })).toHaveCount(0);
   const lider = await newUserPage(browser, users.lider.email);
-  await lider.goto('/os?tab=indicadores');
+  await lider.goto('/os?tab=dashboard');
   await expect(lider.getByText('Máquinas com mais horas paradas')).toBeVisible();
-  await expect(lider.getByRole('cell', { name: 'INJ-07' })).toBeVisible();
-  await lider.screenshot({ path: `${SHOTS}/os-indicadores.png`, fullPage: true });
+  await expect(lider.getByRole('button', { name: /INJ-07/ }).first()).toBeVisible();
+  await expect(lider.getByRole('cell', { name: /INJ-07/ })).toBeVisible();
+  await lider.screenshot({ path: `${SHOTS}/os-dashboard.png`, fullPage: true });
+});
+
+test('17. ordem de ajuste: técnico de processo atende e só Processos vê o dashboard', async ({ browser }) => {
+  const operador = await newUserPage(browser, users.operador.email);
+  const tctx = await browser.newContext({ viewport: { width: 820, height: 1180 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+  const tec = await tctx.newPage();
+  await login(tec, users.tecProc.email);
+  await expect(tec.getByRole('heading', { name: 'Ordens de Ajuste' })).toBeVisible();
+  await expect(tec).toHaveURL(/\/ajustes$/);
+  await tec.goto('/os');
+  await expect(tec).toHaveURL(/\/ajustes$/);
+
+  await operador.getByRole('link', { name: 'Ordens de Ajuste' }).click();
+  await operador.getByRole('button', { name: 'Abrir OA' }).click();
+  const dlg = operador.getByRole('dialog', { name: 'Abrir ordem de ajuste' });
+  await dlg.getByLabel('Setor').selectOption({ label: 'Produção' });
+  await dlg.getByLabel('Máquina / dispositivo').fill('SOP-03');
+  await dlg.getByRole('radio', { name: /Ajuste devido a % incorreta de material/ }).click();
+  await dlg.getByLabel('% de material virgem').fill('70');
+  await dlg.getByLabel('% de moído').fill('30');
+  await dlg.getByLabel('Part number').fill('PN-4471');
+  await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
+  await dlg.getByLabel('Motivo / problema da parada').fill('Frasco com parede fina');
+  await operador.screenshot({ path: `${SHOTS}/oa-abrir.png` });
+  await dlg.getByRole('button', { name: 'Abrir OA' }).click();
+  const detail = operador.getByRole('dialog', { name: /OA-\d{4}-\d{5} · SOP-03/ });
+  await expect(detail.getByText('70%')).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Comprovante (PDF)' })).toBeVisible();
+
+  await expect(tec.getByText('Frasco com parede fina')).toBeVisible({ timeout: 10_000 });
+  await tec.getByRole('button', { name: 'Aceitar', exact: true }).click();
+  await expect(detail.getByText('Ana Tecnica está atuando')).toBeVisible({ timeout: 10_000 });
+  await tec.getByText('Frasco com parede fina').click();
+  const td = tec.getByRole('dialog', { name: /OA-\d{4}-\d{5} · SOP-03/ });
+  await td.getByRole('button', { name: 'Finalizar' }).click();
+  const fin = tec.getByRole('dialog', { name: /Finalizar OA-/ });
+  await fin.getByLabel('Ação tomada').fill('Corrigida a dosagem de moído');
+  await fin.getByRole('button', { name: 'Finalizar' }).click();
+  await expect(detail.getByText('Corrigida a dosagem de moído')).toBeVisible({ timeout: 10_000 });
+
+  // the maintenance leader does not see the adjustment dashboard; the process leader does
+  const liderMan = await newUserPage(browser, users.lider.email);
+  await liderMan.goto('/ajustes?tab=dashboard');
+  await expect(liderMan.getByRole('tab', { name: 'Dashboard' })).toHaveCount(0);
+  const liderProc = await newUserPage(browser, users.liderProc.email);
+  await liderProc.goto('/ajustes?tab=dashboard');
+  await expect(liderProc.getByText('Motivos mais frequentes')).toBeVisible();
+  await expect(liderProc.getByRole('button', { name: /21\. Ajuste devido/ })).toBeVisible();
+  await expect(liderProc.getByRole('cell', { name: 'Corrigida a dosagem de moído' })).toBeVisible();
+  await liderProc.screenshot({ path: `${SHOTS}/oa-dashboard.png`, fullPage: true });
 });
 
 test('16. administrador visualiza como outro perfil (somente leitura)', async ({ browser }) => {

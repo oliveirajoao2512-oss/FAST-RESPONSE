@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Download, Printer, Wrench } from 'lucide-react';
+import { Download, Printer, SlidersHorizontal, Wrench } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { STATUS_LABELS, type Status } from '@shared/constants';
@@ -8,6 +8,7 @@ import { AreaDot, Button, Card, ErrorBox, Input, Kpi, Select, Spinner } from '..
 import { get, qs } from '../lib/api';
 import { fmtDate, hours, num } from '../lib/format';
 import { useMeta } from '../lib/meta';
+import { useWoOptions } from '../lib/workOrders';
 
 function defaultFrom() {
   const d = new Date();
@@ -27,13 +28,17 @@ export function ReportsPage() {
   const q = useQuery({ queryKey: ['reports', params], queryFn: () => get(`/api/reports${qs(params)}`) });
   const exp = (table: string) => `/api/reports/export.csv${qs({ ...params, table })}`;
   const r = q.data;
+  // each order dashboard is only for the leadership of its area
+  const osLead = !!useWoOptions('manutencao').data?.canLead;
+  const oaLead = !!useWoOptions('ajuste').data?.canLead;
   const maxCat = Math.max(1, ...(r?.categories ?? []).map((c: any) => c.count));
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-bold">Indicadores gerenciais</h1>
         <div className="flex flex-wrap gap-2">
-          <Link to="/os?tab=indicadores"><Button><Wrench size={16} />Painel de manutenção</Button></Link>
+          {osLead && <Link to="/os?tab=dashboard"><Button><Wrench size={16} />Dashboard de manutenção</Button></Link>}
+          {oaLead && <Link to="/ajustes?tab=dashboard"><Button><SlidersHorizontal size={16} />Dashboard de ajustes</Button></Link>}
           <Button onClick={() => window.print()}><Printer size={16} />Imprimir / PDF</Button>
         </div>
       </div>

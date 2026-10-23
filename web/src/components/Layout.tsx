@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
-  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench, Eye,
+  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench, Eye, SlidersHorizontal,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ROLE_LABELS, type Role } from '@shared/constants';
+import { ORDER_ONLY_ROLES, ROLE_LABELS, type Role } from '@shared/constants';
+import { WO_DOMAIN, type WoDomain } from '@shared/maintenance';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
@@ -53,8 +54,10 @@ export function Layout() {
   const link = ({ isActive }: { isActive: boolean }) =>
     cx('flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm', isActive ? 'bg-brand-600 text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white');
   const overdueBy = (id: number) => counts.data?.byArea.find((a: any) => a.id === id)?.overdue ?? 0;
-  const workOrders = useWoList('abertas');
+  const workOrders = useWoList('abertas', {}, true, 'manutencao');
   const waitingOs = workOrders.data?.filter((o) => o.status === 'aberta').length ?? 0;
+  const adjustments = useWoList('abertas', {}, true, 'ajuste');
+  const waitingOa = adjustments.data?.filter((o) => o.status === 'aberta').length ?? 0;
   const { pathname } = useLocation();
   const inGestao = ['/ranking', '/relatorios', '/admin', '/qualidade'].some((p) => pathname.startsWith(p));
   const [gestao, setGestao] = useState(() => {
@@ -76,6 +79,10 @@ export function Layout() {
       <NavLink to="/os" className={link}>
         <Wrench size={18} /><span className="flex-1">Ordens de Manutenção</span>
         {waitingOs > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite">{waitingOs}</span>}
+      </NavLink>
+      <NavLink to="/ajustes" className={link}>
+        <SlidersHorizontal size={18} /><span className="flex-1">Ordens de Ajuste</span>
+        {waitingOa > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite">{waitingOa}</span>}
       </NavLink>
       <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Áreas</div>
       {meta?.areas.map((a) => (
@@ -223,7 +230,7 @@ export function NotificationsBell() {
             <div className="max-h-[60vh] overflow-y-auto">
               {list.data?.length === 0 && <div className="px-3 py-6 text-center text-sm text-gray-500">Nenhuma notificação.</div>}
               {list.data?.map((n: any) => (
-                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.work_order_id) navigate(`/os?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}
+                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.work_order_id) navigate(`${n.work_order_domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}
                   className={cx('block w-full border-b px-3 py-2 text-left text-sm hover:bg-gray-50', !n.read_at && 'bg-brand-50')}>
                   <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento', 'os_aberta'].includes(n.type) && 'text-red-700')}>{n.title}</div>
                   {n.body && <div className="line-clamp-2 text-gray-600">{n.body}</div>}
@@ -304,17 +311,17 @@ const MenuItem = ({ onClick, children }: { onClick: () => void; children: ReactN
   <button onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-gray-100">{children}</button>
 );
 
-/** Shell for maintainers ("manutentor"): only the work orders, notifications and their own account. */
-export function MaintainerLayout() {
+/** Shell for maintainers and process technicians: only their order module, notifications and their own account. */
+export function MaintainerLayout({ domain }: { domain: WoDomain }) {
   const conn = useRealtime(true);
   return (
     <div className="flex h-full flex-col">
       <PreviewBanner />
       <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 sm:px-4">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white"><Wrench size={18} /></span>
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">{domain === 'ajuste' ? <SlidersHorizontal size={18} /> : <Wrench size={18} />}</span>
         <div className="flex-1 leading-tight">
           <div className="font-bold">Fast Response</div>
-          <div className="text-xs text-gray-500">Ordens de Manutenção</div>
+          <div className="text-xs text-gray-500">{WO_DOMAIN[domain].title}</div>
         </div>
         <NotificationsBell />
         <UserMenu />
@@ -332,12 +339,13 @@ export function MaintainerLayout() {
   );
 }
 
-const PREVIEW_ROLES: Role[] = ['gestor', 'lider', 'colaborador', 'manutentor'];
+const PREVIEW_ROLES: Role[] = ['gestor', 'lider', 'colaborador', 'manutentor', 'tecnico_processo'];
 const PREVIEW_HINT: Partial<Record<Role, string>> = {
-  gestor: 'Gestor de Manutenção comanda a fila de OS; gestor de Qualidade vê a Resposta Rápida.',
+  gestor: 'Gestor de Manutenção comanda a fila de OS e vê o dashboard dela; o de Processos, o das Ordens de Ajuste; o de Qualidade, a Resposta Rápida.',
   lider: 'O líder enxerga e age nas pendências da própria área.',
   colaborador: 'O colaborador vê as pendências e age nas que são dele.',
   manutentor: 'O manutentor vê só as Ordens de Manutenção.',
+  tecnico_processo: 'O técnico de processo vê só as Ordens de Ajuste.',
 };
 
 /** Administrator chooses a profile (and area) to see the system as it does. */
@@ -349,7 +357,7 @@ function PreviewModal({ onClose }: { onClose: () => void }) {
   const ok = !needsArea || !!areaId;
   return (
     <Modal open onClose={onClose} title="Visualizar como outro perfil"
-      footer={<><Button onClick={onClose}>Cancelar</Button><Button kind="primary" disabled={!ok} onClick={() => startPreview(role, role === 'manutentor' || !areaId ? null : Number(areaId))}><Eye size={16} />Visualizar</Button></>}>
+      footer={<><Button onClick={onClose}>Cancelar</Button><Button kind="primary" disabled={!ok} onClick={() => startPreview(role, ORDER_ONLY_ROLES.includes(role) || !areaId ? null : Number(areaId))}><Eye size={16} />Visualizar</Button></>}>
       <div className="space-y-4">
         <p className="text-sm text-gray-600">Você vê o sistema com as permissões do perfil escolhido, inclusive o que fica escondido. É só para olhar: nenhuma alteração é gravada enquanto a visualização estiver ligada.</p>
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Perfil">
@@ -361,7 +369,7 @@ function PreviewModal({ onClose }: { onClose: () => void }) {
           ))}
         </div>
         <p className="text-xs text-gray-500">{PREVIEW_HINT[role]}</p>
-        {role !== 'manutentor' && (
+        {!ORDER_ONLY_ROLES.includes(role) && (
           <Field label="Área" required={needsArea}>
             <Select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
               <option value="">{needsArea ? 'Selecione…' : 'Sem área'}</option>

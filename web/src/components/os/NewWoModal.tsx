@@ -1,20 +1,20 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Camera, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { WO_KIND_LABELS, WO_KINDS, type WoKind } from '@shared/maintenance';
-import { api, get, post, qs } from '../../lib/api';
+import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, WO_KIND_LABELS, WO_KINDS, type WoKind } from '@shared/maintenance';
+import { api as request, get, post, qs } from '../../lib/api';
 import { useMe } from '../../lib/session';
 import { useToast } from '../../lib/toast';
-import { useWoList, useWoOptions } from '../../lib/workOrders';
+import { useWoDomain, useWoList, useWoOptions } from '../../lib/workOrders';
 import { Button, cx, ErrorBox, Field, Input, Select, Textarea } from '../ui';
 import { WoStatusBadge } from './parts';
 
-export async function uploadWoFiles(id: string, files: File[], purpose: 'abertura' | 'servico') {
+export async function uploadWoFiles(api: string, id: string, files: File[], purpose: 'abertura' | 'servico') {
   if (!files.length) return;
   const fd = new FormData();
   fd.append('purpose', purpose);
   for (const f of files) fd.append('file', f, f.name);
-  await api('POST', `/api/os/${id}/attachments`, fd);
+  await request('POST', `${api}/${id}/attachments`, fd);
 }
 
 export function PhotoPicker({ files, onChange, label = 'Foto (opcional)' }: { files: File[]; onChange: (f: File[]) => void; label?: string }) {
@@ -44,11 +44,17 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const me = useMe();
   const qc = useQueryClient();
   const toast = useToast();
+  const D = useWoDomain();
+  const adj = D.d === 'ajuste';
   const opts = useWoOptions();
   const openList = useWoList('abertas');
   const [areaId, setAreaId] = useState<number | ''>(me.area?.id ?? '');
   const [asset, setAsset] = useState('');
   const [kind, setKind] = useState<WoKind | null>(null);
+  const [reason, setReason] = useState<number | null>(null);
+  const [partNumber, setPartNumber] = useState('');
+  const [virgin, setVirgin] = useState('');
+  const [regrind, setRegrind] = useState('');
   const [stopped, setStopped] = useState<boolean | null>(null);
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -61,23 +67,33 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
     const t = setTimeout(() => setTerm(asset.trim()), 250);
     return () => clearTimeout(t);
   }, [asset]);
-  const suggestions = useQuery<{ code: string; description: string | null }[]>({ queryKey: ['os', 'assets', term], queryFn: () => get(`/api/os/assets${qs({ q: term })}`), staleTime: 60_000 });
+  const suggestions = useQuery<{ code: string; description: string | null }[]>({ queryKey: ['os', D.d, 'assets', term], queryFn: () => get(`${D.api}/assets${qs({ q: term })}`), staleTime: 60_000 });
   const sameMachine = (openList.data ?? []).filter((o) => term && o.asset_ref.trim().toLowerCase() === term.toLowerCase());
 
-  const missing = { area: !areaId, asset: !asset.trim(), kind: !kind, stopped: stopped === null, description: !description.trim() };
+  const askMaterial = adj && reason === ADJ_MATERIAL_REASON;
+  const pctOk = (v: string) => v.trim() !== '' && Number(v) >= 0 && Number(v) <= 100;
+  const missing = {
+    area: !areaId, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: stopped === null, description: !description.trim(),
+    material: askMaterial && (!pctOk(virgin) || !pctOk(regrind)),
+  };
   const submit = async () => {
     setTried(true);
     if (Object.values(missing).some(Boolean)) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ id: string; code: string }>('/api/os', { areaId, assetRef: asset.trim(), kind, machineStopped: stopped, description: description.trim() });
+      const r = await post<{ id: string; code: string }>(D.api, {
+        areaId, assetRef: asset.trim(), machineStopped: stopped, description: description.trim(),
+        ...(adj
+          ? { reason, partNumber: partNumber.trim() || null, ...(askMaterial ? { virginPct: Number(virgin), regrindPct: Number(regrind) } : {}) }
+          : { kind }),
+      });
       try {
-        await uploadWoFiles(r.id, files, 'abertura');
+        await uploadWoFiles(D.api, r.id, files, 'abertura');
       } catch {
-        toast('error', 'A OS foi aberta, mas a foto não foi enviada. Abra a OS e tente anexar de novo.');
+        toast('error', `A ${D.short} foi aberta, mas a foto não foi enviada. Abra a ${D.short} e tente anexar de novo.`);
       }
-      toast('ok', `${r.code} aberta${stopped ? ' como crítica: a manutenção foi avisada' : ''}.`);
+      toast('ok', `${r.code} aberta${stopped ? ` como crítica: a equipe de ${D.team} foi avisada` : ''}. O comprovante em PDF já está disponível.`);
       await qc.invalidateQueries({ queryKey: ['os'] });
       onCreated(r.id);
     } catch (e) {
@@ -92,9 +108,9 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Abrir ordem de manutenção" className="flex max-h-[95vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl">
+      <div role="dialog" aria-modal="true" aria-label={`Abrir ordem de ${adj ? 'ajuste' : 'manutenção'}`} className="flex max-h-[95vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl">
         <div className="flex items-center justify-between border-b px-5 py-3">
-          <h2 className="text-base font-semibold">Abrir ordem de manutenção</h2>
+          <h2 className="text-base font-semibold">Abrir ordem de {adj ? 'ajuste' : 'manutenção'}</h2>
           <button onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-gray-100" aria-label="Fechar"><X size={20} /></button>
         </div>
         <div className="space-y-4 overflow-y-auto px-5 py-4">
@@ -112,7 +128,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
           </div>
           {sameMachine.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
-              Já existe OS aberta para esta máquina:
+              Já existe {D.short} aberta para esta máquina:
               {sameMachine.map((o) => (
                 <button key={o.id} type="button" onClick={() => onCreated(o.id)} className="mt-1 flex w-full items-center gap-2 text-left underline-offset-2 hover:underline">
                   <span className="font-mono text-xs">{o.code}</span><WoStatusBadge status={o.status} /><span className="truncate">{o.description}</span>
@@ -120,32 +136,63 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
               ))}
             </div>
           )}
-          <div>
-            <span className="mb-1 block text-sm font-medium text-gray-700">Tipo de manutenção <span className="text-red-600" aria-hidden>*</span></span>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Tipo de manutenção">
-              {WO_KINDS.map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k} className={choice(kind === k)} onClick={() => setKind(k)}>{WO_KIND_LABELS[k]}</button>)}
+          {adj ? (
+            <div>
+              <span className="mb-1 block text-sm font-medium text-gray-700">Motivo <span className="text-red-600" aria-hidden>*</span></span>
+              <div className="grid max-h-64 gap-1.5 overflow-y-auto rounded-lg border border-gray-200 p-1.5 sm:grid-cols-2" role="radiogroup" aria-label="Motivo">
+                {ADJ_REASON_CODES.map((n) => (
+                  <button key={n} type="button" role="radio" aria-checked={reason === n} onClick={() => setReason(n)}
+                    className={cx('flex items-start gap-2 rounded-md border px-2.5 py-2 text-left text-sm',
+                      reason === n ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50')}>
+                    <span className={cx('w-5 shrink-0 text-right font-mono text-xs leading-5', reason === n ? 'text-white' : 'text-gray-400')}>{n}</span>{ADJ_REASONS[n]}
+                  </button>
+                ))}
+              </div>
+              {tried && missing.kind && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha o motivo.</span>}
             </div>
-            {tried && missing.kind && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha o tipo.</span>}
-          </div>
+          ) : (
+            <div>
+              <span className="mb-1 block text-sm font-medium text-gray-700">Tipo de manutenção <span className="text-red-600" aria-hidden>*</span></span>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Tipo de manutenção">
+                {WO_KINDS.map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k} className={choice(kind === k)} onClick={() => setKind(k)}>{WO_KIND_LABELS[k]}</button>)}
+              </div>
+              {tried && missing.kind && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha o tipo.</span>}
+            </div>
+          )}
+          {askMaterial && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="% de material virgem" required error={tried && !pctOk(virgin) ? 'Informe de 0 a 100.' : undefined}>
+                <Input type="number" inputMode="decimal" min={0} max={100} value={virgin} onChange={(e) => setVirgin(e.target.value)} />
+              </Field>
+              <Field label="% de moído" required error={tried && !pctOk(regrind) ? 'Informe de 0 a 100.' : undefined}>
+                <Input type="number" inputMode="decimal" min={0} max={100} value={regrind} onChange={(e) => setRegrind(e.target.value)} />
+              </Field>
+            </div>
+          )}
+          {adj && (
+            <Field label="Part number">
+              <Input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} maxLength={60} placeholder="Opcional" autoComplete="off" />
+            </Field>
+          )}
           <div>
             <span className="mb-1 block text-sm font-medium text-gray-700">A máquina está parada? <span className="text-red-600" aria-hidden>*</span></span>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="A máquina está parada?">
               <button type="button" role="radio" aria-checked={stopped === true} className={choice(stopped === true, true)} onClick={() => setStopped(true)}>Sim, parada</button>
               <button type="button" role="radio" aria-checked={stopped === false} className={choice(stopped === false)} onClick={() => setStopped(false)}>Não</button>
             </div>
-            {stopped && <span className="mt-1 block text-xs text-red-700">A OS entra como crítica e a manutenção é avisada na hora.</span>}
+            {stopped && <span className="mt-1 block text-xs text-red-700">A {D.short} entra como crítica e a equipe de {D.team} é avisada na hora.</span>}
             {tried && missing.stopped && <span className="mt-1 block text-xs text-red-600" role="alert">Responda se a máquina está parada.</span>}
           </div>
-          <Field label="O que está acontecendo?" required error={tried && missing.description ? 'Descreva o problema.' : undefined}>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} placeholder="Ex.: vazamento de óleo no cilindro do molde" />
+          <Field label={adj ? 'Motivo / problema da parada' : 'O que está acontecendo?'} required error={tried && missing.description ? 'Descreva o problema.' : undefined}>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} placeholder={adj ? 'Ex.: peça saindo com peso abaixo do especificado' : 'Ex.: vazamento de óleo no cilindro do molde'} />
           </Field>
           <PhotoPicker files={files} onChange={setFiles} />
           {error != null && <ErrorBox error={error} />}
-          <p className="text-xs text-gray-500">Solicitante, data e hora são registrados automaticamente.</p>
+          <p className="text-xs text-gray-500">Solicitante, data e hora são registrados automaticamente, e o comprovante em PDF fica disponível assim que a {D.short} é aberta.</p>
         </div>
         <div className="flex justify-end gap-2 border-t px-5 py-3">
           <Button onClick={onClose}>Cancelar</Button>
-          <Button kind="primary" onClick={submit} loading={busy}>Abrir OS</Button>
+          <Button kind="primary" onClick={submit} loading={busy}>Abrir {D.short}</Button>
         </div>
       </div>
     </div>

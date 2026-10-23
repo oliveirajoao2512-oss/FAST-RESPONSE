@@ -4,6 +4,7 @@ import { audit } from '../audit.js';
 import { COOKIE, createSession, destroySession, hashPassword, passwordProblem, requireUser, revokeUserSessions, verifyPassword } from '../auth.js';
 import { one, q, pool } from '../db.js';
 import { badRequest, unauthorized } from '../errors.js';
+import { env } from '../env.js';
 import { getConfig } from '../settings.js';
 import { parse } from '../validation.js';
 
@@ -11,7 +12,7 @@ const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/api/auth/login', { config: { rateLimit: { max: 20, timeWindow: '5 minutes' } } }, async (req, reply) => {
+  app.post('/api/auth/login', { config: { rateLimit: { max: env.loginRateLimit, timeWindow: '5 minutes' } } }, async (req, reply) => {
     const body = parse(z.object({ login: z.string().min(1).max(200), password: z.string().min(1).max(200) }), req.body);
     const login = body.login.trim().toLowerCase();
     const user = await one<any>(

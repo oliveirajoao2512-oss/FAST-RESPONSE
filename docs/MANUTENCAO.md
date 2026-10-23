@@ -10,7 +10,7 @@ Abertura de ordens de manutenção corretiva pelo sistema, no lugar da OS em pap
 | Abrir OS e ver todas as OS | ✓ | ✓ | ✓ | ✓ |
 | Aceitar, entrar, pausar, passar, devolver, finalizar | — | ✓ | ✓ | ✓ |
 | Prioridade, fixar no topo, indicar manutentor | — | — | ✓ | ✓ |
-| Indicadores e exportação Excel | — | — | ✓ (e gestores/líderes de outras áreas) | ✓ |
+| Dashboard e exportação Excel | — | — | ✓ (somente da Manutenção) | ✓ |
 | Excluir definitivamente (OS de teste) | — | — | — | ✓ |
 | Resto do sistema (pendências, painéis, etc.) | como hoje | **sem acesso** | como hoje | como hoje |
 
@@ -66,3 +66,36 @@ espera e atendimento médios por mês, máquinas com mais horas paradas, horas p
 
 Checklist de bloqueio de energia, liberação da Qualidade após ajuste de ferramental e manutenção preventiva
 programada. A regra é: quanto mais rápido, melhor.
+
+## Dashboard (OS e Ajustes)
+
+Aba **Dashboard** dentro de cada módulo. A de OS é exclusiva do gestor e do líder de Manutenção; a de Ajustes, do
+gestor e do líder de Processos. O administrador vê as duas. O servidor recusa o acesso de qualquer outro perfil.
+
+- Filtros: período (30 dias, 3, 6 ou 12 meses, ou datas), setor que abriu, tipo/motivo e máquina (clicando no gráfico).
+- Números: fila agora, em atendimento, abertas e finalizadas no período, espera média até o aceite (e % aceitas em até
+  30 min), tempo médio de atendimento/ajuste sem pausas, horas de máquina parada.
+- Gráficos: abertas × finalizadas e tempos médios por dia, semana ou mês (conforme o período), tipos/motivos mais
+  frequentes, máquinas com mais horas paradas, horas por técnico, setores que mais abrem, tempo pausado por motivo e
+  mapa de dia da semana × hora em que os chamados acontecem.
+- Histórico das ordens finalizadas com os mesmos filtros e busca; clicar abre a ordem completa.
+- Exportação Excel do período filtrado.
+
+# Ordens de Ajuste - Processo (OA)
+
+Mesmo fluxo das OS (fila, aceitar, várias pessoas, pausar, passar, devolver, finalizar, prioridade, fotos, tempos
+automáticos), no menu **Ordens de Ajuste** (rota `/ajustes`), substituindo a folha "Ordem de Ajuste - Processo".
+
+- Quem atua: perfil **Técnico de Processo** (vê somente as Ordens de Ajuste) e gestor/líder da área Processos.
+- Abertura: setor, máquina, **motivo** (os 21 motivos numerados da folha), part number, máquina parada e descrição
+  (motivo/problema da parada). No motivo 21 o sistema pede a % de material virgem e a % de moído.
+- Hora da chamada, hora inicial (aceite), hora final e tempo de ajuste são registrados automaticamente.
+- Ao finalizar: **ação tomada** (obrigatória) e observações.
+- Códigos `OA-AAAA-00001`, numeração própria.
+
+# Comprovante em PDF
+
+Toda OS e toda OA tem o botão **Comprovante (PDF)** desde o momento em que é aberta. O PDF traz os dados da abertura,
+horários e tempos, quem atuou, ação/serviço, o histórico completo e as fotos (JPEG/PNG). Cada página tem um
+**código de verificação** calculado a partir do conteúdo da ordem: se o papel for alterado, o código não confere com o
+que o sistema gera para a mesma ordem. Cada emissão fica registrada na auditoria.

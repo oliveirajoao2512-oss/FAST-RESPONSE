@@ -179,15 +179,29 @@ describe('fluxo da OS', () => {
 
   it('indicadores e exportação para gerência', async () => {
     expect((await operador.get('/api/os/report')).status).toBe(403);
+    // gestores of other areas do not see the maintenance dashboard
+    expect((await gestor.get('/api/os/report')).status).toBe(403);
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/os/export.xlsx', headers: { cookie: gestor.cookie } })).statusCode).toBe(403);
     const r = await gerenteMan.get('/api/os/report');
     expect(r.status).toBe(200);
     expect(r.body.totals).toMatchObject({ opened: 3, finished: 1 });
     expect(r.body.now).toMatchObject({ aberta: 2, criticas: 1 });
-    expect(r.body.assets.map((a: any) => a.asset)).toContain('INJ-07');
+    expect(r.body.assets.map((a: any) => a.label)).toContain('INJ-07');
+    expect(r.body.byCategory[0]).toMatchObject({ key: 'mecanica', label: 'Mecânica' });
+    expect(r.body.heat.flat().reduce((a: number, b: number) => a + b, 0)).toBe(3);
+    const filtered = await gerenteMan.get('/api/os/report?asset=inj-99');
+    expect(filtered.body.totals.opened).toBe(0);
     expect(r.body.workers.map((w: any) => w.name)).toContain('Pedro Manutentor');
     const x = await ctx.app.inject({ method: 'GET', url: '/api/os/export.xlsx', headers: { cookie: gerenteMan.cookie } });
     expect(x.statusCode).toBe(200);
     expect(x.rawPayload.subarray(0, 2).toString()).toBe('PK');
+  });
+
+  it('comprovante em PDF para qualquer usuário', async () => {
+    const x = await ctx.app.inject({ method: 'GET', url: `/api/os/${id}/comprovante.pdf`, headers: { cookie: operador.cookie } });
+    expect(x.statusCode).toBe(200);
+    expect(x.headers['content-type']).toBe('application/pdf');
+    expect(x.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('somente o administrador exclui definitivamente (para testes)', async () => {

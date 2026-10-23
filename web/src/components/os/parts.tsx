@@ -1,5 +1,5 @@
 import { AlertOctagon, Pause, Pin, Wrench } from 'lucide-react';
-import { WO_KIND_LABELS, WO_PRIORITY_LABELS, WO_STATUS_LABELS, type WoPriority, type WoStatus } from '@shared/maintenance';
+import { woCategory, WO_PRIORITY_LABELS, WO_STATUS_LABELS, type WoPriority, type WoStatus } from '@shared/maintenance';
 import { duration, fmtShort } from '../../lib/format';
 import type { WorkOrder } from '../../lib/workOrders';
 import { AreaDot, cx } from '../ui';
@@ -71,7 +71,8 @@ export function WoWhere({ o }: { o: WorkOrder }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 text-sm text-gray-600">
       <span className="font-semibold text-gray-900">{o.asset_ref}</span>
-      <span>· {WO_KIND_LABELS[o.kind]}</span>
+      <span>· {woCategory(o)}</span>
+      {o.part_number && <span>· PN {o.part_number}</span>}
       <span className="inline-flex items-center gap-1">· <AreaDot color={o.area_color} />{o.area_name}</span>
     </span>
   );

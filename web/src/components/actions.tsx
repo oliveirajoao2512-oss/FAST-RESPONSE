@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Paperclip, TriangleAlert } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { ROLE_LABELS, type Role } from '@shared/constants';
+import { ORDER_ONLY_ROLES, ROLE_LABELS, type Role } from '@shared/constants';
 import { api, ApiError, errorMessage, get, post } from '../lib/api';
 import { fmtDateTime, fromLocalInput, toLocalInput } from '../lib/format';
 import { useMeta } from '../lib/meta';
@@ -55,7 +55,7 @@ export function FormError({ error }: { error: { msg: string; details?: string[] 
 
 export function UserSelect({ value, onChange, areaId, allowEmpty = 'Sem responsável', id }: { value: string; onChange: (v: string) => void; areaId?: number | null; allowEmpty?: string | false; id?: string }) {
   const meta = useMeta();
-  const users = (meta?.users ?? []).filter((u) => u.active && u.role !== 'manutentor');
+  const users = (meta?.users ?? []).filter((u) => u.active && !ORDER_ONLY_ROLES.includes(u.role as Role));
   const inArea = users.filter((u) => u.area_id === areaId);
   const others = users.filter((u) => u.area_id !== areaId);
   const label = (u: any) => `${u.name}${u.role !== 'colaborador' ? ` (${ROLE_LABELS[u.role as Role]})` : ''}`;

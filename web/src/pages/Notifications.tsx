@@ -21,7 +21,7 @@ export function NotificationsPage() {
           {q.data.map((n: any) => (
             <li key={n.id}>
               <button className={cx('block w-full px-4 py-3 text-left hover:bg-gray-50', !n.read_at && 'bg-brand-50')}
-                onClick={() => { post('/api/notifications/read', { ids: [n.id] }).then(() => qc.invalidateQueries({ queryKey: ['notifications'] })); if (n.work_order_id) navigate(`/os?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}>
+                onClick={() => { post('/api/notifications/read', { ids: [n.id] }).then(() => qc.invalidateQueries({ queryKey: ['notifications'] })); if (n.work_order_id) navigate(`${n.work_order_domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}>
                 <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento', 'os_aberta'].includes(n.type) && 'text-red-700')}>{n.title}</div>
                 {n.body && <div className="text-sm text-gray-600">{n.body}</div>}
                 <div className="text-xs text-gray-400">{fmtDateTime(n.created_at)}</div>
