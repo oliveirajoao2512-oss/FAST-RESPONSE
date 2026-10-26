@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG, mergeConfig } from '../../../shared/config.js';
 import { ROLES } from '../../../shared/constants.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
-import { hashPassword, passwordProblem, requireUser, revokeUserSessions } from '../auth.js';
+import { hashPassword, requireUser, revokeUserSessions } from '../auth.js';
 import { one, pool, q } from '../db.js';
 import { emailEnabled } from '../mailer.js';
 import { storage } from '../storage.js';
@@ -40,9 +40,8 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post('/api/admin/users', async (req, reply) => {
     const me = admin(req);
-    const b = parse(userBody.extend({ password: z.string().min(1).max(200) }), req.body);
-    const problem = passwordProblem(b.password);
-    if (problem) throw badRequest(problem);
+    // the temporary password has no rules: the user must set a personal one (with rules) on first login
+    const b = parse(userBody.extend({ password: z.string().min(1, 'Informe a senha provisória').max(200) }), req.body);
     if ((b.role === 'lider' || b.role === 'colaborador') && !b.areaId) throw badRequest('Líderes e colaboradores precisam de uma área.');
     try {
       const row = await one<{ id: string }>(
@@ -99,9 +98,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/api/admin/users/:id/reset-password', async (req) => {
     const me = admin(req);
     const { id } = parse(z.object({ id: uuid }), req.params);
-    const { password } = parse(z.object({ password: z.string().min(1).max(200) }), req.body);
-    const problem = passwordProblem(password);
-    if (problem) throw badRequest(problem);
+    const { password } = parse(z.object({ password: z.string().min(1, 'Informe a senha provisória').max(200) }), req.body);
     const r = await one('UPDATE users SET password_hash = $2, must_change_password = true, failed_logins = 0, locked_until = NULL WHERE id = $1 RETURNING id', [id, await hashPassword(password)]);
     if (!r) throw notFound();
     await revokeUserSessions(id);

@@ -98,7 +98,7 @@ function UserModal({ user, areas, onClose }: { user: any; areas: any[]; onClose:
         <Field label="Área" required={['lider', 'colaborador'].includes(f.role)}>
           <Select value={f.areaId} onChange={(e) => set('areaId', e.target.value)}><option value="">—</option>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
         </Field>
-        {isNew && <Field label="Senha provisória" required hint="O usuário deverá trocá-la no primeiro acesso." className="sm:col-span-2"><Input value={f.password} onChange={(e) => set('password', e.target.value)} autoComplete="new-password" /></Field>}
+        {isNew && <Field label="Senha provisória" required hint="Qualquer senha, sem exigência. O usuário cria a senha pessoal no primeiro acesso." className="sm:col-span-2"><Input value={f.password} onChange={(e) => set('password', e.target.value)} autoComplete="new-password" /></Field>}
         <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" className="h-4 w-4 accent-brand-600" checked={f.active} onChange={(e) => set('active', e.target.checked)} />Ativo</label>
       </div>
       <RoleHelp />
@@ -138,7 +138,7 @@ function ResetModal({ user, onClose }: { user: any; onClose: () => void }) {
       } catch (e) { setError({ msg: errorMessage(e) }); } finally { setBusy(false); }
     }}>Redefinir</Button></>}>
       <FormError error={error} />
-      <Field label="Nova senha provisória" hint="Mínimo de 8 caracteres com letras e números. As sessões ativas do usuário são encerradas."><Input value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" /></Field>
+      <Field label="Nova senha provisória" hint="Qualquer senha, sem exigência. O usuário cria a senha pessoal no próximo acesso; as sessões ativas são encerradas."><Input value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" /></Field>
     </Modal>
   );
 }

@@ -355,6 +355,13 @@ describe('8. permissões por perfil', () => {
     expect((await novo.post('/api/auth/change-password', { current: 'Provisoria1', next: 'NovaSenha2026' })).status).toBe(200);
     expect((await novo.get('/api/issues')).status).toBe(200);
     // duplicates are rejected
+    // temporary password has no rules
+    const simples = await admin.post('/api/admin/users', { name: 'Senha Simples', email: 'simples@teste.local', role: 'colaborador', areaId: PROD, password: '123' });
+    expect(simples.status).toBe(201);
+    expect((await admin.post('/api/admin/users', { name: 'Sem Senha', email: 'semsenha@teste.local', role: 'colaborador', areaId: PROD, password: '' })).status).toBe(400);
+    expect((await admin.post(`/api/admin/users/${simples.body.id}/reset-password`, { password: 'a' })).status).toBe(200);
+    const simplesLogin = await new Client(ctx.app).login('simples@teste.local', 'a');
+    expect((await simplesLogin.post('/api/auth/change-password', { current: 'a', next: 'b' })).status).toBe(400);
     expect((await admin.post('/api/admin/users', { name: 'Dup', email: 'NOVO@teste.local', role: 'gestor', password: 'Provisoria1' })).status).toBe(409);
   });
   it('alteração de prazo pelo colaborador exige aprovação do líder; quem pede não aprova', async () => {
