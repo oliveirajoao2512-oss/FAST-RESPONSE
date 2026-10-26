@@ -5,8 +5,9 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, eventText, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
-  WO_STATUS_LABELS, woCategory, woCode, workedMs, worksDomain, woTimes, type Interval, type WoDomain, type WoPriority, type WoStatus,
+  WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
+import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { requireUser } from '../auth.js';
 import { withTx, type Ctx, type SessionUser } from '../context.js';
@@ -29,6 +30,13 @@ async function domainAreaId(d: WoDomain): Promise<number | null> {
   return cachedAreaId.get(d)!;
 }
 
+/** Machines and assembly cells registered in Cadastros, in the plant's order. */
+async function placeLists(types: WoLocation[]) {
+  const rows = await q<{ type: WoLocation; code: string; description: string | null }>(
+    `SELECT type, code, description FROM assets WHERE active AND type = ANY($1) ORDER BY sort, code`, [types]);
+  return Object.fromEntries(types.map((t) => [t, rows.filter((r) => r.type === t).map(({ code, description }) => ({ code, description }))])) as Record<WoLocation, { code: string; description: string | null }[]>;
+}
+
 /** Technicians and leadership of the domain (who can receive an order). */
 async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
   return q<{ id: string; name: string; role: string }>(
@@ -36,7 +44,7 @@ async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
     [areaId, WO_DOMAIN[d].workerRole], db);
 }
 
-const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
+const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.location_type, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
   w.status, w.suggested_to, w.transfer_from, w.transfer_to, w.service_done, w.material, w.opened_at, w.first_accepted_at, w.finished_at,
   w.finished_by, w.updated_at, w.version,
   ob.name AS opened_by_name, a.name AS area_name, a.color AS area_color, sg.name AS suggested_name, tf.name AS transfer_from_name,
@@ -92,6 +100,7 @@ const assertOpen = (w: any) => {
 const pct = z.number().min(0).max(100).nullable().optional();
 const createSchema = z.object({
   areaId: z.number().int().positive(),
+  location: z.enum(WO_LOCATIONS),
   assetRef: z.string().trim().min(1, 'obrigatório').max(120),
   kind: z.enum(WO_KINDS).optional(),
   reason: z.number().int().refine((n) => ADJ_REASON_CODES.includes(n), 'motivo inválido').optional(),
@@ -112,6 +121,7 @@ const reportQuery = z.object({
   /** kind (maintenance) or reason number (adjustment) */
   category: z.string().max(20).optional(),
   asset: z.string().trim().max(120).optional(),
+  location: z.enum(WO_LOCATIONS).optional(),
 });
 
 /** Dashboard filters: period (default: last 6 months), requesting area, type/reason and machine. */
@@ -123,12 +133,14 @@ async function readFilters(req: FastifyRequest) {
   const match = (r: any) =>
     (!qs.areaId || r.area_id === qs.areaId) &&
     (!qs.category || String(r.kind ?? r.reason) === qs.category) &&
-    (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase());
+    (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase()) &&
+    (!qs.location || r.location_type === qs.location);
   return { from: from.startOf('day'), to: to.endOf('day'), zone, match };
 }
 
 export async function workOrderRoutes(app: FastifyInstance) {
   for (const d of WO_DOMAINS) domainRoutes(app, d);
+  plantPanelRoutes(app);
 }
 
 function domainRoutes(app: FastifyInstance, d: WoDomain) {
@@ -143,7 +155,10 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       q('SELECT id, slug, name, color FROM areas WHERE active ORDER BY sort'),
       domainTeam(d, pool, areaId),
     ]);
-    return { areas, team, teamAreaId: areaId, canWork: worksDomain(d, u, areaId), canLead: leadsDomain(u, areaId) };
+    return {
+      areas, team, teamAreaId: areaId, canWork: worksDomain(d, u, areaId), canLead: leadsDomain(u, areaId),
+      canSeeDashboard: seesDomainDashboard(u, areaId), places: await placeLists(domainLocations(d)),
+    };
   });
 
   /** Machines: registered assets first, then references already used in orders. */
@@ -239,6 +254,9 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const b = parse(createSchema, req.body);
     if (d === 'manutencao' && !b.kind) throw badRequest('Informe o tipo de manutenção.', { kind: 'obrigatório' });
     if (d === 'ajuste' && !b.reason) throw badRequest('Informe o motivo do ajuste.', { reason: 'obrigatório' });
+    if (!domainLocations(d).includes(b.location)) throw badRequest('Ordens de ajuste são abertas somente em máquinas.');
+    const place = await one<{ code: string }>('SELECT code FROM assets WHERE active AND type = $1 AND lower(code) = lower($2)', [b.location, b.assetRef]);
+    if (!place) throw badRequest(`Escolha ${b.location === 'montagem' ? 'a montagem' : 'a máquina'} da lista.`, { assetRef: 'fora da lista' });
     const material = d === 'ajuste' && b.reason === ADJ_MATERIAL_REASON;
     if (material && (b.virginPct == null || b.regrindPct == null)) throw badRequest('Informe a % de material virgem e a % de moído.');
     const areaId = await domainAreaId(d);
@@ -256,13 +274,13 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         regrind_pct: material ? b.regrindPct : null,
       };
       const w = (await one<any>(
-        `INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, kind, reason, part_number, virgin_pct, regrind_pct, machine_stopped, description, priority)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, code`,
-        [d, n, woCode(year, n, d), u.id, b.areaId, b.assetRef, row.kind, row.reason, row.part_number, row.virgin_pct, row.regrind_pct,
-          b.machineStopped, b.description, priority], ctx.db))!;
+        `INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, kind, reason, part_number, virgin_pct, regrind_pct, machine_stopped, description, priority, location_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, code`,
+        [d, n, woCode(year, n, d), u.id, b.areaId, place.code, row.kind, row.reason, row.part_number, row.virgin_pct, row.regrind_pct,
+          b.machineStopped, b.description, priority, b.location], ctx.db))!;
       const category = categoryOf(row);
       await event(ctx, w.id, 'abriu', {
-        maquina: b.assetRef, [d === 'ajuste' ? 'motivo' : 'tipo']: category, parada: b.machineStopped,
+        local: WO_LOCATION_LABELS[b.location], maquina: place.code, [d === 'ajuste' ? 'motivo' : 'tipo']: category, parada: b.machineStopped,
         ...(row.part_number ? { part_number: row.part_number } : {}),
         ...(material ? { virgem: row.virgin_pct, moido: row.regrind_pct } : {}),
       });
@@ -522,7 +540,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   // ------------------------------------------------------------ dashboard (leadership of the domain's area only)
 
   const guardDashboard = async (u: SessionUser) => {
-    if (!leadsDomain(u, await domainAreaId(d))) throw forbidden(`O painel de ${D.title} é exclusivo dos gestores e líderes de ${D.team}.`);
+    if (!seesDomainDashboard(u, await domainAreaId(d))) throw forbidden(`O painel de ${D.title} é exclusivo dos gestores e líderes de ${D.team}.`);
   };
   const reportRows = async (from: Date, to: Date) => {
     const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`, [from, to, d]);
@@ -660,18 +678,18 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const dt = (x: string | Date | null): OutCell => ({ v: x ? DateTime.fromJSDate(new Date(x)).setZone(zone).toFormat('dd/MM/yyyy HH:mm') : null });
     const h = (msv: number | null): OutCell => ({ v: msv == null ? null : Math.round((msv / 3600_000) * 100) / 100 });
     const adj = d === 'ajuste';
-    const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Máquina / dispositivo', adj ? 'Motivo' : 'Tipo', ...(adj ? ['Part number', '% virgem', '% moído'] : []),
+    const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Local', 'Máquina / montagem', adj ? 'Motivo' : 'Tipo', ...(adj ? ['Part number', '% virgem', '% moído'] : []),
       'Máquina parada', 'Problema', 'Aberta por', adj ? 'Hora da chamada' : 'Abertura', adj ? 'Hora inicial' : 'Primeiro aceite', adj ? 'Hora final' : 'Finalização',
       'Finalizada por', adj ? 'Ação tomada' : 'Serviço realizado', adj ? 'Observações' : 'Material', 'Espera (h)', adj ? 'Tempo de ajuste (h)' : 'Atendimento (h)', 'Pausado (h)', 'Total (h)'];
     const sheet = {
       name: D.title,
       freezeRow: 1, autoFilterRow: 1,
-      widths: [15, 15, 11, 16, 24, adj ? 40 : 12, ...(adj ? [16, 9, 9] : []), 10, 50, 22, 17, 17, 17, 22, 50, 30, 10, 12, 10, 10],
+      widths: [15, 15, 11, 16, 11, 24, adj ? 40 : 12, ...(adj ? [16, 9, 9] : []), 10, 50, 22, 17, 17, 17, 22, 50, 30, 10, 12, 10, 10],
       rows: [
         head.map((v) => ({ v, s: 2 })),
         ...rows.map((r) => [
           { v: r.code }, { v: WO_STATUS_LABELS[r.status as WoStatus] }, { v: WO_PRIORITY_LABELS[r.priority as WoPriority] }, { v: r.area_name },
-          { v: r.asset_ref }, { v: categoryOf(r) }, ...(adj ? [{ v: r.part_number }, { v: r.virgin_pct }, { v: r.regrind_pct }] : []),
+          { v: r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : null }, { v: r.asset_ref }, { v: categoryOf(r) }, ...(adj ? [{ v: r.part_number }, { v: r.virgin_pct }, { v: r.regrind_pct }] : []),
           { v: r.machine_stopped ? 'Sim' : 'Não' }, { v: r.description },
           { v: r.opened_by_name }, dt(r.opened_at), dt(r.first_accepted_at), dt(r.finished_at), { v: r.finished_by_name }, { v: r.service_done },
           { v: r.material }, h(r.first_accepted_at ? r.times.waitMs : null), h(r.times.workMs), h(r.times.pausedMs), h(r.finished_at ? r.times.totalMs : null),
@@ -690,4 +708,141 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
 /** Test hook: the domain area ids are cached per process. */
 export function resetMaintenanceAreaCache() {
   cachedAreaId.clear();
+}
+
+// ------------------------------------------------------------ plant panel (Power BI style), administrator and plant manager
+
+const panelQuery = z.object({
+  domain: z.enum(WO_DOMAINS).default('manutencao'),
+  year: z.coerce.number().int().min(2020).max(2100).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  location: z.enum(WO_LOCATIONS).optional(),
+  asset: z.string().trim().max(120).optional(),
+});
+
+function plantPanelRoutes(app: FastifyInstance) {
+  app.get('/api/painel', async (req) => {
+    const u = requireUser(req);
+    if (!can.viewPlantPanel(u)) throw forbidden('O painel da planta é exclusivo do administrador e do plant manager.');
+    const qs = parse(panelQuery, req.query);
+    const d = qs.domain;
+    const zone = (await getConfig()).timezone;
+    const nowDt = DateTime.now().setZone(zone);
+    const year = qs.year ?? nowDt.year;
+    const yStart = DateTime.fromObject({ year, month: 1, day: 1 }, { zone });
+    const yEnd = yStart.endOf('year');
+    const nowMs = Date.now();
+    const types = qs.location ? [qs.location] : domainLocations(d);
+    const places = await placeLists(domainLocations(d));
+    const match = (r: any) =>
+      (!qs.location || r.location_type === qs.location) &&
+      (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase());
+
+    const rows = (await q(
+      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`,
+      [yStart.toJSDate(), yEnd.toJSDate(), d])).map(withTimes).filter(match);
+    const ids = new Set(rows.map((r) => r.id));
+    const hours = (msv: number) => msv / 3600_000;
+    const avg = (xs: number[]) => (xs.length ? hours(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+    const within = (x: string | Date | null, a: number, b: number) => x != null && new Date(x).getTime() >= a && new Date(x).getTime() <= b;
+    const clip = (from: string | Date, to: string | Date | null, a: number, b: number) =>
+      Math.max(0, Math.min(b, to ? new Date(to).getTime() : nowMs) - Math.max(a, new Date(from).getTime()));
+    const downtime = (a: number, b: number) => rows.reduce((t, r) => t + (r.machine_stopped ? clip(r.opened_at, r.finished_at, a, b) : 0), 0);
+    // equipment considered for availability: the chosen one, or every registered machine/assembly of the filter
+    const units = qs.asset ? 1 : types.reduce((n, t) => n + (places[t]?.length ?? 0), 0) || 1;
+
+    const stats = (a: number, b: number) => {
+      const end = Math.min(b, nowMs);
+      const opened = rows.filter((r) => within(r.opened_at, a, b));
+      const finished = rows.filter((r) => within(r.finished_at, a, b));
+      const stops = opened.filter((r) => r.machine_stopped).length;
+      const down = downtime(a, end);
+      const span = Math.max(0, end - a) * units;
+      return {
+        opened: opened.length, finished: finished.length, stops,
+        downtimeH: hours(down),
+        mttrH: avg(finished.map((r) => r.times.workMs ?? 0)),
+        waitH: avg(opened.filter((r) => r.first_accepted_at).map((r) => r.times.waitMs)),
+        // 24 h/day assumption: share of time the equipment was not stopped by an order
+        availability: span > 0 ? Math.max(0, 1 - down / span) : null,
+        mtbfH: stops ? hours(Math.max(0, span - down)) / stops : null,
+        opened_rows: opened, finished_rows: finished,
+      };
+    };
+
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const m = yStart.plus({ months: i });
+      const a = m.toMillis(), b = m.endOf('month').toMillis();
+      if (a > nowMs) return { month: i + 1, future: true, opened: 0, finished: 0, stops: 0, downtimeH: null, mttrH: null, waitH: null, availability: null };
+      const { opened_rows: _o, finished_rows: _f, mtbfH: _m, ...x } = stats(a, b);
+      return { month: i + 1, future: false, ...x };
+    });
+
+    const pStart = qs.month ? yStart.plus({ months: qs.month - 1 }) : yStart;
+    const pEnd = qs.month ? pStart.endOf('month') : yEnd;
+    const a = pStart.toMillis(), b = pEnd.toMillis();
+    const { opened_rows, finished_rows, ...period } = stats(a, b);
+
+    const tally = (key: (r: any) => string, label: (r: any) => string, list: any[]) => {
+      const m = new Map<string, { key: string; label: string; n: number; downtimeH: number }>();
+      for (const r of list) {
+        const k = key(r);
+        const cur = m.get(k) ?? { key: k, label: label(r), n: 0, downtimeH: 0 };
+        cur.n++;
+        m.set(k, cur);
+      }
+      for (const r of rows) {
+        const cur = m.get(key(r));
+        if (cur && r.machine_stopped) cur.downtimeH += hours(clip(r.opened_at, r.finished_at, a, Math.min(b, nowMs)));
+      }
+      return [...m.values()].sort((x, y) => y.n - x.n || y.downtimeH - x.downtimeH);
+    };
+
+    const stints = (await q<any>(
+      `SELECT x.work_order_id, x.user_id, u.name, x.joined_at, x.left_at FROM work_order_workers x JOIN users u ON u.id = x.user_id
+        JOIN work_orders w ON w.id = x.work_order_id WHERE w.domain = $3 AND x.joined_at <= $2 AND (x.left_at IS NULL OR x.left_at >= $1)`,
+      [new Date(a), new Date(b), d])).filter((x) => ids.has(x.work_order_id));
+    const pausesBy = new Map<string, Interval[]>();
+    for (const p of await q<any>(
+      `SELECT p.work_order_id, p.started_at, p.ended_at FROM work_order_pauses p JOIN work_orders w ON w.id = p.work_order_id
+        WHERE w.domain = $1 AND p.started_at <= $3 AND (p.ended_at IS NULL OR p.ended_at >= $2)`, [d, new Date(a), new Date(b)])) {
+      pausesBy.set(p.work_order_id, [...(pausesBy.get(p.work_order_id) ?? []), { from: p.started_at, to: p.ended_at }]);
+    }
+    const workers = new Map<string, { name: string; hours: number; orders: Set<string> }>();
+    for (const x of stints) {
+      const from_ = new Date(Math.max(a, new Date(x.joined_at).getTime()));
+      const to_ = new Date(Math.min(b, x.left_at ? new Date(x.left_at).getTime() : nowMs));
+      const cur = workers.get(x.user_id) ?? { name: x.name, hours: 0, orders: new Set<string>() };
+      cur.hours += hours(workedMs({ from: from_, to: to_ }, pausesBy.get(x.work_order_id) ?? []));
+      cur.orders.add(x.work_order_id);
+      workers.set(x.user_id, cur);
+    }
+
+    const openNow = rows.filter((r) => r.status !== 'finalizada');
+    const lastStop = (await one<{ at: Date | null }>(
+      `SELECT max(opened_at) AS at FROM work_orders WHERE domain = $1 AND machine_stopped AND ($2::text IS NULL OR location_type = $2)
+          AND ($3::text IS NULL OR upper(trim(asset_ref)) = upper($3))`, [d, qs.location ?? null, qs.asset || null]))?.at ?? null;
+    const years = (await q<{ y: number }>(`SELECT DISTINCT extract(year FROM opened_at AT TIME ZONE $1)::int AS y FROM work_orders ORDER BY 1`, [zone])).map((r) => r.y);
+
+    return {
+      domain: d, year, month: qs.month ?? null,
+      years: [...new Set([...years, nowDt.year])].sort(),
+      places,
+      units,
+      period,
+      now: {
+        open: openNow.length,
+        waiting: openNow.filter((r) => r.status === 'aberta').length,
+        stopped: openNow.filter((r) => r.machine_stopped).length,
+        daysSinceStop: lastStop ? Math.floor((nowMs - new Date(lastStop).getTime()) / 86_400_000) : null,
+      },
+      months,
+      byCategory: tally((r) => String(r.kind ?? r.reason), (r) => categoryOf(r), opened_rows),
+      byAsset: tally((r) => r.asset_ref.trim().toUpperCase(), (r) => r.asset_ref.trim(), opened_rows).slice(0, 12),
+      byLocation: tally((r) => r.location_type ?? 'sem', (r) => (r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : 'Sem local'), opened_rows),
+      byArea: tally((r) => String(r.area_id), (r) => r.area_name, opened_rows),
+      byWorker: [...workers.values()].map((w) => ({ name: w.name, hours: w.hours, orders: w.orders.size })).sort((x, y) => y.hours - x.hours),
+      finishedCount: finished_rows.length,
+    };
+  });
 }

@@ -285,16 +285,17 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await operador.getByRole('button', { name: 'Abrir OS' }).click();
   const dlg = operador.getByRole('dialog', { name: 'Abrir ordem de manutenção' });
   await dlg.getByLabel('Setor').selectOption({ label: 'Produção' });
-  await dlg.getByLabel('Máquina / dispositivo').fill('INJ-07');
+  await dlg.getByRole('radio', { name: 'Máquina', exact: true }).click();
+  await dlg.getByRole('radio', { name: '17A', exact: true }).click();
   await dlg.getByRole('radio', { name: 'Mecânica' }).click();
   await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
-  await dlg.getByLabel('O que está acontecendo?').fill('Vazamento de óleo no cilindro do molde');
+  await dlg.getByLabel('O que está acontecendo e onde é o problema?').fill('Vazamento de óleo no cilindro do molde');
   await operador.screenshot({ path: `${SHOTS}/os-abrir.png` });
   await dlg.getByRole('button', { name: 'Abrir OS' }).click();
   await expect(operador.getByText(/OS-\d{4}-\d{5} aberta como crítica/)).toBeVisible();
   // evidence of the opening: a PDF is available right away
-  await expect(operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ }).getByRole('button', { name: 'Comprovante (PDF)' })).toBeVisible();
-  const detail = operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ });
+  await expect(operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · 17A/ }).getByRole('button', { name: 'Comprovante (PDF)' })).toBeVisible();
+  const detail = operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · 17A/ });
   await expect(detail.getByText(/Aguardando aceite/).first()).toBeVisible();
 
   // the maintainer sees it at once (critical, first in the queue) and accepts
@@ -309,7 +310,7 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
 
   // pause and finish on the phone
   await man.getByText('Vazamento de óleo no cilindro do molde').click();
-  const md = man.getByRole('dialog', { name: /OS-\d{4}-\d{5} · INJ-07/ });
+  const md = man.getByRole('dialog', { name: /OS-\d{4}-\d{5} · 17A/ });
   await md.getByRole('button', { name: 'Pausar' }).click();
   await man.getByRole('dialog', { name: 'Pausar OS' }).getByRole('button', { name: 'Pausar' }).click();
   await expect(md.getByText('Pausada: Aguardando peça')).toBeVisible();
@@ -336,10 +337,11 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   // the dashboard is only for the maintenance leadership
   await expect(operador.getByRole('tab', { name: 'Dashboard' })).toHaveCount(0);
   const lider = await newUserPage(browser, users.lider.email);
+  await expect(lider.getByRole('link', { name: 'Painel da planta' })).toHaveCount(0);
   await lider.goto('/os?tab=dashboard');
   await expect(lider.getByText('Máquinas com mais horas paradas')).toBeVisible();
-  await expect(lider.getByRole('button', { name: /INJ-07/ }).first()).toBeVisible();
-  await expect(lider.getByRole('cell', { name: /INJ-07/ })).toBeVisible();
+  await expect(lider.getByRole('button', { name: /17A/ }).first()).toBeVisible();
+  await expect(lider.getByRole('cell', { name: /17A/ })).toBeVisible();
   await lider.screenshot({ path: `${SHOTS}/os-dashboard.png`, fullPage: true });
 });
 
@@ -357,7 +359,9 @@ test('17. ordem de ajuste: técnico de processo atende e só Processos vê o das
   await operador.getByRole('button', { name: 'Abrir OA' }).click();
   const dlg = operador.getByRole('dialog', { name: 'Abrir ordem de ajuste' });
   await dlg.getByLabel('Setor').selectOption({ label: 'Produção' });
-  await dlg.getByLabel('Máquina / dispositivo').fill('SOP-03');
+  // adjustments happen only on machines: the machine list opens straight away
+  await expect(dlg.getByRole('radio', { name: 'Montagem' })).toHaveCount(0);
+  await dlg.getByRole('radio', { name: '5', exact: true }).click();
   await dlg.getByRole('radio', { name: /Ajuste devido a % incorreta de material/ }).click();
   await dlg.getByLabel('% de material virgem').fill('70');
   await dlg.getByLabel('% de moído').fill('30');
@@ -366,7 +370,7 @@ test('17. ordem de ajuste: técnico de processo atende e só Processos vê o das
   await dlg.getByLabel('Motivo / problema da parada').fill('Frasco com parede fina');
   await operador.screenshot({ path: `${SHOTS}/oa-abrir.png` });
   await dlg.getByRole('button', { name: 'Abrir OA' }).click();
-  const detail = operador.getByRole('dialog', { name: /OA-\d{4}-\d{5} · SOP-03/ });
+  const detail = operador.getByRole('dialog', { name: /OA-\d{4}-\d{5} · 5/ });
   await expect(detail.getByText('70%')).toBeVisible();
   await expect(detail.getByRole('button', { name: 'Comprovante (PDF)' })).toBeVisible();
 
@@ -374,7 +378,7 @@ test('17. ordem de ajuste: técnico de processo atende e só Processos vê o das
   await tec.getByRole('button', { name: 'Aceitar', exact: true }).click();
   await expect(detail.getByText('Ana Tecnica está atuando')).toBeVisible({ timeout: 10_000 });
   await tec.getByText('Frasco com parede fina').click();
-  const td = tec.getByRole('dialog', { name: /OA-\d{4}-\d{5} · SOP-03/ });
+  const td = tec.getByRole('dialog', { name: /OA-\d{4}-\d{5} · 5/ });
   await td.getByRole('button', { name: 'Finalizar' }).click();
   const fin = tec.getByRole('dialog', { name: /Finalizar OA-/ });
   await fin.getByLabel('Ação tomada').fill('Corrigida a dosagem de moído');
@@ -412,4 +416,11 @@ test('16. administrador visualiza como outro perfil (somente leitura)', async ({
   await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
   await expect(page.getByText(/Visualizando como/)).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Todas as pendências' })).toBeVisible();
+
+  // plant panel (Power BI style): administrator and plant manager only
+  await page.getByRole('link', { name: 'Painel da planta' }).click();
+  await expect(page.getByText('Dias sem máquina parada')).toBeVisible();
+  await page.getByRole('button', { name: 'Processos', exact: true }).click();
+  await expect(page.getByText('Motivos - todos')).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/painel-planta.png` });
 });

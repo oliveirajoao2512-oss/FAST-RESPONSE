@@ -29,8 +29,8 @@ export function ReportsPage() {
   const exp = (table: string) => `/api/reports/export.csv${qs({ ...params, table })}`;
   const r = q.data;
   // each order dashboard is only for the leadership of its area
-  const osLead = !!useWoOptions('manutencao').data?.canLead;
-  const oaLead = !!useWoOptions('ajuste').data?.canLead;
+  const osLead = !!useWoOptions('manutencao').data?.canSeeDashboard;
+  const oaLead = !!useWoOptions('ajuste').data?.canSeeDashboard;
   const maxCat = Math.max(1, ...(r?.categories ?? []).map((c: any) => c.count));
   return (
     <div className="space-y-5">

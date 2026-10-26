@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
-  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench, Eye, SlidersHorizontal,
+  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench, Eye, SlidersHorizontal, PieChart,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -72,6 +72,7 @@ export function Layout() {
   const nav = (
     <nav className="flex flex-col gap-0.5 p-3" onClick={() => setMenu(false)}>
       <NavLink to="/" end className={link}><Gauge size={18} />Painel geral</NavLink>
+      {can.viewPlantPanel(me) && <NavLink to="/painel-planta" className={link}><PieChart size={18} />Painel da planta</NavLink>}
       <NavLink to="/fast-response" className={link}><Siren size={18} />Fast Response</NavLink>
       <NavLink to="/minhas" className={link}><CheckSquare size={18} />Minhas pendências</NavLink>
       <NavLink to="/pendencias" className={link}><LayoutList size={18} />Todas as pendências</NavLink>
@@ -339,13 +340,14 @@ export function MaintainerLayout({ domain }: { domain: WoDomain }) {
   );
 }
 
-const PREVIEW_ROLES: Role[] = ['gestor', 'lider', 'colaborador', 'manutentor', 'tecnico_processo'];
+const PREVIEW_ROLES: Role[] = ['gestor', 'lider', 'colaborador', 'manutentor', 'tecnico_processo', 'plant_manager'];
 const PREVIEW_HINT: Partial<Record<Role, string>> = {
   gestor: 'Gestor de Manutenção comanda a fila de OS e vê o dashboard dela; o de Processos, o das Ordens de Ajuste; o de Qualidade, a Resposta Rápida.',
   lider: 'O líder enxerga e age nas pendências da própria área.',
   colaborador: 'O colaborador vê as pendências e age nas que são dele.',
   manutentor: 'O manutentor vê só as Ordens de Manutenção.',
   tecnico_processo: 'O técnico de processo vê só as Ordens de Ajuste.',
+  plant_manager: 'O plant manager tem permissões de gestor na planta inteira e vê o Painel da planta.',
 };
 
 /** Administrator chooses a profile (and area) to see the system as it does. */

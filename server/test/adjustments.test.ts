@@ -27,7 +27,7 @@ afterAll(async () => {
 });
 
 const open = (cl: Client, extra: Record<string, unknown> = {}) =>
-  cl.post('/api/oa', { areaId: prod, assetRef: 'SOP-03', reason: 6, partNumber: 'PN-4471', machineStopped: true, description: 'Peso abaixo do especificado', ...extra });
+  cl.post('/api/oa', { areaId: prod, location: 'maquina', assetRef: '5', reason: 6, partNumber: 'PN-4471', machineStopped: true, description: 'Peso abaixo do especificado', ...extra });
 
 describe('acesso do técnico de processo', () => {
   it('vê só as Ordens de Ajuste: o resto do sistema é recusado no servidor', async () => {
@@ -70,7 +70,7 @@ describe('fluxo da Ordem de Ajuste', () => {
   it('não aparece na fila de manutenção, nem a OS na fila de ajuste', async () => {
     expect((await operador.get('/api/os')).body.some((o: any) => o.id === id)).toBe(false);
     expect((await operador.get(`/api/os/${id}`)).status).toBe(404);
-    const os = await operador.post('/api/os', { areaId: prod, assetRef: 'INJ-01', kind: 'eletrica', machineStopped: false, description: 'x' });
+    const os = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '3', kind: 'eletrica', machineStopped: false, description: 'x' });
     expect((await operador.get('/api/oa')).body.some((o: any) => o.id === os.body.id)).toBe(false);
   });
 
@@ -107,5 +107,52 @@ describe('fluxo da Ordem de Ajuste', () => {
     expect(only6.body.totals.opened).toBe(1);
     const x = await ctx.app.inject({ method: 'GET', url: '/api/oa/export.xlsx', headers: { cookie: liderProc.cookie } });
     expect(x.statusCode).toBe(200);
+  });
+});
+
+describe('local da ordem: máquina ou montagem, da lista cadastrada', () => {
+  it('aceita só itens da lista e ajuste só em máquina', async () => {
+    expect((await open(operador, { assetRef: 'MAQ-INEXISTENTE' })).status).toBe(400);
+    expect((await open(operador, { location: 'montagem', assetRef: '0013.01' })).status).toBe(400);
+    const os = await operador.post('/api/os', { areaId: prod, location: 'montagem', assetRef: '492 / 493.01', kind: 'mecanica', machineStopped: true, description: 'Dispositivo travando' });
+    expect(os.status).toBe(201);
+    expect((await operador.get(`/api/os/${os.body.id}`)).body).toMatchObject({ location_type: 'montagem', asset_ref: '492 / 493.01' });
+    // case-insensitive, stored as registered
+    const r = await open(operador, { assetRef: 'injetora 120 t', machineStopped: false });
+    expect((await operador.get(`/api/oa/${r.body.id}`)).body.asset_ref).toBe('INJETORA 120 T');
+    const opts = (await operador.get('/api/os/options')).body;
+    expect(opts.places.maquina[0].code).toBe('1A');
+    expect(opts.places.montagem).toHaveLength(9);
+    expect((await operador.get('/api/oa/options')).body.places.montagem).toBeUndefined();
+  });
+});
+
+describe('painel da planta (estilo Power BI) e plant manager', () => {
+  let pm: Client;
+  beforeAll(async () => {
+    pm = await new Client(ctx.app).login((await createUser('Paula Plant', 'plant_manager', null)).email);
+  });
+
+  it('somente administrador e plant manager', async () => {
+    expect((await gestorProc.get('/api/painel')).status).toBe(403);
+    expect((await liderMan.get('/api/painel')).status).toBe(403);
+    const r = await pm.get('/api/painel?domain=ajuste');
+    expect(r.status).toBe(200);
+    expect(r.body.months).toHaveLength(12);
+    expect(r.body.period.opened).toBeGreaterThanOrEqual(3);
+    expect(r.body.byCategory.length).toBeGreaterThan(0);
+    const m = await pm.get('/api/painel?domain=manutencao&location=montagem');
+    expect(m.body.byAsset.map((a: any) => a.label)).toEqual(['492 / 493.01']);
+    expect(m.body.now.stopped).toBe(1);
+    expect(m.body.units).toBe(9);
+    const one = await pm.get(`/api/painel?domain=ajuste&asset=5&month=${new Date().getMonth() + 1}`);
+    expect(one.body.units).toBe(1);
+  });
+
+  it('plant manager vê os dashboards dos dois módulos e tem permissões de gestor', async () => {
+    expect((await pm.get('/api/os/report')).status).toBe(200);
+    expect((await pm.get('/api/oa/report')).status).toBe(200);
+    expect((await pm.get('/api/os/options')).body).toMatchObject({ canLead: false, canSeeDashboard: true });
+    expect((await pm.get('/api/admin/audit')).status).toBe(200);
   });
 });

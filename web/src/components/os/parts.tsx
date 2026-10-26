@@ -70,7 +70,7 @@ export function WoHeadline({ o }: { o: WorkOrder }) {
 export function WoWhere({ o }: { o: WorkOrder }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 text-sm text-gray-600">
-      <span className="font-semibold text-gray-900">{o.asset_ref}</span>
+      <span className="font-semibold text-gray-900">{o.location_type === 'montagem' ? 'Montagem ' : o.location_type === 'maquina' ? 'Máquina ' : ''}{o.asset_ref}</span>
       <span>· {woCategory(o)}</span>
       {o.part_number && <span>· PN {o.part_number}</span>}
       <span className="inline-flex items-center gap-1">· <AreaDot color={o.area_color} />{o.area_name}</span>

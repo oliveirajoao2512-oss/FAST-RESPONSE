@@ -1,8 +1,8 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Camera, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, WO_KIND_LABELS, WO_KINDS, type WoKind } from '@shared/maintenance';
-import { api as request, get, post, qs } from '../../lib/api';
+import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, domainLocations, WO_KIND_LABELS, WO_KINDS, WO_LOCATION_LABELS, type WoKind, type WoLocation } from '@shared/maintenance';
+import { api as request, post } from '../../lib/api';
 import { useMe } from '../../lib/session';
 import { useToast } from '../../lib/toast';
 import { useWoDomain, useWoList, useWoOptions } from '../../lib/workOrders';
@@ -62,18 +62,17 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [error, setError] = useState<unknown>(null);
   const [tried, setTried] = useState(false);
 
-  const [term, setTerm] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setTerm(asset.trim()), 250);
-    return () => clearTimeout(t);
-  }, [asset]);
-  const suggestions = useQuery<{ code: string; description: string | null }[]>({ queryKey: ['os', D.d, 'assets', term], queryFn: () => get(`${D.api}/assets${qs({ q: term })}`), staleTime: 60_000 });
-  const sameMachine = (openList.data ?? []).filter((o) => term && o.asset_ref.trim().toLowerCase() === term.toLowerCase());
+  // where: machine or assembly cell (adjustments only on machines), then the registered list of that kind
+  const locations = domainLocations(D.d);
+  const [location, setLocation] = useState<WoLocation | null>(locations.length === 1 ? locations[0] : null);
+  const places = location ? opts.data?.places?.[location] ?? [] : [];
+  const sameMachine = (openList.data ?? []).filter((o) => asset && o.asset_ref.trim().toLowerCase() === asset.toLowerCase());
 
+  const stoppedQuestion = location === 'montagem' ? 'A montagem está parada?' : 'A máquina está parada?';
   const askMaterial = adj && reason === ADJ_MATERIAL_REASON;
   const pctOk = (v: string) => v.trim() !== '' && Number(v) >= 0 && Number(v) <= 100;
   const missing = {
-    area: !areaId, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: stopped === null, description: !description.trim(),
+    area: !areaId, location: !location, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: stopped === null, description: !description.trim(),
     material: askMaterial && (!pctOk(virgin) || !pctOk(regrind)),
   };
   const submit = async () => {
@@ -83,7 +82,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
     setError(null);
     try {
       const r = await post<{ id: string; code: string }>(D.api, {
-        areaId, assetRef: asset.trim(), machineStopped: stopped, description: description.trim(),
+        areaId, location, assetRef: asset.trim(), machineStopped: stopped, description: description.trim(),
         ...(adj
           ? { reason, partNumber: partNumber.trim() || null, ...(askMaterial ? { virginPct: Number(virgin), regrindPct: Number(regrind) } : {}) }
           : { kind }),
@@ -114,21 +113,43 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
           <button onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-gray-100" aria-label="Fechar"><X size={20} /></button>
         </div>
         <div className="space-y-4 overflow-y-auto px-5 py-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Setor" required error={tried && missing.area ? 'Escolha o setor.' : undefined}>
-              <Select value={areaId} onChange={(e) => setAreaId(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">Selecione…</option>
-                {opts.data?.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Máquina / dispositivo" required error={tried && missing.asset ? 'Informe onde atuar.' : undefined}>
-              <Input value={asset} onChange={(e) => setAsset(e.target.value)} list="os-assets" placeholder="Ex.: INJ-07" autoComplete="off" maxLength={120} />
-              <datalist id="os-assets">{suggestions.data?.map((s) => <option key={s.code} value={s.code}>{s.description ?? ''}</option>)}</datalist>
-            </Field>
-          </div>
+          <Field label="Setor" required error={tried && missing.area ? 'Escolha o setor.' : undefined}>
+            <Select value={areaId} onChange={(e) => setAreaId(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">Selecione…</option>
+              {opts.data?.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+          </Field>
+          {locations.length > 1 && (
+            <div>
+              <span className="mb-1 block text-sm font-medium text-gray-700">Onde é? <span className="text-red-600" aria-hidden>*</span></span>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Onde é?">
+                {locations.map((l) => (
+                  <button key={l} type="button" role="radio" aria-checked={location === l} className={choice(location === l)}
+                    onClick={() => { if (l !== location) setAsset(''); setLocation(l); }}>{WO_LOCATION_LABELS[l]}</button>
+                ))}
+              </div>
+              {tried && missing.location && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha máquina ou montagem.</span>}
+            </div>
+          )}
+          {location && (
+            <div>
+              <span className="mb-1 block text-sm font-medium text-gray-700">{WO_LOCATION_LABELS[location]} <span className="text-red-600" aria-hidden>*</span></span>
+              {places.length ? (
+                <div className="grid max-h-48 grid-cols-3 gap-1.5 overflow-y-auto rounded-lg border border-gray-200 p-1.5 sm:grid-cols-4" role="radiogroup" aria-label={WO_LOCATION_LABELS[location]}>
+                  {places.map((p) => (
+                    <button key={p.code} type="button" role="radio" aria-checked={asset === p.code} title={p.description ?? undefined} onClick={() => setAsset(p.code)}
+                      className={cx('rounded-md border px-2 py-2 text-sm font-medium', asset === p.code ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50')}>
+                      {p.code}
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="text-sm text-gray-500">Nenhuma {location === 'montagem' ? 'montagem' : 'máquina'} cadastrada. Peça ao gestor para incluir em Gestão → Cadastros.</p>}
+              {tried && missing.asset && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha {location === 'montagem' ? 'a montagem' : 'a máquina'}.</span>}
+            </div>
+          )}
           {sameMachine.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
-              Já existe {D.short} aberta para esta máquina:
+              Já existe {D.short} aberta para {location === 'montagem' ? 'esta montagem' : 'esta máquina'}:
               {sameMachine.map((o) => (
                 <button key={o.id} type="button" onClick={() => onCreated(o.id)} className="mt-1 flex w-full items-center gap-2 text-left underline-offset-2 hover:underline">
                   <span className="font-mono text-xs">{o.code}</span><WoStatusBadge status={o.status} /><span className="truncate">{o.description}</span>
@@ -175,16 +196,16 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
             </Field>
           )}
           <div>
-            <span className="mb-1 block text-sm font-medium text-gray-700">A máquina está parada? <span className="text-red-600" aria-hidden>*</span></span>
-            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="A máquina está parada?">
+            <span className="mb-1 block text-sm font-medium text-gray-700">{stoppedQuestion} <span className="text-red-600" aria-hidden>*</span></span>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={stoppedQuestion}>
               <button type="button" role="radio" aria-checked={stopped === true} className={choice(stopped === true, true)} onClick={() => setStopped(true)}>Sim, parada</button>
               <button type="button" role="radio" aria-checked={stopped === false} className={choice(stopped === false)} onClick={() => setStopped(false)}>Não</button>
             </div>
             {stopped && <span className="mt-1 block text-xs text-red-700">A {D.short} entra como crítica e a equipe de {D.team} é avisada na hora.</span>}
             {tried && missing.stopped && <span className="mt-1 block text-xs text-red-600" role="alert">Responda se a máquina está parada.</span>}
           </div>
-          <Field label={adj ? 'Motivo / problema da parada' : 'O que está acontecendo?'} required error={tried && missing.description ? 'Descreva o problema.' : undefined}>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} placeholder={adj ? 'Ex.: peça saindo com peso abaixo do especificado' : 'Ex.: vazamento de óleo no cilindro do molde'} />
+          <Field label={adj ? 'Motivo / problema da parada' : 'O que está acontecendo e onde é o problema?'} required error={tried && missing.description ? 'Descreva o problema.' : undefined}>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} placeholder={adj ? 'O que está acontecendo e onde é o problema. Ex.: peça saindo com peso abaixo do especificado' : 'O que está acontecendo e onde é o problema. Ex.: vazamento de óleo no cilindro do molde'} />
           </Field>
           <PhotoPicker files={files} onChange={setFiles} />
           {error != null && <ErrorBox error={error} />}

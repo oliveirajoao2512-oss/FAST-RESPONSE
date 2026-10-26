@@ -22,7 +22,11 @@ Abertura de ordens de manutenção corretiva pelo sistema, no lugar da OS em pap
 
 ## Abertura
 
-Campos: setor (já vem a área de quem abre), máquina/dispositivo (sugestões dos Cadastros e das OS anteriores),
+**Onde é?** Máquina ou Montagem (a Ordem de Ajuste só existe em máquina). Em seguida aparece a lista correspondente,
+na ordem da planta. As listas ficam em Gestão → Cadastros (tipos "Máquina" e "Montagem"): para incluir ou desativar
+uma máquina ou montagem, basta editar lá. Não é possível digitar um local fora da lista.
+
+Campos: setor (já vem a área de quem abre), máquina ou montagem da lista,
 tipo (mecânica, elétrica, hidráulica, pneumática, outros), se a máquina está parada, descrição e foto opcional.
 Número, solicitante, data e hora são automáticos. Se já existe OS aberta para a mesma máquina, o formulário avisa.
 
@@ -99,3 +103,21 @@ Toda OS e toda OA tem o botão **Comprovante (PDF)** desde o momento em que é a
 horários e tempos, quem atuou, ação/serviço, o histórico completo e as fotos (JPEG/PNG). Cada página tem um
 **código de verificação** calculado a partir do conteúdo da ordem: se o papel for alterado, o código não confere com o
 que o sistema gera para a mesma ordem. Cada emissão fica registrada na auditoria.
+
+# Painel da planta (estilo Power BI)
+
+Menu **Painel da planta** (rota `/painel-planta`), visível somente para o **administrador** e o **Plant Manager**.
+Segue o padrão visual dos relatórios em Power BI da empresa: duas janelas (Manutenção e Processos) na barra lateral do
+painel e filtros no topo (ano, mês, local, máquina/montagem). Clicar em um mês filtra o painel.
+
+Indicadores: dias sem máquina parada, disponibilidade, MTBF, MTTR (ou tempo de ajuste), espera, abertas × finalizadas
+por mês, horas paradas por mês, disponibilidade por mês, tipos/motivos, máquinas e montagens com mais ordens, horas
+por técnico, máquina × montagem e setores que abrem.
+
+Disponibilidade e MTBF são estimados considerando 24 h por dia e todos os equipamentos cadastrados no filtro; a parada
+conta da abertura ao fim de cada ordem aberta com máquina parada.
+
+# Perfil Plant Manager
+
+Tem as permissões de um gestor na planta inteira (pendências, relatórios, ranking, cadastros, auditoria), vê o
+dashboard dos dois módulos (sem comandar as filas) e o Painel da planta.

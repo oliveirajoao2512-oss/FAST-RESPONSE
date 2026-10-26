@@ -26,7 +26,7 @@ afterAll(async () => {
 });
 
 const open = (cl: Client, extra: Record<string, unknown> = {}) =>
-  cl.post('/api/os', { areaId: prod, assetRef: 'INJ-07', kind: 'mecanica', machineStopped: false, description: 'Vazamento de óleo no cilindro', ...extra });
+  cl.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '17A', kind: 'mecanica', machineStopped: false, description: 'Vazamento de óleo no cilindro', ...extra });
 const detail = async (id: string) => (await operador.get(`/api/os/${id}`)).body;
 
 describe('tempos', () => {
@@ -75,7 +75,7 @@ describe('fluxo da OS', () => {
   });
 
   it('máquina parada vira crítica e avisa a manutenção', async () => {
-    const r = await open(operador, { assetRef: 'INJ-02', machineStopped: true });
+    const r = await open(operador, { assetRef: '2', machineStopped: true });
     const d = await detail(r.body.id);
     expect(d.priority).toBe('critica');
     const notes = (await pedro.get('/api/notifications')).body;
@@ -147,7 +147,7 @@ describe('fluxo da OS', () => {
   });
 
   it('o último a devolver volta a OS para a fila', async () => {
-    const r = await open(operador, { assetRef: 'PRENSA-1' });
+    const r = await open(operador, { location: 'montagem', assetRef: '0013.01' });
     await joao.post(`/api/os/${r.body.id}/aceitar`);
     expect((await joao.post(`/api/os/${r.body.id}/devolver`, { motivo: 'Precisa de eletricista' })).status).toBe(200);
     const d = await detail(r.body.id);
@@ -186,10 +186,10 @@ describe('fluxo da OS', () => {
     expect(r.status).toBe(200);
     expect(r.body.totals).toMatchObject({ opened: 3, finished: 1 });
     expect(r.body.now).toMatchObject({ aberta: 2, criticas: 1 });
-    expect(r.body.assets.map((a: any) => a.label)).toContain('INJ-07');
+    expect(r.body.assets.map((a: any) => a.label)).toContain('17A');
     expect(r.body.byCategory[0]).toMatchObject({ key: 'mecanica', label: 'Mecânica' });
     expect(r.body.heat.flat().reduce((a: number, b: number) => a + b, 0)).toBe(3);
-    const filtered = await gerenteMan.get('/api/os/report?asset=inj-99');
+    const filtered = await gerenteMan.get('/api/os/report?asset=99Z');
     expect(filtered.body.totals.opened).toBe(0);
     expect(r.body.workers.map((w: any) => w.name)).toContain('Pedro Manutentor');
     const x = await ctx.app.inject({ method: 'GET', url: '/api/os/export.xlsx', headers: { cookie: gerenteMan.cookie } });
@@ -223,7 +223,7 @@ describe('administrador: visualizar como outro perfil', () => {
     expect(me).toMatchObject({ role: 'manutentor', preview: true, name: 'Admin Teste' });
     expect((await man.get('/api/os')).status).toBe(200);
     expect((await man.get('/api/issues')).status).toBe(403);
-    const w = await man.post('/api/os', { areaId: prod, assetRef: 'X', kind: 'outros', machineStopped: false, description: 'teste' });
+    const w = await man.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '1A', kind: 'outros', machineStopped: false, description: 'teste' });
     expect(w.status).toBe(403);
     expect(w.body.erro).toMatch(/somente leitura/);
 

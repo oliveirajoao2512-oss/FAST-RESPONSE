@@ -134,7 +134,7 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
   y -= 58;
   if (o.machine_stopped) {
     page.drawRectangle({ x: M, y: y - 18, width: 118, height: 18, color: rgb(0.86, 0.15, 0.15) });
-    text('MÁQUINA PARADA', M + 8, y - 13, 9.5, bold, rgb(1, 1, 1));
+    text(o.location_type === 'montagem' ? 'MONTAGEM PARADA' : 'MÁQUINA PARADA', M + 8, y - 13, 9.5, bold, rgb(1, 1, 1));
     y -= 26;
   }
 
@@ -142,7 +142,7 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
   fields([
     ['Solicitante', o.opened_by_name],
     ['Setor', o.area_name],
-    ['Máquina / dispositivo', o.asset_ref],
+    [o.location_type === 'montagem' ? 'Montagem' : 'Máquina', o.asset_ref],
     [adj ? 'Motivo' : 'Tipo de manutenção', input.category],
     ...(adj ? [['Part number', o.part_number ?? '—'] as [string, string]] : []),
     ...(o.virgin_pct != null ? [['Material', `${o.virgin_pct}% virgem · ${o.regrind_pct}% moído`] as [string, string]] : []),

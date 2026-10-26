@@ -14,7 +14,8 @@ export interface IssueRef {
   completedById?: string | null;
 }
 
-const isManager = (a: Actor) => a.role === 'admin' || a.role === 'gestor';
+// the plant manager has the permissions of a gestor over the whole plant
+const isManager = (a: Actor) => a.role === 'admin' || a.role === 'gestor' || a.role === 'plant_manager';
 /** Leader of the area currently responsible for the issue, or of the area that opened it. */
 const leadsIssueArea = (a: Actor, i: IssueRef) =>
   a.role === 'lider' && a.areaId !== null && (a.areaId === i.areaId || a.areaId === i.originAreaId);
@@ -57,6 +58,8 @@ export const can = {
   recomputeRanking: (a: Actor) => isManager(a),
   /** Permanent deletion of test records, without history. */
   purgeRecords: (a: Actor) => a.role === 'admin',
+  /** Plant indicators panel (Power BI style): administrator and plant manager only. */
+  viewPlantPanel: (a: Actor) => a.role === 'admin' || a.role === 'plant_manager',
   /** Quality module (Resposta Rápida): administrators, and leaders/managers of the Quality area. */
   manageQuality: (a: Actor, qualityAreaId: number | null | undefined) =>
     a.role === 'admin' || ((a.role === 'gestor' || a.role === 'lider') && a.areaId != null && a.areaId === qualityAreaId),

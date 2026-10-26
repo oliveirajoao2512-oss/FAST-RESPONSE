@@ -35,7 +35,7 @@ export async function metaRoutes(app: FastifyInstance) {
   app.get('/api/assets', async (req) => {
     requireUser(req);
     const qs = parse(z.object({ q: z.string().max(60).default(''), type: z.string().max(20).optional(), all: z.coerce.boolean().optional() }), req.query);
-    if (qs.all) return q('SELECT a.*, ar.name AS area_name FROM assets a LEFT JOIN areas ar ON ar.id = a.area_id ORDER BY a.type, a.code');
+    if (qs.all) return q('SELECT a.*, ar.name AS area_name FROM assets a LEFT JOIN areas ar ON ar.id = a.area_id ORDER BY a.type, a.sort, a.code');
     const term = `%${qs.q}%`;
     // Registered assets first, then references already used in issues.
     return q(

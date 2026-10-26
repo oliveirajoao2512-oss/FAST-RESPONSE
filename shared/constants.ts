@@ -1,6 +1,6 @@
 // Domain constants shared by server and web. Server is the source of truth for every rule.
 
-export const ROLES = ['admin', 'gestor', 'lider', 'colaborador', 'manutentor', 'tecnico_processo'] as const;
+export const ROLES = ['admin', 'gestor', 'lider', 'colaborador', 'manutentor', 'tecnico_processo', 'plant_manager'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABELS: Record<Role, string> = {
   admin: 'Administrador',
@@ -9,6 +9,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   colaborador: 'Colaborador',
   manutentor: 'Manutentor',
   tecnico_processo: 'Técnico de Processo',
+  plant_manager: 'Plant Manager',
 };
 
 export const STATUSES = [
@@ -73,10 +74,11 @@ export const STEP_STATUS_LABELS: Record<StepStatus, string> = {
   cancelada: 'Cancelada',
 };
 
-export const ASSET_TYPES = ['maquina', 'equipamento', 'molde', 'item', 'op', 'outro'] as const;
+export const ASSET_TYPES = ['maquina', 'montagem', 'equipamento', 'molde', 'item', 'op', 'outro'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   maquina: 'Máquina',
+  montagem: 'Montagem',
   equipamento: 'Equipamento',
   molde: 'Molde',
   item: 'Item',

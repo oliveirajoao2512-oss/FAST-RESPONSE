@@ -92,7 +92,7 @@ function UserModal({ user, areas, onClose }: { user: any; areas: any[]; onClose:
         <Field label="Nome completo" required className="sm:col-span-2"><Input value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
         <Field label="E-mail" required hint="Usado no login e nas notificações."><Input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} /></Field>
         <Field label="Matrícula" hint="Também pode ser usada no login."><Input value={f.registration} onChange={(e) => set('registration', e.target.value)} /></Field>
-        <Field label="Perfil" required hint={f.role === 'manutentor' ? 'Entra só nas Ordens de Manutenção, sem acesso ao resto do sistema.' : f.role === 'tecnico_processo' ? 'Entra só nas Ordens de Ajuste, sem acesso ao resto do sistema.' : undefined}>
+        <Field label="Perfil" required hint={f.role === 'manutentor' ? 'Entra só nas Ordens de Manutenção, sem acesso ao resto do sistema.' : f.role === 'tecnico_processo' ? 'Entra só nas Ordens de Ajuste, sem acesso ao resto do sistema.' : f.role === 'plant_manager' ? 'Permissões de gestor na planta inteira, dashboards dos dois módulos e o Painel da planta.' : undefined}>
           <Select value={f.role} onChange={(e) => set('role', e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</Select>
         </Field>
         <Field label="Área" required={['lider', 'colaborador'].includes(f.role)}>

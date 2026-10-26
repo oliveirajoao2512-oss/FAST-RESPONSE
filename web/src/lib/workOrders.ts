@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
-import { WO_DOMAIN, type WoDomain, type WoKind, type WoPriority, type WoStatus, type WoTimes } from '@shared/maintenance';
+import { WO_DOMAIN, type WoDomain, type WoKind, type WoLocation, type WoPriority, type WoStatus, type WoTimes } from '@shared/maintenance';
 import { get, qs } from './api';
 
 /** Which order module the components below are showing (maintenance or process adjustment). */
@@ -21,6 +21,7 @@ export interface WorkOrder {
   area_name: string;
   area_color: string;
   asset_ref: string;
+  location_type: WoLocation | null;
   kind: WoKind | null;
   reason: number | null;
   part_number: string | null;
@@ -61,6 +62,8 @@ export interface WoOptions {
   areas: { id: number; slug: string; name: string; color: string }[];
   team: { id: string; name: string; role: string }[];
   teamAreaId: number | null;
+  canSeeDashboard: boolean;
+  places: Partial<Record<WoLocation, { code: string; description: string | null }[]>>;
   canWork: boolean;
   canLead: boolean;
 }

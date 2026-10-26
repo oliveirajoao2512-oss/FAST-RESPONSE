@@ -56,8 +56,8 @@ function Page() {
     setParams(next, { replace: true });
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the dashboard is only for the gestores and líderes of the team's area (and the administrator)
-  const seeDashboard = !!opts.data?.canLead;
+  // the dashboard is only for the gestores and líderes of the team's area, the plant manager and the administrator
+  const seeDashboard = !!opts.data?.canSeeDashboard;
   const current = tab === 'dashboard' && !seeDashboard ? 'fila' : tab;
   const open = useWoList('abertas', { q: term });
   const done = useWoList('finalizadas', { q: term }, current === 'finalizadas');

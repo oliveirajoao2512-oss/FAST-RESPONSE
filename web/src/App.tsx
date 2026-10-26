@@ -21,6 +21,7 @@ import { ReportsPage } from './pages/Reports';
 const QualityPage = lazy(() => import('./pages/Quality').then((m) => ({ default: m.QualityPage })));
 const WorkOrdersPage = lazy(() => import('./pages/WorkOrders').then((m) => ({ default: m.WorkOrdersPage })));
 const osPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="manutencao" /></Suspense>;
+const PlantPanelPage = lazy(() => import('./pages/PlantPanel').then((m) => ({ default: m.PlantPanelPage })));
 const adjPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="ajuste" /></Suspense>;
 
 export function App() {
@@ -62,6 +63,7 @@ export function App() {
         <Route path="aprovacoes" element={<ApprovalsPage />} />
         <Route path="os" element={osPage} />
         <Route path="ajustes" element={adjPage} />
+        {can.viewPlantPanel(me) && <Route path="painel-planta" element={<Suspense fallback={<Spinner />}><PlantPanelPage /></Suspense>} />}
         <Route path="ranking" element={<RankingPage />} />
         {can.viewReports(me) && <Route path="relatorios" element={<ReportsPage />} />}
         <Route path="notificacoes" element={<NotificationsPage />} />

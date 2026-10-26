@@ -47,6 +47,15 @@ export const leadsDomain = (a: Actor, areaId: number | null | undefined) =>
 export const worksDomain = (d: WoDomain, a: Actor, areaId: number | null | undefined) =>
   a.role === WO_DOMAIN[d].workerRole || leadsDomain(a, areaId);
 
+/** Where the order is: a machine or an assembly cell. Adjustments only happen on machines. */
+export const WO_LOCATIONS = ['maquina', 'montagem'] as const;
+export type WoLocation = (typeof WO_LOCATIONS)[number];
+export const WO_LOCATION_LABELS: Record<WoLocation, string> = { maquina: 'Máquina', montagem: 'Montagem' };
+export const domainLocations = (d: WoDomain): WoLocation[] => (d === 'ajuste' ? ['maquina'] : ['maquina', 'montagem']);
+
+/** Dashboards of a module: its area leadership, plus the plant manager (read only). */
+export const seesDomainDashboard = (a: Actor, areaId: number | null | undefined) => leadsDomain(a, areaId) || a.role === 'plant_manager';
+
 /** Reasons printed on the paper "Ordem de Ajuste - Processo" (numbered as on the form). */
 export const ADJ_REASONS: Record<number, string> = {
   1: 'Contaminação',
