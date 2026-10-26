@@ -8,7 +8,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   lider: 'Líder de área',
   colaborador: 'Colaborador',
   manutentor: 'Manutentor',
-  tecnico_processo: 'Técnico de Processo',
+  tecnico_processo: 'Processista',
   plant_manager: 'Plant Manager',
 };
 

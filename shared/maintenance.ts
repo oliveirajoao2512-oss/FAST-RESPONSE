@@ -34,7 +34,7 @@ export const WO_DOMAIN: Record<WoDomain, WoDomainInfo> = {
   },
   ajuste: {
     api: '/api/oa', path: '/ajustes', short: 'OA', title: 'Ordens de Ajuste', areaSlug: 'processos', team: 'processos',
-    workerRole: 'tecnico_processo', worker: 'técnico de processo', workers: 'técnicos de processo',
+    workerRole: 'tecnico_processo', worker: 'processista', workers: 'processistas',
     pauseReasons: ['Aguardando material', 'Aguardando manutenção', 'Aguardando ferramentaria', 'Aguardando liberação da qualidade', 'Outro'],
   },
 };

@@ -346,7 +346,7 @@ const PREVIEW_HINT: Partial<Record<Role, string>> = {
   lider: 'O líder enxerga e age nas pendências da própria área.',
   colaborador: 'O colaborador vê as pendências e age nas que são dele.',
   manutentor: 'O manutentor vê só as Ordens de Manutenção.',
-  tecnico_processo: 'O técnico de processo vê só as Ordens de Ajuste.',
+  tecnico_processo: 'O processista vê só as Ordens de Ajuste.',
   plant_manager: 'O plant manager tem permissões de gestor na planta inteira e vê o Painel da planta.',
 };
 

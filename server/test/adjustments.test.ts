@@ -29,7 +29,7 @@ afterAll(async () => {
 const open = (cl: Client, extra: Record<string, unknown> = {}) =>
   cl.post('/api/oa', { areaId: prod, location: 'maquina', assetRef: '5', reason: 6, partNumber: 'PN-4471', machineStopped: true, description: 'Peso abaixo do especificado', ...extra });
 
-describe('acesso do técnico de processo', () => {
+describe('acesso do processista', () => {
   it('vê só as Ordens de Ajuste: o resto do sistema é recusado no servidor', async () => {
     expect((await tec.get('/api/oa')).status).toBe(200);
     expect((await tec.get('/api/notifications')).status).toBe(200);
@@ -74,7 +74,7 @@ describe('fluxo da Ordem de Ajuste', () => {
     expect((await operador.get('/api/oa')).body.some((o: any) => o.id === os.body.id)).toBe(false);
   });
 
-  it('só técnicos de processo e a liderança de Processos atuam', async () => {
+  it('só processistas e a liderança de Processos atuam', async () => {
     expect((await operador.post(`/api/oa/${id}/aceitar`)).status).toBe(403);
     expect((await liderMan.post(`/api/oa/${id}/aceitar`)).status).toBe(403);
     expect((await liderMan.post(`/api/oa/${id}/prioridade`, { priority: 'baixa' })).status).toBe(403);

@@ -163,7 +163,7 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
     [adj ? 'Tempo de ajuste' : 'Tempo de atendimento', fmtDur(t.workMs)],
     ['Tempo pausado', fmtDur(t.pausedMs)],
     ['Tempo total', o.finished_at ? fmtDur(t.totalMs) : '—'],
-    [adj ? 'Técnico(s) de processo' : 'Manutentor(es)', input.hoursByWorker.length ? input.hoursByWorker.map((w) => `${w.name} (${fmtDur(w.ms)})`).join(', ') : '—'],
+    [adj ? 'Processista(s)' : 'Manutentor(es)', input.hoursByWorker.length ? input.hoursByWorker.map((w) => `${w.name} (${fmtDur(w.ms)})`).join(', ') : '—'],
     ['Finalizada por', o.finished_by_name ?? '—'],
   ]);
   if (o.service_done || o.status === 'finalizada') {

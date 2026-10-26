@@ -345,7 +345,7 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await lider.screenshot({ path: `${SHOTS}/os-dashboard.png`, fullPage: true });
 });
 
-test('17. ordem de ajuste: técnico de processo atende e só Processos vê o dashboard', async ({ browser }) => {
+test('17. ordem de ajuste: processista atende e só Processos vê o dashboard', async ({ browser }) => {
   const operador = await newUserPage(browser, users.operador.email);
   const tctx = await browser.newContext({ viewport: { width: 820, height: 1180 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
   const tec = await tctx.newPage();

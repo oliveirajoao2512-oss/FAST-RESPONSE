@@ -90,7 +90,7 @@ gestor e do líder de Processos. O administrador vê as duas. O servidor recusa 
 Mesmo fluxo das OS (fila, aceitar, várias pessoas, pausar, passar, devolver, finalizar, prioridade, fotos, tempos
 automáticos), no menu **Ordens de Ajuste** (rota `/ajustes`), substituindo a folha "Ordem de Ajuste - Processo".
 
-- Quem atua: perfil **Técnico de Processo** (vê somente as Ordens de Ajuste) e gestor/líder da área Processos.
+- Quem atua: perfil **Processista** (vê somente as Ordens de Ajuste) e gestor/líder da área Processos.
 - Abertura: setor, máquina, **motivo** (os 21 motivos numerados da folha), part number, máquina parada e descrição
   (motivo/problema da parada). No motivo 21 o sistema pede a % de material virgem e a % de moído.
 - Hora da chamada, hora inicial (aceite), hora final e tempo de ajuste são registrados automaticamente.
