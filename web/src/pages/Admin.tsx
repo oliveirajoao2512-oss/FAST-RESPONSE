@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, Save } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { FileUp, KeyRound, Pencil, Plus, Save } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { pnKey } from '@shared/partNumbers';
 import { ASSET_TYPE_LABELS, ASSET_TYPES, PRIORITIES, PRIORITY_LABELS, ORDER_ONLY_ROLES, ROLE_LABELS, ROLES } from '@shared/constants';
 import { FormError } from '../components/actions';
 import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../components/ui';
@@ -300,6 +301,7 @@ export function CatalogsPage() {
           </table>
         )}
       </Card>
+      <PartNumbersCard />
       <Card title="Modelos de etapas" actions={<Button size="sm" kind="primary" onClick={saveTemplates}><Save size={14} />Salvar modelos</Button>}>
         <p className="mb-2 text-xs text-gray-500">Uma linha "# Nome do modelo" seguida de uma etapa por linha.</p>
         <Textarea rows={14} className="font-mono text-xs" value={templates} onChange={(e) => setTemplates(e.target.value)} />
@@ -345,6 +347,102 @@ function CatalogModal({ title, initial, fields, save, onClose }: { title: string
     }}>Salvar</Button></>}>
       <FormError error={error} />
       <div className="space-y-3">{fields(f, set)}</div>
+    </Modal>
+  );
+}
+
+function PartNumbersCard() {
+  const list = useQuery<any[]>({ queryKey: ['admin-part-numbers'], queryFn: () => get('/api/admin/part-numbers') });
+  const [search, setSearch] = useState('');
+  const [edit, setEdit] = useState<any>(null);
+  const [importing, setImporting] = useState(false);
+  const all = list.data ?? [];
+  const shown = useMemo(() => {
+    const k = pnKey(search);
+    const words = search.trim().toLowerCase();
+    const hits = !words ? all : all.filter((p) => (k && pnKey(p.code).includes(k)) || [p.description, p.customer, p.machine].some((v) => v?.toLowerCase().includes(words)));
+    return hits;
+  }, [all, search]);
+  const LIMIT = 60;
+  return (
+    <Card title="Part numbers" actions={<div className="flex gap-2">
+      <Button size="sm" onClick={() => setImporting(true)}><FileUp size={14} />Importar planilha</Button>
+      <Button size="sm" onClick={() => setEdit({})}><Plus size={14} />Cadastrar</Button></div>}>
+      <p className="mb-2 text-xs text-gray-500">
+        Base usada para reconhecer o PN enquanto ele é digitado na abertura de OS e OA. Com a base cadastrada, só PNs desta lista são aceitos.
+        Importar a planilha de cadastro do PCP adiciona os PNs novos e completa os dados que faltam, sem apagar nada.
+      </p>
+      {list.isLoading ? <Spinner /> : list.error ? <ErrorBox error={list.error} /> : all.length === 0 ? <Empty>Nenhum part number cadastrado. Enquanto a base estiver vazia, o PN é digitado livremente.</Empty> : <>
+        <div className="mb-2 flex flex-wrap items-center gap-3">
+          <Input className="max-w-xs" placeholder="Buscar código, descrição ou cliente" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <span className="text-xs text-gray-500">{shown.length === all.length ? `${all.length} cadastrados` : `${shown.length} de ${all.length}`}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs uppercase text-gray-500"><tr><th className="py-1">Código</th><th>Descrição</th><th>Cliente</th><th>Máquina padrão</th><th className="text-right">Ordens</th><th /></tr></thead>
+            <tbody className="divide-y">{shown.slice(0, LIMIT).map((p) => (
+              <tr key={p.id} className={cx(!p.active && 'text-gray-400')}><td className="py-1.5 font-mono">{p.code}</td><td>{p.description ?? '—'}</td><td>{p.customer ?? '—'}</td><td>{p.machine ?? '—'}</td>
+                <td className="text-right tabular-nums">{p.orders || '—'}</td>
+                <td className="text-right"><Button size="sm" kind="ghost" aria-label={`Editar ${p.code}`} onClick={() => setEdit(p)}><Pencil size={14} /></Button></td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+        {shown.length > LIMIT && <p className="mt-2 text-xs text-gray-500">Mostrando {LIMIT} de {shown.length}. Use a busca para encontrar os outros.</p>}
+      </>}
+      {edit && <CatalogModal title="Part number" initial={edit} onClose={() => setEdit(null)}
+        fields={(f, set) => <>
+          <Field label="Código" required><Input className="font-mono" value={f.code ?? ''} onChange={(e) => set('code', e.target.value)} /></Field>
+          <Field label="Descrição"><Input value={f.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
+          <Field label="Cliente"><Input value={f.customer ?? ''} onChange={(e) => set('customer', e.target.value)} /></Field>
+          <Field label="Máquina padrão"><Input value={f.machine ?? ''} onChange={(e) => set('machine', e.target.value)} /></Field>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.active ?? true} onChange={(e) => set('active', e.target.checked)} />Ativo (inativos não aparecem na abertura das ordens)</label>
+        </>}
+        save={(f) => {
+          const body = { code: f.code ?? '', description: f.description || null, customer: f.customer || null, machine: f.machine || null, active: f.active ?? true };
+          return f.id ? put(`/api/admin/part-numbers/${f.id}`, body) : post('/api/admin/part-numbers', body);
+        }} />}
+      {importing && <PnImportModal onClose={() => setImporting(false)} />}
+    </Card>
+  );
+}
+
+function PnImportModal({ onClose }: { onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<any>(null);
+  const [error, setError] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const send = async (commit: boolean) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    setBusy(true); setError(null);
+    try {
+      const r = await post(`/api/admin/part-numbers/import?commit=${commit ? 1 : 0}`, fd);
+      if (!commit) { setPreview(r); return; }
+      toast('ok', `${r.total} part numbers importados (${r.novos} novos)`);
+      qc.invalidateQueries();
+      onClose();
+    } catch (e) { setError({ msg: errorMessage(e) }); setPreview(null); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open onClose={onClose} title="Importar part numbers" footer={<><Button onClick={onClose}>Cancelar</Button>
+      {preview ? <Button kind="primary" loading={busy} onClick={() => send(true)}>Importar {preview.total}</Button>
+        : <Button kind="primary" loading={busy} disabled={!file} onClick={() => send(false)}>Conferir planilha</Button>}</>}>
+      <FormError error={error} />
+      <div className="space-y-3 text-sm">
+        <p className="text-gray-600">Envie a planilha de cadastro do PCP (.xlsx ou .xlsm). São lidas as abas com uma coluna "PART NUMBER" ou "PN", e também descrição, cliente e máquina padrão quando existirem.</p>
+        <input type="file" accept=".xlsx,.xlsm" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); }} />
+        {preview && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p><b>{preview.total}</b> part numbers encontrados: <b>{preview.novos}</b> novos e {preview.existentes} já cadastrados (só completam o que falta).</p>
+            <p className="mt-1 text-xs text-gray-500">Abas lidas: {preview.abas.join(', ')}</p>
+            {preview.exemplos.length > 0 && <ul className="mt-2 space-y-0.5 text-xs">{preview.exemplos.map((p: any) => (
+              <li key={p.code}><span className="font-mono">{p.code}</span>{p.description ? ` · ${p.description}` : ''}</li>))}</ul>}
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }

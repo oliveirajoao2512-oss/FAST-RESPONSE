@@ -8,6 +8,7 @@ import { useToast } from '../../lib/toast';
 import { useWoDomain, useWoList, useWoOptions } from '../../lib/workOrders';
 import { Button, cx, ErrorBox, Field, Input, Select, Textarea } from '../ui';
 import { WoStatusBadge } from './parts';
+import { pnAccepted, PnInput, usePartNumbers } from './PnInput';
 
 export async function uploadWoFiles(api: string, id: string, files: File[], purpose: 'abertura' | 'servico') {
   if (!files.length) return;
@@ -48,6 +49,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const adj = D.d === 'ajuste';
   const opts = useWoOptions();
   const openList = useWoList('abertas');
+  const pns = usePartNumbers();
   const [areaId, setAreaId] = useState<number | ''>(me.area?.id ?? '');
   const [asset, setAsset] = useState('');
   const [kind, setKind] = useState<WoKind | null>(null);
@@ -74,6 +76,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const missing = {
     area: !areaId, location: !location, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: stopped === null, description: !description.trim(),
     material: askMaterial && (!pctOk(virgin) || !pctOk(regrind)),
+    partNumber: !pnAccepted(pns.data, partNumber),
   };
   const submit = async () => {
     setTried(true);
@@ -191,10 +194,11 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
               </Field>
             </div>
           )}
-          <Field label="Part number" hint="O produto que estava rodando. Comece a digitar para ver os já usados.">
-            <Input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} maxLength={60} placeholder="Opcional" autoComplete="off" list="wo-part-numbers" />
-            <datalist id="wo-part-numbers">{opts.data?.partNumbers?.map((pn) => <option key={pn} value={pn} />)}</datalist>
-          </Field>
+          <div>
+            <span className="mb-1 block text-sm font-medium text-gray-700">Part number <span className="font-normal text-gray-500">(o produto que estava rodando)</span></span>
+            <PnInput value={partNumber} onChange={setPartNumber} machine={location === 'maquina' ? asset : null} error={tried && missing.partNumber} />
+            {tried && missing.partNumber && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha um PN da lista ou deixe em branco.</span>}
+          </div>
           <div>
             <span className="mb-1 block text-sm font-medium text-gray-700">{stoppedQuestion} <span className="text-red-600" aria-hidden>*</span></span>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={stoppedQuestion}>

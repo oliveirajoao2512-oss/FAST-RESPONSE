@@ -27,7 +27,7 @@ na ordem da planta. As listas ficam em Gestão → Cadastros (tipos "Máquina" e
 uma máquina ou montagem, basta editar lá. Não é possível digitar um local fora da lista.
 
 Campos: setor (já vem a área de quem abre), máquina ou montagem da lista,
-tipo (mecânica, elétrica, hidráulica, pneumática, outros), **part number** (opcional, com sugestão dos PNs já usados),
+tipo (mecânica, elétrica, hidráulica, pneumática, outros), **part number** (opcional; reconhecido na base de PNs enquanto é digitado, ver abaixo),
 se a máquina está parada, descrição e foto opcional. O PN é gravado padronizado (maiúsculas, sem espaços sobrando), então
 "pn 4471" e "PN 4471" contam como o mesmo produto.
 Número, solicitante, data e hora são automáticos. Se já existe OS aberta para a mesma máquina, o formulário avisa.
@@ -126,3 +126,16 @@ conta da abertura ao fim de cada ordem aberta com máquina parada.
 
 Tem as permissões de um gestor na planta inteira (pendências, relatórios, ranking, cadastros, auditoria), vê o
 dashboard dos dois módulos (sem comandar as filas) e o Painel da planta.
+
+## Base de part numbers
+
+Em **Gestão → Cadastros → Part numbers** fica a lista de PNs da empresa (código, descrição, cliente e máquina padrão).
+O botão **Importar planilha** lê a planilha de cadastro do PCP (.xlsx/.xlsm, abas com coluna "PART NUMBER" ou "PN"), mostra
+quantos PNs são novos e só grava depois de confirmar. A importação adiciona PNs novos e completa campos vazios; não apaga nem
+sobrescreve o que foi editado à mão. PN que sai de linha é desativado (não é excluído).
+
+Na abertura de OS e OA, o campo de PN compara o que é digitado com a base a cada tecla: mostra os PNs que começam com o texto,
+que contêm o trecho, que batem pela descrição e os parecidos (1 dígito errado, faltando, sobrando ou dois trocados de lugar; 2 a
+partir de 8 caracteres). PNs da máquina escolhida aparecem primeiro. Com o PN certo o campo fica verde com a descrição; com um PN
+fora da base aparece "Você quis dizer …?" e a ordem não é aberta até escolher um PN da lista ou deixar em branco. O servidor faz a
+mesma conferência. Enquanto a base estiver vazia, o PN continua livre.

@@ -7,6 +7,7 @@ import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, eventText, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
   WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
+import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { requireUser } from '../auth.js';
@@ -47,6 +48,7 @@ async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
 const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.location_type, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
   w.status, w.suggested_to, w.transfer_from, w.transfer_to, w.service_done, w.material, w.opened_at, w.first_accepted_at, w.finished_at,
   w.finished_by, w.updated_at, w.version,
+  pn.description AS part_description,
   ob.name AS opened_by_name, a.name AS area_name, a.color AS area_color, sg.name AS suggested_name, tf.name AS transfer_from_name,
   tt.name AS transfer_to_name, fb.name AS finished_by_name,
   COALESCE((SELECT json_agg(json_build_object('id', x.user_id, 'name', xu.name, 'since', x.joined_at) ORDER BY x.joined_at)
@@ -55,6 +57,7 @@ const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.a
      FROM work_order_pauses p WHERE p.work_order_id = w.id), '[]') AS pauses,
   (SELECT count(*) FROM work_order_attachments f WHERE f.work_order_id = w.id)::int AS files`;
 const LIST_FROM = `work_orders w JOIN users ob ON ob.id = w.opened_by JOIN areas a ON a.id = w.area_id
+  LEFT JOIN part_numbers pn ON pn.code = w.part_number
   LEFT JOIN users sg ON sg.id = w.suggested_to LEFT JOIN users tf ON tf.id = w.transfer_from
   LEFT JOIN users tt ON tt.id = w.transfer_to LEFT JOIN users fb ON fb.id = w.finished_by`;
 const QUEUE_ORDER = `w.pinned DESC, CASE w.priority WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, w.opened_at`;
@@ -125,6 +128,28 @@ const reportQuery = z.object({
   pn: z.string().trim().max(60).optional(),
 });
 
+const pnLabel = (r: any) => (r.part_description ? `${r.part_number} · ${r.part_description}` : r.part_number ?? '');
+
+export const activePartNumbers = () =>
+  q<PartNumber>('SELECT code, description, customer, machine FROM part_numbers WHERE active ORDER BY code');
+
+/**
+ * The PN stored on an order. Once part numbers are registered, only a registered one is accepted (stored as
+ * registered), and a typo gets the closest registered codes as a suggestion. Before that, the typed PN is kept.
+ */
+async function resolvePartNumber(typed: string | null | undefined): Promise<string | null> {
+  const pn = normalizePn(typed);
+  if (!pn) return null;
+  const list = await activePartNumbers();
+  if (!list.length) return pn;
+  const found = findPn(list, pn);
+  if (found) return found.code;
+  const close = matchPn(list, pn, { limit: 3 }).map((m) => m.code);
+  throw badRequest(close.length
+    ? `O part number ${pn} não está cadastrado. Você quis dizer ${close.join(' ou ')}?`
+    : `O part number ${pn} não está cadastrado. Escolha um PN da lista ou peça o cadastro ao gestor.`, { partNumber: 'não cadastrado' });
+}
+
 /** Dashboard filters: period (default: last 6 months), requesting area, type/reason, machine and part number. */
 async function readFilters(req: FastifyRequest) {
   const qs = parse(reportQuery, req.query);
@@ -164,6 +189,12 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       partNumbers: (await q<{ pn: string }>(
         `SELECT part_number AS pn FROM work_orders WHERE part_number IS NOT NULL GROUP BY 1 ORDER BY max(opened_at) DESC LIMIT 500`)).map((r) => r.pn),
     };
+  });
+
+  /** Registered part numbers, matched in the browser while the PN is typed. */
+  app.get(`${api}/part-numbers`, async (req) => {
+    requireUser(req);
+    return activePartNumbers();
   });
 
   /** Machines: registered assets first, then references already used in orders. */
@@ -264,6 +295,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (!domainLocations(d).includes(b.location)) throw badRequest('Ordens de ajuste são abertas somente em máquinas.');
     const place = await one<{ code: string }>('SELECT code FROM assets WHERE active AND type = $1 AND lower(code) = lower($2)', [b.location, b.assetRef]);
     if (!place) throw badRequest(`Escolha ${b.location === 'montagem' ? 'a montagem' : 'a máquina'} da lista.`, { assetRef: 'fora da lista' });
+    const part = await resolvePartNumber(b.partNumber);
     const material = d === 'ajuste' && b.reason === ADJ_MATERIAL_REASON;
     if (material && (b.virginPct == null || b.regrindPct == null)) throw badRequest('Informe a % de material virgem e a % de moído.');
     const areaId = await domainAreaId(d);
@@ -276,7 +308,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       const row = {
         kind: d === 'manutencao' ? b.kind! : null,
         reason: d === 'ajuste' ? b.reason! : null,
-        part_number: normalizePn(b.partNumber),
+        part_number: part,
         virgin_pct: material ? b.virginPct : null,
         regrind_pct: material ? b.regrindPct : null,
       };
@@ -609,7 +641,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       .sort((a, b) => b.stoppedH - a.stoppedH || b.n - a.n).slice(0, 12);
     const byCategory = group((r) => String(r.kind ?? r.reason), (r) => categoryOf(r));
     const byArea = group((r) => String(r.area_id), (r) => r.area_name);
-    const byPn = group((r) => r.part_number ?? '', (r) => r.part_number ?? '').filter((x) => x.key).slice(0, 15);
+    const byPn = group((r) => r.part_number ?? '', pnLabel).filter((x) => x.key).slice(0, 15);
     const withPn = opened.filter((r) => r.part_number).length;
 
     // when problems appear: openings by weekday × hour
@@ -855,7 +887,7 @@ function plantPanelRoutes(app: FastifyInstance) {
       byAsset: tally((r) => r.asset_ref.trim().toUpperCase(), (r) => r.asset_ref.trim(), opened_rows).slice(0, 12),
       byLocation: tally((r) => r.location_type ?? 'sem', (r) => (r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : 'Sem local'), opened_rows),
       byArea: tally((r) => String(r.area_id), (r) => r.area_name, opened_rows),
-      byPn: tally((r) => r.part_number ?? '', (r) => r.part_number ?? '', opened_rows).filter((x) => x.key).slice(0, 12),
+      byPn: tally((r) => r.part_number ?? '', pnLabel, opened_rows).filter((x) => x.key).slice(0, 12),
       partNumbers: (await q<{ pn: string }>(`SELECT DISTINCT part_number AS pn FROM work_orders WHERE domain = $1 AND part_number IS NOT NULL`, [d]))
         .map((r) => r.pn).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
       byWorker: [...workers.values()].map((w) => ({ name: w.name, hours: w.hours, orders: w.orders.size })).sort((x, y) => y.hours - x.hours),

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { DEFAULT_CONFIG, mergeConfig } from '../../../shared/config.js';
-import { ROLES } from '../../../shared/constants.js';
+import { ASSET_TYPES, ROLES } from '../../../shared/constants.js';
+import { normalizePn } from '../../../shared/maintenance.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { hashPassword, requireUser, revokeUserSessions } from '../auth.js';
@@ -14,6 +15,8 @@ import { getConfig, invalidateConfig } from '../settings.js';
 import { withTx } from '../context.js';
 import { purgeIssue } from '../services/purge.js';
 import { optText, parse, uuid } from '../validation.js';
+import { parsePartNumbers } from '../services/partNumberImport.js';
+import { readXlsx, XlsxError } from '../services/xlsx.js';
 
 const userBody = z.object({
   name: z.string().trim().min(2).max(120),
@@ -158,7 +161,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   const assetBody = z.object({
-    type: z.enum(['maquina', 'equipamento', 'molde', 'item', 'op', 'outro']), code: z.string().trim().min(1).max(60),
+    type: z.enum(ASSET_TYPES), code: z.string().trim().min(1).max(60),
     description: optText(200), areaId: z.number().int().positive().nullish(), active: z.boolean().default(true),
   });
   app.post('/api/admin/assets', async (req) => {
@@ -176,6 +179,74 @@ export async function adminRoutes(app: FastifyInstance) {
     await q(`UPDATE assets SET type=$2, code=$3, description=$4, area_id=$5, active=$6 WHERE id=$1`, [id, b.type, b.code, b.description, b.areaId ?? null, b.active]);
     await audit(pool, { actorId: u.id, action: 'asset.update', entityType: 'asset', entityId: id, data: b, ip: req.ip });
     return { ok: true };
+  });
+
+  // ------------------------------------------------------------ part numbers (product list used by the orders)
+
+  app.get('/api/admin/part-numbers', async (req) => {
+    catalog(req);
+    return q(`SELECT p.id, p.code, p.description, p.customer, p.machine, p.active,
+        (SELECT count(*)::int FROM work_orders w WHERE w.part_number = p.code) AS orders
+      FROM part_numbers p ORDER BY p.active DESC, p.code`);
+  });
+  const pnBody = z.object({
+    code: z.string().trim().min(1, 'obrigatório').max(60), description: optText(300), customer: optText(120), machine: optText(60),
+    active: z.boolean().default(true),
+  });
+  const savePn = async (req: any, id: number | null) => {
+    const u = catalog(req);
+    const b = parse(pnBody, req.body);
+    const code = normalizePn(b.code)!;
+    try {
+      const r = id
+        ? await one('UPDATE part_numbers SET code=$2, description=$3, customer=$4, machine=$5, active=$6, updated_at=now() WHERE id=$1 RETURNING id', [id, code, b.description, b.customer, b.machine, b.active])
+        : await one('INSERT INTO part_numbers (code, description, customer, machine, active) VALUES ($1,$2,$3,$4,$5) RETURNING id', [code, b.description, b.customer, b.machine, b.active]);
+      if (!r) throw notFound();
+      await audit(pool, { actorId: u.id, action: id ? 'part_number.update' : 'part_number.create', entityType: 'part_number', entityId: (r as any).id, data: { ...b, code }, ip: req.ip });
+      return r;
+    } catch (e: any) {
+      if (e?.code === '23505') throw conflict(`O part number ${code} já está cadastrado.`);
+      throw e;
+    }
+  };
+  app.post('/api/admin/part-numbers', (req) => savePn(req, null));
+  app.put('/api/admin/part-numbers/:id', async (req) => savePn(req, parse(z.object({ id: z.coerce.number().int() }), req.params).id));
+
+  /** Imports the PCP spreadsheet: adds new PNs and fills description, customer and machine. Without ?commit=1 only previews. */
+  app.post('/api/admin/part-numbers/import', async (req) => {
+    const u = catalog(req);
+    const { commit } = parse(z.object({ commit: z.enum(['0', '1']).default('0') }), req.query);
+    let buf: Buffer | null = null;
+    for await (const part of req.parts()) {
+      if (part.type !== 'file') continue;
+      if (!/\.(xlsx|xlsm)$/i.test(part.filename)) throw badRequest('Envie a planilha no formato Excel (.xlsx ou .xlsm).');
+      buf = await part.toBuffer();
+    }
+    if (!buf) throw badRequest('Selecione a planilha.');
+    let parsed;
+    try {
+      parsed = parsePartNumbers(readXlsx(buf));
+    } catch (e) {
+      if (e instanceof XlsxError) throw badRequest(e.message);
+      throw e;
+    }
+    if (!parsed.items.length) throw badRequest('Nenhuma coluna de part number encontrada. A planilha precisa de uma coluna "PART NUMBER" ou "PN".');
+    const existing = new Set((await q<{ code: string }>('SELECT code FROM part_numbers')).map((r) => r.code));
+    const fresh = parsed.items.filter((p) => !existing.has(p.code));
+    const summary = { total: parsed.items.length, novos: fresh.length, existentes: parsed.items.length - fresh.length, abas: parsed.sheets, exemplos: fresh.slice(0, 8) };
+    if (commit !== '1') return summary;
+    await withTx(u, req.ip, async (ctx) => {
+      for (const p of parsed.items) {
+        // new PNs are added; registered ones only get the blanks filled, so manual edits are kept
+        await ctx.db.query(
+          `INSERT INTO part_numbers (code, description, customer, machine) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (upper(code)) DO UPDATE SET description = coalesce(part_numbers.description, EXCLUDED.description),
+             customer = coalesce(part_numbers.customer, EXCLUDED.customer), machine = coalesce(part_numbers.machine, EXCLUDED.machine), updated_at = now()`,
+          [p.code, p.description, p.customer, p.machine]);
+      }
+      await audit(ctx.db, { actorId: u.id, action: 'part_number.import', entityType: 'part_number', data: { total: summary.total, novos: summary.novos }, ip: ctx.ip });
+    });
+    return { ...summary, importado: true };
   });
 
   app.put('/api/admin/step-templates', async (req) => {
