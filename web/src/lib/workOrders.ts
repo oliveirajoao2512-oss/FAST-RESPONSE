@@ -64,6 +64,7 @@ export interface WoOptions {
   teamAreaId: number | null;
   canSeeDashboard: boolean;
   places: Partial<Record<WoLocation, { code: string; description: string | null }[]>>;
+  partNumbers?: string[];
   canWork: boolean;
   canLead: boolean;
 }

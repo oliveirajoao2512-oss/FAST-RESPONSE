@@ -52,10 +52,12 @@ interface Report {
   assets: Group[];
   byCategory: Group[];
   byArea: Group[];
+  byPn: Group[];
+  pnCoverage: number | null;
   heat: number[][];
   pauses: { reason: string; n: number; hours: number }[];
   workers: { id: string; name: string; hours: number; orders: number; finished: number }[];
-  filters: { areas: { id: number; name: string }[]; categories: { key: string; label: string }[] };
+  filters: { areas: { id: number; name: string }[]; categories: { key: string; label: string }[]; partNumbers: string[] };
 }
 interface Group { key: string; label: string; n: number; stoppedH: number; finished: number; workH: number | null }
 
@@ -68,10 +70,11 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
   const [areaId, setAreaId] = useState('');
   const [category, setCategory] = useState('');
   const [asset, setAsset] = useState('');
+  const [pn, setPn] = useState('');
   const range = period === 'custom' ? custom : rangeOf(period);
-  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined };
+  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined };
   const r = useQuery<Report>({ queryKey: ['os', D.d, 'report', params], queryFn: () => get(`${D.api}/report${qs(params)}`) });
-  const filtered = !!(areaId || category || asset);
+  const filtered = !!(areaId || category || asset || pn);
 
   return (
     <div className="space-y-4">
@@ -98,25 +101,32 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
             {r.data?.filters.categories.slice().sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true })).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </Select>
         </label>
+        <label className="text-xs text-gray-600">Part number
+          <Select value={pn} onChange={(e) => setPn(e.target.value)} className="mt-0.5 w-44">
+            <option value="">Todos</option>
+            {pn && !r.data?.filters.partNumbers.includes(pn) && <option value={pn}>{pn}</option>}
+            {r.data?.filters.partNumbers.map((p) => <option key={p} value={p}>{p}</option>)}
+          </Select>
+        </label>
         {asset && (
           <span className="inline-flex items-center gap-1 self-center rounded-full bg-brand-50 px-3 py-1 text-sm text-brand-800">
             Máquina {asset}<button aria-label="Tirar filtro de máquina" onClick={() => setAsset('')}><X size={14} /></button>
           </span>
         )}
-        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); }}>Limpar filtros</Button>}
+        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); }}>Limpar filtros</Button>}
         <a href={`${D.api}/export.xlsx${qs(params)}`} className="ml-auto"><Button><Download size={16} />Exportar Excel</Button></a>
       </div>
 
       {r.isLoading ? <Spinner /> : r.error ? <ErrorBox error={r.error} onRetry={() => r.refetch()} /> : r.data && (
-        <Charts d={r.data} adj={adj} onCategory={setCategory} onAsset={setAsset} />
+        <Charts d={r.data} adj={adj} pn={pn} onCategory={setCategory} onAsset={setAsset} onPn={setPn} />
       )}
 
-      <History range={range} asset={asset} areaId={areaId} category={category} onOpen={onOpen} />
+      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} onOpen={onOpen} />
     </div>
   );
 }
 
-function Charts({ d, adj, onCategory, onAsset }: { d: Report; adj: boolean; onCategory: (k: string) => void; onAsset: (a: string) => void }) {
+function Charts({ d, adj, pn, onCategory, onAsset, onPn }: { d: Report; adj: boolean; pn: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void }) {
   const D = useWoDomain();
   const series = d.series.map((s) => ({ ...s, label: bucketLabel(s.key, d.bucket), waitH: round1(s.waitH), workH: round1(s.workH) }));
   const per = d.bucket === 'dia' ? 'por dia' : d.bucket === 'semana' ? 'por semana' : 'por mês';
@@ -176,6 +186,14 @@ function Charts({ d, adj, onCategory, onAsset }: { d: Report; adj: boolean; onCa
             unit={(v) => h(v)} color={C_STOPPED} onPick={onAsset} empty="Nenhuma máquina parada no período." />
         </Card>
       </div>
+
+      <Card title="Part numbers com mais ordens" actions={<span className="text-xs text-gray-500">{pn ? `filtrando ${pn}: histórico abaixo` : 'clique para ver o histórico do PN'}</span>}>
+        <HBars data={d.byPn.map((p) => ({ key: p.key, label: p.label, value: p.n, extra: [p.stoppedH ? `${h(p.stoppedH)} parada` : '', p.workH != null ? `${adj ? 'ajuste' : 'atendimento'} médio ${h(p.workH)}` : ''].filter(Boolean).join(' · ') }))}
+          unit={(v) => `${v} ${D.short}`} color={C_OPENED} onPick={onPn} empty="Nenhuma ordem com part number no período." />
+        {d.pnCoverage != null && d.pnCoverage < 1 && (
+          <p className="mt-2 text-xs text-gray-500">{Math.round(d.pnCoverage * 100)}% das {D.short} abertas no período têm part number informado.</p>
+        )}
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
         <Card title={`Horas por ${D.worker}`}>
@@ -254,23 +272,24 @@ function Heatmap({ heat, short }: { heat: number[][]; short: string }) {
 }
 
 /** Finished orders in the period, with the same filters, to look back at each one. */
-function History({ range, asset, areaId, category, onOpen }: { range: { from: string; to: string }; asset: string; areaId: string; category: string; onOpen: (id: string) => void }) {
+function History({ range, asset, pn, areaId, category, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; onOpen: (id: string) => void }) {
   const D = useWoDomain();
   const adj = D.d === 'ajuste';
   const [text, setText] = useState('');
-  const list = useWoList('finalizadas', { ...range, asset: asset || undefined, q: text.trim() || undefined });
+  const list = useWoList('finalizadas', { ...range, asset: asset || undefined, pn: pn || undefined, q: text.trim() || undefined });
   const rows = useMemo(() => (list.data ?? []).filter((o) =>
     (!areaId || String(o.area_id) === areaId) && (!category || String(o.kind ?? o.reason) === category)), [list.data, areaId, category]);
   return (
-    <Card title={`Histórico de ${D.short} finalizadas`} actions={
+    <Card title={pn ? `Histórico do part number ${pn}` : `Histórico de ${D.short} finalizadas`} actions={
       <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Buscar no histórico…" aria-label="Buscar no histórico" className="w-56" />}>
       {list.isLoading ? <Spinner /> : list.error ? <ErrorBox error={list.error} /> : !rows.length ? <Empty>Nenhuma {D.short} finalizada com esses filtros.</Empty> : (
         <div className="-mx-4 overflow-x-auto">
-          <table className="w-full min-w-[56rem] text-sm">
+          <table className="w-full min-w-[62rem] text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-gray-500">
                 <th className="px-4 pb-2 font-medium">{D.short}</th>
                 <th className="pb-2 font-medium">Máquina</th>
+                <th className="pb-2 font-medium">PN</th>
                 <th className="pb-2 font-medium">{adj ? 'Motivo' : 'Tipo'}</th>
                 <th className="pb-2 font-medium">{adj ? 'Chamada' : 'Abertura'}</th>
                 <th className="pb-2 font-medium">Finalização</th>
@@ -285,6 +304,7 @@ function History({ range, asset, areaId, category, onOpen }: { range: { from: st
                 <tr key={o.id} className="cursor-pointer hover:bg-gray-50" onClick={() => onOpen(o.id)}>
                   <td className="px-4 py-2 font-mono text-xs"><button className="text-brand-700 hover:underline" onClick={(e) => { e.stopPropagation(); onOpen(o.id); }}>{o.code}</button></td>
                   <td className="py-2 font-medium">{o.asset_ref}{o.machine_stopped && <span className="ml-1 text-xs font-bold text-red-700">parada</span>}</td>
+                  <td className="py-2 font-mono text-xs">{o.part_number ?? '—'}</td>
                   <td className="max-w-48 truncate py-2" title={woCategory(o)}>{woCategory(o)}</td>
                   <td className="py-2 tabular text-gray-600">{fmtShort(o.opened_at)}</td>
                   <td className="py-2 tabular text-gray-600">{fmtShort(o.finished_at)}</td>

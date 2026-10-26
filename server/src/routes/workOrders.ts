@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, eventText, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
-  WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
+  WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
@@ -122,9 +122,10 @@ const reportQuery = z.object({
   category: z.string().max(20).optional(),
   asset: z.string().trim().max(120).optional(),
   location: z.enum(WO_LOCATIONS).optional(),
+  pn: z.string().trim().max(60).optional(),
 });
 
-/** Dashboard filters: period (default: last 6 months), requesting area, type/reason and machine. */
+/** Dashboard filters: period (default: last 6 months), requesting area, type/reason, machine and part number. */
 async function readFilters(req: FastifyRequest) {
   const qs = parse(reportQuery, req.query);
   const zone = (await getConfig()).timezone;
@@ -134,7 +135,8 @@ async function readFilters(req: FastifyRequest) {
     (!qs.areaId || r.area_id === qs.areaId) &&
     (!qs.category || String(r.kind ?? r.reason) === qs.category) &&
     (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase()) &&
-    (!qs.location || r.location_type === qs.location);
+    (!qs.location || r.location_type === qs.location) &&
+    (!qs.pn || r.part_number === normalizePn(qs.pn));
   return { from: from.startOf('day'), to: to.endOf('day'), zone, match };
 }
 
@@ -158,6 +160,9 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     return {
       areas, team, teamAreaId: areaId, canWork: worksDomain(d, u, areaId), canLead: leadsDomain(u, areaId),
       canSeeDashboard: seesDomainDashboard(u, areaId), places: await placeLists(domainLocations(d)),
+      // part numbers already used in any order, most recent first, to suggest while typing
+      partNumbers: (await q<{ pn: string }>(
+        `SELECT part_number AS pn FROM work_orders WHERE part_number IS NOT NULL GROUP BY 1 ORDER BY max(opened_at) DESC LIMIT 500`)).map((r) => r.pn),
     };
   });
 
@@ -182,6 +187,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       from: day.optional(),
       to: day.optional(),
       asset: z.string().trim().max(120).optional(),
+      pn: z.string().trim().max(60).optional(),
     }), req.query);
     const term = qs.q?.trim() ? `%${qs.q.trim()}%` : null;
     const search = `w.domain = $2 AND ($1::text IS NULL OR w.code ILIKE $1 OR w.asset_ref ILIKE $1 OR w.description ILIKE $1 OR w.service_done ILIKE $1 OR w.part_number ILIKE $1)`;
@@ -196,7 +202,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status = 'finalizada' AND ${search}
           AND ($3::timestamptz IS NULL OR w.finished_at >= $3) AND ($4::timestamptz IS NULL OR w.finished_at <= $4)
           AND ($5::text IS NULL OR upper(trim(w.asset_ref)) = upper($5))
-        ORDER BY w.finished_at DESC LIMIT 300`, [term, d, from, to, qs.asset || null]);
+          AND ($6::text IS NULL OR w.part_number = $6)
+        ORDER BY w.finished_at DESC LIMIT 300`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
     return rows.map(withTimes);
   });
 
@@ -269,7 +276,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       const row = {
         kind: d === 'manutencao' ? b.kind! : null,
         reason: d === 'ajuste' ? b.reason! : null,
-        part_number: d === 'ajuste' ? b.partNumber : null,
+        part_number: normalizePn(b.partNumber),
         virgin_pct: material ? b.virginPct : null,
         regrind_pct: material ? b.regrindPct : null,
       };
@@ -602,6 +609,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       .sort((a, b) => b.stoppedH - a.stoppedH || b.n - a.n).slice(0, 12);
     const byCategory = group((r) => String(r.kind ?? r.reason), (r) => categoryOf(r));
     const byArea = group((r) => String(r.area_id), (r) => r.area_name);
+    const byPn = group((r) => r.part_number ?? '', (r) => r.part_number ?? '').filter((x) => x.key).slice(0, 15);
+    const withPn = opened.filter((r) => r.part_number).length;
 
     // when problems appear: openings by weekday × hour
     const heat = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
@@ -659,6 +668,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       assets,
       byCategory,
       byArea,
+      byPn,
+      pnCoverage: opened.length ? withPn / opened.length : null,
       heat,
       pauses: [...pauseReasons.values()].sort((a, b) => b.hours - a.hours),
       workers: [...workers.values()].map((w) => ({ id: w.id, name: w.name, hours: w.hours, orders: w.orders.size, finished: finishedBy.get(w.id) ?? 0 }))
@@ -666,6 +677,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       filters: {
         areas: [...new Map(all.map((r) => [r.area_id, { id: r.area_id, name: r.area_name }])).values()],
         categories: [...new Map(all.map((r) => [String(r.kind ?? r.reason), { key: String(r.kind ?? r.reason), label: categoryOf(r) }])).values()],
+        partNumbers: [...new Set(all.map((r) => r.part_number).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
       },
     };
   });
@@ -678,18 +690,18 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const dt = (x: string | Date | null): OutCell => ({ v: x ? DateTime.fromJSDate(new Date(x)).setZone(zone).toFormat('dd/MM/yyyy HH:mm') : null });
     const h = (msv: number | null): OutCell => ({ v: msv == null ? null : Math.round((msv / 3600_000) * 100) / 100 });
     const adj = d === 'ajuste';
-    const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Local', 'Máquina / montagem', adj ? 'Motivo' : 'Tipo', ...(adj ? ['Part number', '% virgem', '% moído'] : []),
+    const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Local', 'Máquina / montagem', adj ? 'Motivo' : 'Tipo', 'Part number', ...(adj ? ['% virgem', '% moído'] : []),
       'Máquina parada', 'Problema', 'Aberta por', adj ? 'Hora da chamada' : 'Abertura', adj ? 'Hora inicial' : 'Primeiro aceite', adj ? 'Hora final' : 'Finalização',
       'Finalizada por', adj ? 'Ação tomada' : 'Serviço realizado', adj ? 'Observações' : 'Material', 'Espera (h)', adj ? 'Tempo de ajuste (h)' : 'Atendimento (h)', 'Pausado (h)', 'Total (h)'];
     const sheet = {
       name: D.title,
       freezeRow: 1, autoFilterRow: 1,
-      widths: [15, 15, 11, 16, 11, 24, adj ? 40 : 12, ...(adj ? [16, 9, 9] : []), 10, 50, 22, 17, 17, 17, 22, 50, 30, 10, 12, 10, 10],
+      widths: [15, 15, 11, 16, 11, 24, adj ? 40 : 12, 16, ...(adj ? [9, 9] : []), 10, 50, 22, 17, 17, 17, 22, 50, 30, 10, 12, 10, 10],
       rows: [
         head.map((v) => ({ v, s: 2 })),
         ...rows.map((r) => [
           { v: r.code }, { v: WO_STATUS_LABELS[r.status as WoStatus] }, { v: WO_PRIORITY_LABELS[r.priority as WoPriority] }, { v: r.area_name },
-          { v: r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : null }, { v: r.asset_ref }, { v: categoryOf(r) }, ...(adj ? [{ v: r.part_number }, { v: r.virgin_pct }, { v: r.regrind_pct }] : []),
+          { v: r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : null }, { v: r.asset_ref }, { v: categoryOf(r) }, { v: r.part_number }, ...(adj ? [{ v: r.virgin_pct }, { v: r.regrind_pct }] : []),
           { v: r.machine_stopped ? 'Sim' : 'Não' }, { v: r.description },
           { v: r.opened_by_name }, dt(r.opened_at), dt(r.first_accepted_at), dt(r.finished_at), { v: r.finished_by_name }, { v: r.service_done },
           { v: r.material }, h(r.first_accepted_at ? r.times.waitMs : null), h(r.times.workMs), h(r.times.pausedMs), h(r.finished_at ? r.times.totalMs : null),
@@ -718,6 +730,7 @@ const panelQuery = z.object({
   month: z.coerce.number().int().min(1).max(12).optional(),
   location: z.enum(WO_LOCATIONS).optional(),
   asset: z.string().trim().max(120).optional(),
+  pn: z.string().trim().max(60).optional(),
 });
 
 function plantPanelRoutes(app: FastifyInstance) {
@@ -736,7 +749,8 @@ function plantPanelRoutes(app: FastifyInstance) {
     const places = await placeLists(domainLocations(d));
     const match = (r: any) =>
       (!qs.location || r.location_type === qs.location) &&
-      (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase());
+      (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase()) &&
+      (!qs.pn || r.part_number === normalizePn(qs.pn));
 
     const rows = (await q(
       `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`,
@@ -841,6 +855,9 @@ function plantPanelRoutes(app: FastifyInstance) {
       byAsset: tally((r) => r.asset_ref.trim().toUpperCase(), (r) => r.asset_ref.trim(), opened_rows).slice(0, 12),
       byLocation: tally((r) => r.location_type ?? 'sem', (r) => (r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : 'Sem local'), opened_rows),
       byArea: tally((r) => String(r.area_id), (r) => r.area_name, opened_rows),
+      byPn: tally((r) => r.part_number ?? '', (r) => r.part_number ?? '', opened_rows).filter((x) => x.key).slice(0, 12),
+      partNumbers: (await q<{ pn: string }>(`SELECT DISTINCT part_number AS pn FROM work_orders WHERE domain = $1 AND part_number IS NOT NULL`, [d]))
+        .map((r) => r.pn).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
       byWorker: [...workers.values()].map((w) => ({ name: w.name, hours: w.hours, orders: w.orders.size })).sort((x, y) => y.hours - x.hours),
       finishedCount: finished_rows.length,
     };

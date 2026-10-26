@@ -126,6 +126,9 @@ export const woCategory = (o: { kind: WoKind | null; reason: number | null }) =>
 export const leadsMaintenance = leadsDomain;
 export const worksMaintenance = (a: Actor, maintenanceAreaId: number | null | undefined) => worksDomain('manutencao', a, maintenanceAreaId);
 
+/** Part numbers are compared and stored trimmed, single-spaced and in upper case, so "pn 4471 " and "PN 4471" are the same product. */
+export const normalizePn = (v: string | null | undefined) => (v ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
+
 export const woCode = (year: number, number: number, d: WoDomain = 'manutencao') => `${WO_DOMAIN[d].short}-${year}-${String(number).padStart(5, '0')}`;
 
 export interface Interval { from: string | Date; to: string | Date | null }

@@ -156,3 +156,33 @@ describe('painel da planta (estilo Power BI) e plant manager', () => {
     expect((await pm.get('/api/admin/audit')).status).toBe(200);
   });
 });
+
+describe('part number nas duas ordens e histórico por PN', () => {
+  it('OS também guarda o PN, padronizado; dashboard, histórico e painel filtram por PN', async () => {
+    const os = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '10', kind: 'hidraulica', partNumber: '  pn  7788 ', machineStopped: true, description: 'Vazamento' });
+    expect(os.status).toBe(201);
+    expect((await operador.get(`/api/os/${os.body.id}`)).body.part_number).toBe('PN 7788');
+    const other = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '10', kind: 'eletrica', machineStopped: false, description: 'Sem PN' });
+    expect((await operador.get(`/api/os/${other.body.id}`)).body.part_number).toBeNull();
+    expect((await operador.get('/api/os/options')).body.partNumbers).toContain('PN 7788');
+    expect((await manutentor.post(`/api/os/${os.body.id}/aceitar`)).status).toBe(200);
+    expect((await manutentor.post(`/api/os/${os.body.id}/finalizar`, { servico: 'Trocada mangueira' })).status).toBe(200);
+
+    const r = (await liderMan.get('/api/os/report')).body;
+    expect(r.byPn.map((p: any) => p.label)).toContain('PN 7788');
+    expect(r.filters.partNumbers).toContain('PN 7788');
+    expect(r.pnCoverage).toBeLessThan(1);
+    const only = (await liderMan.get('/api/os/report?pn=pn%207788')).body;
+    expect(only.totals.opened).toBe(1);
+    const hist = (await liderMan.get('/api/os?view=finalizadas&pn=PN%207788')).body;
+    expect(hist.map((o: any) => o.id)).toEqual([os.body.id]);
+    const x = await ctx.app.inject({ method: 'GET', url: `/api/os/${os.body.id}/comprovante.pdf`, headers: { cookie: operador.cookie } });
+    expect(x.statusCode).toBe(200);
+
+    const pm = await new Client(ctx.app).login((await createUser('Pedro Plant', 'plant_manager', null)).email);
+    const p = (await pm.get('/api/painel?domain=manutencao&pn=PN%207788')).body;
+    expect(p.period.opened).toBe(1);
+    expect(p.byPn.map((b: any) => b.label)).toEqual(['PN 7788']);
+    expect(p.partNumbers).toContain('PN 7788');
+  });
+});

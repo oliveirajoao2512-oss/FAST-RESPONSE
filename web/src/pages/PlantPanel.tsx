@@ -29,7 +29,8 @@ interface Panel {
   period: { opened: number; finished: number; stops: number; downtimeH: number; mttrH: number | null; waitH: number | null; availability: number | null; mtbfH: number | null };
   now: { open: number; waiting: number; stopped: number; daysSinceStop: number | null };
   months: { month: number; future: boolean; opened: number; finished: number; stops: number; downtimeH: number | null; mttrH: number | null; waitH: number | null; availability: number | null }[];
-  byCategory: Tally[]; byAsset: Tally[]; byLocation: Tally[]; byArea: Tally[];
+  byCategory: Tally[]; byAsset: Tally[]; byLocation: Tally[]; byArea: Tally[]; byPn: Tally[];
+  partNumbers: string[];
   byWorker: { name: string; hours: number; orders: number }[];
 }
 
@@ -44,12 +45,14 @@ export function PlantPanelPage() {
   const [month, setMonth] = useState<number | null>(null);
   const [location, setLocation] = useState<WoLocation | ''>('');
   const [asset, setAsset] = useState('');
-  const params = { domain, year, month: month ?? undefined, location: location || undefined, asset: asset || undefined };
+  const [pn, setPn] = useState('');
+  const params = { domain, year, month: month ?? undefined, location: location || undefined, asset: asset || undefined, pn: pn || undefined };
   const r = useQuery<Panel>({ queryKey: ['os', 'panel', params], queryFn: () => get(`/api/painel${qs(params)}`), placeholderData: (prev) => prev });
   const d = r.data;
   const switchWindow = (w: WoDomain) => {
     setDomain(w);
     setAsset('');
+    setPn('');
     if (w === 'ajuste' && location === 'montagem') setLocation('');
   };
   const locations: WoLocation[] = domain === 'ajuste' ? ['maquina'] : ['maquina', 'montagem'];
@@ -95,11 +98,17 @@ export function PlantPanelPage() {
               {assetOptions.map((a) => <option key={`${a.l}-${a.code}`} value={a.code}>{locations.length > 1 && !location ? `${WO_LOCATION_LABELS[a.l]} ${a.code}` : a.code}</option>)}
             </select>
           </Filter>
-          <button onClick={() => { setMonth(null); setLocation(''); setAsset(''); }} className="ml-auto rounded-full bg-[#e6e8eb] px-4 py-1.5 text-xs font-semibold text-[#2b3036] hover:bg-white">LIMPAR FILTROS</button>
+          <Filter label="Part number">
+            <select value={pn} onChange={(e) => setPn(e.target.value)} className={cx(selectCls, 'w-40')}>
+              <option value="">Todos</option>
+              {(d?.partNumbers ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </Filter>
+          <button onClick={() => { setMonth(null); setLocation(''); setAsset(''); setPn(''); }} className="ml-auto rounded-full bg-[#e6e8eb] px-4 py-1.5 text-xs font-semibold text-[#2b3036] hover:bg-white">LIMPAR FILTROS</button>
         </div>
 
         {r.isLoading ? <Spinner /> : r.error ? <ErrorBox error={r.error} onRetry={() => r.refetch()} /> : d && (
-          <Report d={d} month={month} onMonth={(m) => setMonth(m === month ? null : m)} onAsset={setAsset} />
+          <Report d={d} month={month} onMonth={(m) => setMonth(m === month ? null : m)} onAsset={setAsset} onPn={setPn} />
         )}
         <p className="px-1 text-[11px] text-gray-500">
           Disponibilidade e MTBF consideram 24 h por dia e {d?.units ?? '—'} {d?.units === 1 ? 'equipamento' : 'equipamentos'} no filtro; a parada conta da abertura ao fim da ordem aberta com máquina parada.
@@ -113,7 +122,7 @@ export function PlantPanelPage() {
 const selectCls = 'mt-0.5 block w-32 rounded bg-[#3a4047] px-2 py-1 text-xs text-white outline-none ring-1 ring-[#4a5058] focus:ring-[#ea6a1f]';
 const Filter = ({ label, children }: { label: string; children: ReactNode }) => <label className="block">{label}{children}</label>;
 
-function Report({ d, month, onMonth, onAsset }: { d: Panel; month: number | null; onMonth: (m: number) => void; onAsset: (a: string) => void }) {
+function Report({ d, month, onMonth, onAsset, onPn }: { d: Panel; month: number | null; onMonth: (m: number) => void; onAsset: (a: string) => void; onPn: (p: string) => void }) {
   const D = WO_DOMAIN[d.domain];
   const adj = d.domain === 'ajuste';
   const months = d.months.filter((m) => !m.future).map((m) => ({
@@ -264,11 +273,15 @@ function Report({ d, month, onMonth, onAsset }: { d: Panel; month: number | null
         ) : <Empty />}
       </Tile>
 
-      <Tile section="Equipamentos" title={`${adj ? 'Máquinas' : 'Máquinas e montagens'} com mais ${D.short} - qtd`} className="xl:col-span-6">
+      <Tile section="Equipamentos" title={`${adj ? 'Máquinas' : 'Máquinas e montagens'} com mais ${D.short} - qtd`} className="xl:col-span-4">
         <HBars rows={d.byAsset.map((a) => ({ key: a.label, label: a.label, value: a.n, note: a.downtimeH ? `${hfmt(a.downtimeH)} parada` : '' }))} color={NAVY} onPick={onAsset} />
       </Tile>
 
-      <Tile section="Pessoas" title={`Horas por ${D.worker} - qtd`} className="xl:col-span-6">
+      <Tile section="Produtos" title={`Part numbers com mais ${D.short} - qtd`} className="xl:col-span-4">
+        <HBars rows={d.byPn.map((p) => ({ key: p.key, label: p.label, value: p.n, note: p.downtimeH ? `${hfmt(p.downtimeH)} parada` : '' }))} color={ORANGE} onPick={onPn} />
+      </Tile>
+
+      <Tile section="Pessoas" title={`Horas por ${D.worker} - qtd`} className="xl:col-span-4">
         <HBars rows={d.byWorker.map((w) => ({ key: w.name, label: w.name, value: Math.round(w.hours * 10) / 10, note: `${w.orders} ${D.short}`, fmt: hfmt }))} color={ORANGE} />
       </Tile>
 
@@ -328,7 +341,7 @@ function HBars({ rows, color, onPick }: { rows: { key: string; label: string; va
       {list.map((r) => (
         <li key={r.key}>
           <button type="button" disabled={!onPick} onClick={() => onPick?.(r.key)} title={onPick ? 'Filtrar por este item' : undefined}
-            className={cx('grid w-full grid-cols-[minmax(0,10rem)_1fr] items-center gap-2 rounded px-1 py-0.5 text-left text-xs sm:grid-cols-[minmax(0,14rem)_1fr]', onPick && 'hover:bg-gray-50')}>
+            className={cx('grid w-full grid-cols-[minmax(0,40%)_1fr] items-center gap-2 rounded px-1 py-0.5 text-left text-xs', onPick && 'hover:bg-gray-50')}>
             <span className="truncate text-gray-800" title={r.label}>{r.label}</span>
             <span className="flex items-center gap-2">
               <span className="h-4 rounded-sm" style={{ width: `${Math.max(2, (r.value / max) * 70)}%`, background: color }} />

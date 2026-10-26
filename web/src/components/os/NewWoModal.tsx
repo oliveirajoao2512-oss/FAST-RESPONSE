@@ -83,8 +83,9 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
     try {
       const r = await post<{ id: string; code: string }>(D.api, {
         areaId, location, assetRef: asset.trim(), machineStopped: stopped, description: description.trim(),
+        partNumber: partNumber.trim() || null,
         ...(adj
-          ? { reason, partNumber: partNumber.trim() || null, ...(askMaterial ? { virginPct: Number(virgin), regrindPct: Number(regrind) } : {}) }
+          ? { reason, ...(askMaterial ? { virginPct: Number(virgin), regrindPct: Number(regrind) } : {}) }
           : { kind }),
       });
       try {
@@ -190,11 +191,10 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
               </Field>
             </div>
           )}
-          {adj && (
-            <Field label="Part number">
-              <Input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} maxLength={60} placeholder="Opcional" autoComplete="off" />
-            </Field>
-          )}
+          <Field label="Part number" hint="O produto que estava rodando. Comece a digitar para ver os já usados.">
+            <Input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} maxLength={60} placeholder="Opcional" autoComplete="off" list="wo-part-numbers" />
+            <datalist id="wo-part-numbers">{opts.data?.partNumbers?.map((pn) => <option key={pn} value={pn} />)}</datalist>
+          </Field>
           <div>
             <span className="mb-1 block text-sm font-medium text-gray-700">{stoppedQuestion} <span className="text-red-600" aria-hidden>*</span></span>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={stoppedQuestion}>

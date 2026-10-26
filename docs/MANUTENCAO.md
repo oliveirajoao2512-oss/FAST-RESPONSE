@@ -27,7 +27,9 @@ na ordem da planta. As listas ficam em Gestão → Cadastros (tipos "Máquina" e
 uma máquina ou montagem, basta editar lá. Não é possível digitar um local fora da lista.
 
 Campos: setor (já vem a área de quem abre), máquina ou montagem da lista,
-tipo (mecânica, elétrica, hidráulica, pneumática, outros), se a máquina está parada, descrição e foto opcional.
+tipo (mecânica, elétrica, hidráulica, pneumática, outros), **part number** (opcional, com sugestão dos PNs já usados),
+se a máquina está parada, descrição e foto opcional. O PN é gravado padronizado (maiúsculas, sem espaços sobrando), então
+"pn 4471" e "PN 4471" contam como o mesmo produto.
 Número, solicitante, data e hora são automáticos. Se já existe OS aberta para a mesma máquina, o formulário avisa.
 
 Máquina parada → prioridade **crítica** e notificação na hora para manutentores, gerente e líder de manutenção.
@@ -76,13 +78,15 @@ programada. A regra é: quanto mais rápido, melhor.
 Aba **Dashboard** dentro de cada módulo. A de OS é exclusiva do gestor e do líder de Manutenção; a de Ajustes, do
 gestor e do líder de Processos. O administrador vê as duas. O servidor recusa o acesso de qualquer outro perfil.
 
-- Filtros: período (30 dias, 3, 6 ou 12 meses, ou datas), setor que abriu, tipo/motivo e máquina (clicando no gráfico).
+- Filtros: período (30 dias, 3, 6 ou 12 meses, ou datas), setor que abriu, tipo/motivo, part number e máquina (clicando no gráfico).
 - Números: fila agora, em atendimento, abertas e finalizadas no período, espera média até o aceite (e % aceitas em até
   30 min), tempo médio de atendimento/ajuste sem pausas, horas de máquina parada.
 - Gráficos: abertas × finalizadas e tempos médios por dia, semana ou mês (conforme o período), tipos/motivos mais
   frequentes, máquinas com mais horas paradas, horas por técnico, setores que mais abrem, tempo pausado por motivo e
   mapa de dia da semana × hora em que os chamados acontecem.
-- Histórico das ordens finalizadas com os mesmos filtros e busca; clicar abre a ordem completa.
+- **Part numbers com mais ordens**: quantidade, horas de máquina parada e tempo médio por PN, e a % das ordens que têm
+  PN informado. Clicar num PN filtra o dashboard inteiro e mostra o **histórico daquele PN**.
+- Histórico das ordens finalizadas (com a coluna PN) com os mesmos filtros e busca; clicar abre a ordem completa.
 - Exportação Excel do período filtrado.
 
 # Ordens de Ajuste - Processo (OA)
@@ -108,10 +112,11 @@ que o sistema gera para a mesma ordem. Cada emissão fica registrada na auditori
 
 Menu **Painel da planta** (rota `/painel-planta`), visível somente para o **administrador** e o **Plant Manager**.
 Segue o padrão visual dos relatórios em Power BI da empresa: duas janelas (Manutenção e Processos) na barra lateral do
-painel e filtros no topo (ano, mês, local, máquina/montagem). Clicar em um mês filtra o painel.
+painel e filtros no topo (ano, mês, local, máquina/montagem, part number). Clicar em um mês, máquina ou PN filtra o painel.
 
 Indicadores: dias sem máquina parada, disponibilidade, MTBF, MTTR (ou tempo de ajuste), espera, abertas × finalizadas
-por mês, horas paradas por mês, disponibilidade por mês, tipos/motivos, máquinas e montagens com mais ordens, horas
+por mês, horas paradas por mês, disponibilidade por mês, tipos/motivos, máquinas e montagens com mais ordens, part numbers
+com mais ordens, horas
 por técnico, máquina × montagem e setores que abrem.
 
 Disponibilidade e MTBF são estimados considerando 24 h por dia e todos os equipamentos cadastrados no filtro; a parada
