@@ -4,7 +4,7 @@ import { fileTypeFromBuffer } from 'file-type';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
-  ADJ_MATERIAL_REASON, ADJ_REASON_CODES, eventText, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
+  ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, LOGISTICS_AREA_SLUG, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
   WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
@@ -30,6 +30,15 @@ async function domainAreaId(d: WoDomain): Promise<number | null> {
   if (!cachedAreaId.has(d)) cachedAreaId.set(d, (await one<{ id: number }>('SELECT id FROM areas WHERE slug = $1', [WO_DOMAIN[d].areaSlug]))?.id ?? null);
   return cachedAreaId.get(d)!;
 }
+let cachedLogistics: number | null | undefined;
+/** Area whose gestores and líderes analyse planned maintenance. */
+async function logisticsAreaId(): Promise<number | null> {
+  if (cachedLogistics === undefined) cachedLogistics = (await one<{ id: number }>('SELECT id FROM areas WHERE slug = $1', [LOGISTICS_AREA_SLUG]))?.id ?? null;
+  return cachedLogistics;
+}
+async function logisticsLeaders(db: Db) {
+  return (await q<{ id: string }>(`SELECT id FROM users WHERE active AND role IN ('gestor','lider') AND area_id = $1`, [await logisticsAreaId()], db)).map((r) => r.id);
+}
 
 /** Machines and assembly cells registered in Cadastros, in the plant's order. */
 async function placeLists(types: WoLocation[]) {
@@ -48,6 +57,7 @@ async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
 const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.location_type, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
   w.status, w.suggested_to, w.transfer_from, w.transfer_to, w.service_done, w.material, w.opened_at, w.first_accepted_at, w.finished_at,
   w.finished_by, w.updated_at, w.version,
+  w.scheduled, w.requested_start, w.planned_start, w.planned_hours::float AS planned_hours, w.analyzed_at, w.analysis_note, an.name AS analyzed_by_name,
   pn.description AS part_description,
   ob.name AS opened_by_name, a.name AS area_name, a.color AS area_color, sg.name AS suggested_name, tf.name AS transfer_from_name,
   tt.name AS transfer_to_name, fb.name AS finished_by_name,
@@ -59,12 +69,14 @@ const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.a
 const LIST_FROM = `work_orders w JOIN users ob ON ob.id = w.opened_by JOIN areas a ON a.id = w.area_id
   LEFT JOIN part_numbers pn ON pn.code = w.part_number
   LEFT JOIN users sg ON sg.id = w.suggested_to LEFT JOIN users tf ON tf.id = w.transfer_from
-  LEFT JOIN users tt ON tt.id = w.transfer_to LEFT JOIN users fb ON fb.id = w.finished_by`;
+  LEFT JOIN users tt ON tt.id = w.transfer_to LEFT JOIN users fb ON fb.id = w.finished_by
+  LEFT JOIN users an ON an.id = w.analyzed_by`;
 const QUEUE_ORDER = `w.pinned DESC, CASE w.priority WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, w.opened_at`;
 
 const withTimes = (r: any) => {
   const pauses: Interval[] = r.pauses.map((p: any) => ({ from: p.from, to: p.to }));
-  return { ...r, times: woTimes(r, pauses) };
+  // planned maintenance counts from the approved date, not from the day it was asked for
+  return { ...r, start_at: woStart(r), times: woTimes({ ...r, opened_at: woStart(r) }, pauses) };
 };
 
 async function loadForUpdate(ctx: Ctx, d: WoDomain, id: string) {
@@ -97,7 +109,9 @@ function guardLeader(d: WoDomain, u: SessionUser, areaId: number | null) {
   if (!leadsDomain(u, areaId)) throw forbidden(`Somente o gestor e o líder de ${WO_DOMAIN[d].team} podem fazer isso.`);
 }
 const assertOpen = (w: any) => {
-  if (w.status === 'finalizada') throw unprocessable(`Esta ${w.domain === 'ajuste' ? 'OA' : 'OS'} já foi finalizada.`);
+  const S = w.domain === 'ajuste' ? 'OA' : 'OS';
+  if (w.status === 'finalizada') throw unprocessable(`Esta ${S} já foi finalizada.`);
+  if (w.status === 'recusada') throw unprocessable(`Esta ${S} programada foi recusada pela Logística.`);
 };
 
 const pct = z.number().min(0).max(100).nullable().optional();
@@ -110,9 +124,14 @@ const createSchema = z.object({
   partNumber: optText(60),
   virginPct: pct,
   regrindPct: pct,
-  machineStopped: z.boolean(),
+  machineStopped: z.boolean().optional(),
   description: z.string().trim().min(1, 'obrigatório').max(2000),
+  /** planned maintenance: date asked and how many hours the equipment will be stopped */
+  scheduled: z.boolean().default(false),
+  plannedStart: z.string().datetime({ offset: true }).optional(),
+  plannedHours: z.number().positive('informe as horas').max(720).optional(),
 });
+const fmtWhen = async (x: Date | string) => DateTime.fromJSDate(new Date(x)).setZone((await getConfig()).timezone).toFormat("dd/MM/yyyy 'às' HH:mm");
 const categoryOf = woCategory;
 const reason = z.object({ motivo: z.string().trim().min(1, 'informe o motivo').max(300) });
 
@@ -184,6 +203,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     ]);
     return {
       areas, team, teamAreaId: areaId, canWork: worksDomain(d, u, areaId), canLead: leadsDomain(u, areaId),
+      canSchedule: d === 'manutencao', canAnalyze: d === 'manutencao' && analyzesSchedule(u, await logisticsAreaId()),
       canSeeDashboard: seesDomainDashboard(u, areaId), places: await placeLists(domainLocations(d)),
       // part numbers already used in any order, most recent first, to suggest while typing
       partNumbers: (await q<{ pn: string }>(
@@ -223,18 +243,18 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const term = qs.q?.trim() ? `%${qs.q.trim()}%` : null;
     const search = `w.domain = $2 AND ($1::text IS NULL OR w.code ILIKE $1 OR w.asset_ref ILIKE $1 OR w.description ILIKE $1 OR w.service_done ILIKE $1 OR w.part_number ILIKE $1)`;
     if (qs.view === 'abertas') {
-      const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status <> 'finalizada' AND ${search} ORDER BY ${QUEUE_ORDER}`, [term, d]);
+      const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status <> ALL($3) AND ${search} ORDER BY ${QUEUE_ORDER}`, [term, d, WO_CLOSED_STATUSES]);
       return rows.map(withTimes);
     }
     const zone = (await getConfig()).timezone;
     const from = qs.from ? DateTime.fromISO(qs.from, { zone }).startOf('day').toJSDate() : null;
     const to = qs.to ? DateTime.fromISO(qs.to, { zone }).endOf('day').toJSDate() : null;
     const rows = await q(
-      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status = 'finalizada' AND ${search}
-          AND ($3::timestamptz IS NULL OR w.finished_at >= $3) AND ($4::timestamptz IS NULL OR w.finished_at <= $4)
+      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status IN ('finalizada', 'recusada') AND ${search}
+          AND ($3::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at) >= $3) AND ($4::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at) <= $4)
           AND ($5::text IS NULL OR upper(trim(w.asset_ref)) = upper($5))
           AND ($6::text IS NULL OR w.part_number = $6)
-        ORDER BY w.finished_at DESC LIMIT 300`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
+        ORDER BY COALESCE(w.finished_at, w.analyzed_at) DESC LIMIT 300`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
     return rows.map(withTimes);
   });
 
@@ -291,6 +311,13 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const u = requireUser(req);
     const b = parse(createSchema, req.body);
     if (d === 'manutencao' && !b.kind) throw badRequest('Informe o tipo de manutenção.', { kind: 'obrigatório' });
+    const planned = b.scheduled;
+    if (planned) {
+      if (d !== 'manutencao') throw badRequest('Só ordens de manutenção podem ser programadas.');
+      if (!b.plannedStart) throw badRequest('Informe a data e a hora da manutenção programada.', { plannedStart: 'obrigatório' });
+      if (new Date(b.plannedStart).getTime() < Date.now() - 3600_000) throw badRequest('A data da manutenção programada já passou.', { plannedStart: 'no passado' });
+      if (!b.plannedHours) throw badRequest('Informe quantas horas a máquina vai ficar parada.', { plannedHours: 'obrigatório' });
+    } else if (b.machineStopped === undefined) throw badRequest('Responda se a máquina está parada.', { machineStopped: 'obrigatório' });
     if (d === 'ajuste' && !b.reason) throw badRequest('Informe o motivo do ajuste.', { reason: 'obrigatório' });
     if (!domainLocations(d).includes(b.location)) throw badRequest('Ordens de ajuste são abertas somente em máquinas.');
     const place = await one<{ code: string }>('SELECT code FROM assets WHERE active AND type = $1 AND lower(code) = lower($2)', [b.location, b.assetRef]);
@@ -304,7 +331,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       const year = DateTime.now().setZone((await getConfig()).timezone).year;
       const seq = d === 'ajuste' ? 'adjustment_order_number_seq' : 'work_order_number_seq';
       const { n } = (await one<{ n: number }>(`SELECT nextval('${seq}')::int AS n`, [], ctx.db))!;
-      const priority: WoPriority = b.machineStopped ? 'critica' : 'normal';
+      const stopped = !planned && !!b.machineStopped;
+      const priority: WoPriority = stopped ? 'critica' : 'normal';
       const row = {
         kind: d === 'manutencao' ? b.kind! : null,
         reason: d === 'ajuste' ? b.reason! : null,
@@ -313,17 +341,27 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         regrind_pct: material ? b.regrindPct : null,
       };
       const w = (await one<any>(
-        `INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, kind, reason, part_number, virgin_pct, regrind_pct, machine_stopped, description, priority, location_type)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, code`,
+        `INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, kind, reason, part_number, virgin_pct, regrind_pct, machine_stopped, description, priority, location_type,
+            status, scheduled, requested_start, planned_start, planned_hours)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$19) RETURNING id, code`,
         [d, n, woCode(year, n, d), u.id, b.areaId, place.code, row.kind, row.reason, row.part_number, row.virgin_pct, row.regrind_pct,
-          b.machineStopped, b.description, priority, b.location], ctx.db))!;
+          stopped, b.description, priority, b.location,
+          planned ? 'em_analise' : 'aberta', planned, planned ? b.plannedStart : null, planned ? b.plannedHours : null], ctx.db))!;
       const category = categoryOf(row);
       await event(ctx, w.id, 'abriu', {
-        local: WO_LOCATION_LABELS[b.location], maquina: place.code, [d === 'ajuste' ? 'motivo' : 'tipo']: category, parada: b.machineStopped,
+        local: WO_LOCATION_LABELS[b.location], maquina: place.code, [d === 'ajuste' ? 'motivo' : 'tipo']: category, parada: stopped,
+        ...(planned ? { programada: await fmtWhen(b.plannedStart!), horas: b.plannedHours } : {}),
         ...(row.part_number ? { part_number: row.part_number } : {}),
         ...(material ? { virgem: row.virgin_pct, moido: row.regrind_pct } : {}),
       });
       await audit(ctx.db, { actorId: u.id, action: `${D.short.toLowerCase()}.create`, entityType: 'work_order', entityId: w.id, data: { codigo: w.code, maquina: b.assetRef }, ip: ctx.ip });
+      if (planned) {
+        await notify(ctx.db, ctx.events, {
+          userIds: await logisticsLeaders(ctx.db), type: 'os_programada', exceptUserId: u.id, workOrderId: w.id,
+          title: `${w.code}: manutenção programada aguardando análise da Logística`,
+          body: `${b.assetRef} · ${await fmtWhen(b.plannedStart!)} · ${b.plannedHours} h parada. Pedida por ${u.name}.`,
+        });
+      }
       if (priority === 'critica') {
         const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
         await notify(ctx.db, ctx.events, {
@@ -409,6 +447,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   act('aceitar', async (ctx, w, _b, areaId) => {
     guardWorker(d, ctx.actor, areaId);
     assertOpen(w);
+    if (w.status === 'em_analise') throw unprocessable('Esta manutenção programada ainda aguarda a análise da Logística.');
+    const waiting = WO_WAITING_STATUSES.includes(w.status);
     const me = ctx.actor.id;
     const workers = await activeWorkers(ctx, w.id);
     if (workers.includes(me)) throw unprocessable(`Você já está atuando nesta ${D.short}.`);
@@ -420,9 +460,9 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       await event(ctx, w.id, 'assumiu', { de: from?.name });
       await notify(ctx.db, ctx.events, { userIds: [w.transfer_from], type: 'os_transferida', workOrderId: w.id, title: `${w.code}: ${ctx.actor.name} assumiu a ${D.short}` });
     } else {
-      await event(ctx, w.id, w.status === 'aberta' ? 'aceitou' : 'entrou');
+      await event(ctx, w.id, waiting ? 'aceitou' : 'entrou');
     }
-    if (w.status === 'aberta') {
+    if (waiting) {
       await q(`UPDATE work_orders SET status = 'em_atendimento', first_accepted_at = COALESCE(first_accepted_at, now()), suggested_to = NULL WHERE id = $1`, [w.id], ctx.db);
       await notify(ctx.db, ctx.events, {
         userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_aceita', exceptUserId: me, workOrderId: w.id,
@@ -446,7 +486,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (w.transfer_from === me) await q('UPDATE work_orders SET transfer_from = NULL, transfer_to = NULL WHERE id = $1', [w.id], ctx.db);
     if (last) {
       await endPause(ctx, w.id);
-      await q(`UPDATE work_orders SET status = 'aberta', transfer_from = NULL, transfer_to = NULL WHERE id = $1`, [w.id], ctx.db);
+      await q(`UPDATE work_orders SET status = $2, transfer_from = NULL, transfer_to = NULL WHERE id = $1`, [w.id, w.scheduled ? 'programada' : 'aberta'], ctx.db);
       await notify(ctx.db, ctx.events, {
         userIds: [w.opened_by], type: 'os_devolvida', exceptUserId: me, workOrderId: w.id,
         title: `${w.code} voltou para a fila`, body: `${ctx.actor.name}: ${motivo}`,
@@ -521,6 +561,38 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     });
   });
 
+  /** Logistics leadership approves the planned maintenance (on the asked date or another one) or refuses it. */
+  act('analisar', async (ctx, w, body, areaId) => {
+    if (!analyzesSchedule(ctx.actor, await logisticsAreaId())) throw forbidden('Somente o gestor e o líder de Logística analisam a manutenção programada.');
+    if (w.status !== 'em_analise') throw unprocessable('Esta OS não está aguardando análise da Logística.');
+    const b = parse(z.discriminatedUnion('decisao', [
+      z.object({ decisao: z.literal('aprovar'), plannedStart: z.string().datetime({ offset: true }), plannedHours: z.number().positive().max(720), obs: optText(500) }),
+      z.object({ decisao: z.literal('recusar'), motivo: z.string().trim().min(1, 'informe o motivo').max(500) }),
+    ]), body);
+    if (b.decisao === 'aprovar') {
+      const when = await fmtWhen(b.plannedStart);
+      await q(`UPDATE work_orders SET status = 'programada', planned_start = $2, planned_hours = $3, analyzed_by = $4, analyzed_at = now(), analysis_note = $5 WHERE id = $1`,
+        [w.id, b.plannedStart, b.plannedHours, ctx.actor.id, b.obs], ctx.db);
+      const moved = new Date(b.plannedStart).getTime() !== new Date(w.requested_start).getTime();
+      await event(ctx, w.id, 'aprovou', { data: when, horas: b.plannedHours, ...(b.obs ? { obs: b.obs } : {}), ...(moved ? { pedida: await fmtWhen(w.requested_start) } : {}) });
+      const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
+      await notify(ctx.db, ctx.events, {
+        userIds: [w.opened_by, ...team], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
+        title: `${w.code}: manutenção programada aprovada para ${when}`,
+        body: `${w.asset_ref} · ${b.plannedHours} h parada.${moved ? ' A Logística mudou a data pedida.' : ''}${b.obs ? ` ${b.obs}` : ''}`,
+      });
+    } else {
+      await q(`UPDATE work_orders SET status = 'recusada', analyzed_by = $2, analyzed_at = now(), analysis_note = $3, pinned = false, suggested_to = NULL WHERE id = $1`,
+        [w.id, ctx.actor.id, b.motivo], ctx.db);
+      await event(ctx, w.id, 'reprovou', { motivo: b.motivo });
+      await notify(ctx.db, ctx.events, {
+        userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
+        title: `${w.code}: manutenção programada recusada pela Logística`, body: b.motivo,
+      });
+    }
+    await audit(ctx.db, { actorId: ctx.actor.id, action: `os.schedule_${b.decisao}`, entityType: 'work_order', entityId: w.id, data: { codigo: w.code }, ip: ctx.ip });
+  });
+
   act('prioridade', async (ctx, w, body, areaId) => {
     guardLeader(d, ctx.actor, areaId);
     assertOpen(w);
@@ -582,7 +654,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (!seesDomainDashboard(u, await domainAreaId(d))) throw forbidden(`O painel de ${D.title} é exclusivo dos gestores e líderes de ${D.team}.`);
   };
   const reportRows = async (from: Date, to: Date) => {
-    const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`, [from, to, d]);
+    const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.status NOT IN ('em_analise', 'recusada')
+        AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`, [from, to, d]);
     return rows.map(withTimes);
   };
 
@@ -600,7 +673,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const hours = (msv: number) => msv / 3600_000;
     const avg = (xs: number[]) => (xs.length ? hours(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
     const now = await q<{ status: WoStatus; priority: WoPriority; machine_stopped: boolean; n: number }>(
-      `SELECT status, priority, machine_stopped, count(*)::int AS n FROM work_orders WHERE domain = $1 AND status <> 'finalizada' GROUP BY 1, 2, 3`, [d]);
+      `SELECT status, priority, machine_stopped, count(*)::int AS n FROM work_orders WHERE domain = $1 AND status IN ('aberta', 'em_atendimento', 'pausada') GROUP BY 1, 2, 3`, [d]);
     const count = (p: (r: (typeof now)[number]) => boolean) => now.filter(p).reduce((a, r) => a + r.n, 0);
     // stopped-machine hours: opening → finish (or now) of orders opened with the machine stopped, clipped to the range
     const clip = (a: string | Date, b: string | Date | null) => Math.max(0, Math.min(t.getTime(), b ? new Date(b).getTime() : Date.now()) - Math.max(f.getTime(), new Date(a).getTime()));
@@ -752,6 +825,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
 /** Test hook: the domain area ids are cached per process. */
 export function resetMaintenanceAreaCache() {
   cachedAreaId.clear();
+  cachedLogistics = undefined;
 }
 
 // ------------------------------------------------------------ plant panel (Power BI style), administrator and plant manager
@@ -785,7 +859,8 @@ function plantPanelRoutes(app: FastifyInstance) {
       (!qs.pn || r.part_number === normalizePn(qs.pn));
 
     const rows = (await q(
-      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`,
+      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.status NOT IN ('em_analise', 'recusada')
+          AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`,
       [yStart.toJSDate(), yEnd.toJSDate(), d])).map(withTimes).filter(match);
     const ids = new Set(rows.map((r) => r.id));
     const hours = (msv: number) => msv / 3600_000;
@@ -864,7 +939,7 @@ function plantPanelRoutes(app: FastifyInstance) {
       workers.set(x.user_id, cur);
     }
 
-    const openNow = rows.filter((r) => r.status !== 'finalizada');
+    const openNow = rows.filter((r) => r.status !== 'finalizada' && r.status !== 'programada');
     const lastStop = (await one<{ at: Date | null }>(
       `SELECT max(opened_at) AS at FROM work_orders WHERE domain = $1 AND machine_stopped AND ($2::text IS NULL OR location_type = $2)
           AND ($3::text IS NULL OR upper(trim(asset_ref)) = upper($3))`, [d, qs.location ?? null, qs.asset || null]))?.at ?? null;

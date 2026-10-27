@@ -48,6 +48,14 @@ export interface WorkOrder {
   pauses: { from: string; to: string | null; reason: string }[];
   files: number;
   times: WoTimes;
+  /** planned maintenance, analysed by Logistics before reaching the queue */
+  scheduled: boolean;
+  requested_start: string | null;
+  planned_start: string | null;
+  planned_hours: number | null;
+  analyzed_at: string | null;
+  analyzed_by_name: string | null;
+  analysis_note: string | null;
 }
 
 export interface WorkOrderDetail extends WorkOrder {
@@ -67,6 +75,8 @@ export interface WoOptions {
   partNumbers?: string[];
   canWork: boolean;
   canLead: boolean;
+  canSchedule?: boolean;
+  canAnalyze?: boolean;
 }
 
 // every key starts with 'os' so one realtime event refreshes both modules

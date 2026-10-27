@@ -95,15 +95,33 @@ export const WO_KIND_LABELS: Record<WoKind, string> = {
   outros: 'Outros',
 };
 
-export const WO_STATUSES = ['aberta', 'em_atendimento', 'pausada', 'finalizada'] as const;
+export const WO_STATUSES = ['em_analise', 'programada', 'aberta', 'em_atendimento', 'pausada', 'finalizada', 'recusada'] as const;
 export type WoStatus = (typeof WO_STATUSES)[number];
 export const WO_STATUS_LABELS: Record<WoStatus, string> = {
+  em_analise: 'Em análise na Logística',
+  programada: 'Programada',
   aberta: 'Aberta',
   em_atendimento: 'Em atendimento',
   pausada: 'Pausada',
   finalizada: 'Finalizada',
+  recusada: 'Recusada pela Logística',
 };
 export const WO_OPEN_STATUSES: WoStatus[] = ['aberta', 'em_atendimento', 'pausada'];
+/** Statuses that end the order: finished by the team, or a planned maintenance refused by Logistics. */
+export const WO_CLOSED_STATUSES: WoStatus[] = ['finalizada', 'recusada'];
+/** Orders that can be accepted by the team (planned ones once Logistics approved them). */
+export const WO_WAITING_STATUSES: WoStatus[] = ['aberta', 'programada'];
+
+/**
+ * Planned maintenance: opened with a date and how long the equipment will be stopped. The Logistics leadership
+ * (gestor or líder of the Logística area) approves it, on the asked date or another one, or refuses it with a reason.
+ */
+export const LOGISTICS_AREA_SLUG = 'logistica';
+export const analyzesSchedule = (a: Actor, logisticsAreaId: number | null | undefined) =>
+  a.role === 'admin' || ((a.role === 'gestor' || a.role === 'lider') && a.areaId != null && a.areaId === logisticsAreaId);
+/** When the order starts counting: the approved date for planned maintenance, otherwise the opening. */
+export const woStart = (o: { opened_at: string | Date; scheduled?: boolean; planned_start?: string | Date | null }) =>
+  o.scheduled && o.planned_start && new Date(o.planned_start) > new Date(o.opened_at) ? o.planned_start : o.opened_at;
 
 export const WO_PRIORITIES = ['critica', 'alta', 'normal', 'baixa'] as const;
 export type WoPriority = (typeof WO_PRIORITIES)[number];
@@ -159,13 +177,14 @@ export interface WoTimes {
   totalMs: number;
 }
 
+
 export function woTimes(o: { opened_at: string | Date; first_accepted_at: string | Date | null; finished_at: string | Date | null }, pauses: Interval[], now = Date.now()): WoTimes {
   const opened = new Date(o.opened_at).getTime();
   const end = ms(o.finished_at, now);
   const accepted = o.first_accepted_at ? new Date(o.first_accepted_at).getTime() : null;
   const pausedMs = pauses.reduce((s, p) => s + Math.max(0, ms(p.to, now) - new Date(p.from).getTime()), 0);
   return {
-    waitMs: (accepted ?? end) - opened,
+    waitMs: Math.max(0, (accepted ?? end) - opened),
     workMs: accepted == null ? null : workedMs({ from: new Date(accepted), to: new Date(end) }, pauses, now),
     pausedMs,
     totalMs: end - opened,
@@ -176,7 +195,9 @@ export function woTimes(o: { opened_at: string | Date; first_accepted_at: string
 export function eventText(e: { action: string; data: Record<string, any> }): string {
   const d = e.data ?? {};
   switch (e.action) {
-    case 'abriu': return `abriu a ordem${d.parada ? ' (máquina parada)' : ''}`;
+    case 'abriu': return d.programada ? `abriu a manutenção programada para ${d.programada}` : `abriu a ordem${d.parada ? ' (máquina parada)' : ''}`;
+    case 'aprovou': return `aprovou a manutenção programada para ${d.data}${d.horas ? ` (${d.horas} h)` : ''}${d.obs ? `: ${d.obs}` : ''}`;
+    case 'reprovou': return `recusou a manutenção programada: ${d.motivo}`;
     case 'aceitou': return 'aceitou a ordem';
     case 'entrou': return 'entrou na ordem';
     case 'assumiu': return `assumiu a ordem${d.de ? ` passada por ${d.de}` : ''}`;

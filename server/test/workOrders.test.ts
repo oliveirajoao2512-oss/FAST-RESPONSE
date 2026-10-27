@@ -239,3 +239,69 @@ describe('administrador: visualizar como outro perfil', () => {
     expect((await as(admin, 'superuser').get('/api/auth/me')).body.user.role).toBe('admin');
   });
 });
+
+describe('manutenção programada com análise da Logística', () => {
+  const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+  let liderLog: Client, liderLogId: string;
+  beforeAll(async () => {
+    const u = await createUser('Lider Logistica', 'lider', 'logistica');
+    liderLogId = u.id;
+    liderLog = await new Client(ctx.app).login(u.email);
+  });
+
+  it('abre com data e horas, vai para a Logística e não entra na fila', async () => {
+    expect((await open(operador, { scheduled: true, machineStopped: undefined })).status).toBe(400); // sem data
+    expect((await open(operador, { scheduled: true, plannedStart: inDays(-2), plannedHours: 4 })).status).toBe(400); // no passado
+    expect((await operador.post('/api/oa', { areaId: prod, location: 'maquina', assetRef: '5', reason: 6, description: 'x', scheduled: true, plannedStart: inDays(3), plannedHours: 2 })).status).toBe(400);
+    const r = await open(operador, { scheduled: true, plannedStart: inDays(3), plannedHours: 6, machineStopped: undefined, description: 'Troca das resistências' });
+    expect(r.status).toBe(201);
+    const o = await detail(r.body.id);
+    expect(o).toMatchObject({ status: 'em_analise', scheduled: true, planned_hours: 6, machine_stopped: false, priority: 'normal' });
+    expect((await liderLog.get('/api/os/options')).body.canAnalyze).toBe(true);
+    expect((await operador.get('/api/os/options')).body.canAnalyze).toBe(false);
+    const n = await one<{ n: number }>(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND type = 'os_programada'`, [liderLogId]);
+    expect(n!.n).toBe(1);
+    const acc = await joao.post(`/api/os/${r.body.id}/aceitar`);
+    expect(acc.status).toBe(422);
+    expect(acc.body.erro).toMatch(/análise da Logística/);
+  });
+
+  it('só a Logística analisa; aprovada com outra data, entra na fila e conta a espera a partir da data', async () => {
+    const r = await open(operador, { scheduled: true, plannedStart: inDays(5), plannedHours: 3 });
+    const id = r.body.id;
+    expect((await liderMan.post(`/api/os/${id}/analisar`, { decisao: 'aprovar', plannedStart: inDays(6), plannedHours: 3 })).status).toBe(403);
+    const ok = await liderLog.post(`/api/os/${id}/analisar`, { decisao: 'aprovar', plannedStart: inDays(6), plannedHours: 4, obs: 'Antecipar produção' });
+    expect(ok.status).toBe(200);
+    const o = await detail(id);
+    expect(o).toMatchObject({ status: 'programada', planned_hours: 4, analysis_note: 'Antecipar produção', analyzed_by_name: 'Lider Logistica' });
+    expect(new Date(o.planned_start).getTime()).toBeGreaterThan(new Date(o.requested_start).getTime());
+    expect(o.times.waitMs).toBe(0);
+    expect(o.events.map((e: any) => e.action)).toContain('aprovou');
+    expect((await liderLog.post(`/api/os/${id}/analisar`, { decisao: 'recusar', motivo: 'x' })).status).toBe(422);
+    const n = await one<{ n: number }>(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND type = 'os_programada' AND work_order_id = $2`, [joaoId, id]);
+    expect(n!.n).toBe(1);
+    // the team starts it; returning it puts it back as planned
+    expect((await joao.post(`/api/os/${id}/aceitar`)).status).toBe(200);
+    expect((await detail(id)).status).toBe('em_atendimento');
+    expect((await joao.post(`/api/os/${id}/devolver`, { motivo: 'Produção pediu mais um dia' })).status).toBe(200);
+    expect((await detail(id)).status).toBe('programada');
+  });
+
+  it('recusada sai da fila, vai para as finalizadas e fica fora dos indicadores', async () => {
+    const r = await open(operador, { scheduled: true, plannedStart: inDays(2), plannedHours: 8 });
+    const id = r.body.id;
+    expect((await liderLog.post(`/api/os/${id}/analisar`, { decisao: 'recusar', motivo: '' })).status).toBe(400);
+    expect((await liderLog.post(`/api/os/${id}/analisar`, { decisao: 'recusar', motivo: 'Pedido urgente do cliente nesta semana' })).status).toBe(200);
+    const o = await detail(id);
+    expect(o).toMatchObject({ status: 'recusada', analysis_note: 'Pedido urgente do cliente nesta semana' });
+    expect((await operador.get('/api/os')).body.some((x: any) => x.id === id)).toBe(false);
+    expect((await operador.get('/api/os?view=finalizadas')).body.some((x: any) => x.id === id)).toBe(true);
+    expect((await joao.post(`/api/os/${id}/aceitar`)).status).toBe(422);
+    const rep = (await liderMan.get('/api/os/report')).body;
+    const opened = rep.totals.opened;
+    const all = await one<{ n: number }>(`SELECT count(*)::int AS n FROM work_orders WHERE domain = 'manutencao' AND status NOT IN ('em_analise','recusada')`);
+    expect(opened).toBeLessThanOrEqual(all!.n);
+    const n = await one<{ n: number }>(`SELECT count(*)::int AS n FROM notifications WHERE type = 'os_programada' AND work_order_id = $1 AND title LIKE '%recusada%'`, [id]);
+    expect(n!.n).toBeGreaterThan(0);
+  });
+});

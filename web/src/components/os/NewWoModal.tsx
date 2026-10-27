@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Camera, X } from 'lucide-react';
+import { CalendarClock, Camera, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, domainLocations, WO_KIND_LABELS, WO_KINDS, WO_LOCATION_LABELS, type WoKind, type WoLocation } from '@shared/maintenance';
 import { api as request, post } from '../../lib/api';
@@ -58,6 +58,10 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [virgin, setVirgin] = useState('');
   const [regrind, setRegrind] = useState('');
   const [stopped, setStopped] = useState<boolean | null>(null);
+  // planned maintenance: a date and how long the equipment stops, analysed by Logistics first
+  const [planned, setPlanned] = useState(false);
+  const [plannedAt, setPlannedAt] = useState('');
+  const [plannedHours, setPlannedHours] = useState('');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
@@ -74,7 +78,9 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const askMaterial = adj && reason === ADJ_MATERIAL_REASON;
   const pctOk = (v: string) => v.trim() !== '' && Number(v) >= 0 && Number(v) <= 100;
   const missing = {
-    area: !areaId, location: !location, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: stopped === null, description: !description.trim(),
+    area: !areaId, location: !location, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: !planned && stopped === null, description: !description.trim(),
+    plannedAt: planned && (!plannedAt || new Date(plannedAt).getTime() < Date.now() - 3600_000),
+    plannedHours: planned && !(Number(plannedHours.replace(',', '.')) > 0),
     material: askMaterial && (!pctOk(virgin) || !pctOk(regrind)),
     partNumber: !pnAccepted(pns.data, partNumber),
   };
@@ -85,7 +91,10 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
     setError(null);
     try {
       const r = await post<{ id: string; code: string }>(D.api, {
-        areaId, location, assetRef: asset.trim(), machineStopped: stopped, description: description.trim(),
+        areaId, location, assetRef: asset.trim(), description: description.trim(),
+        ...(planned
+          ? { scheduled: true, plannedStart: new Date(plannedAt).toISOString(), plannedHours: Number(plannedHours.replace(',', '.')) }
+          : { machineStopped: stopped }),
         partNumber: partNumber.trim() || null,
         ...(adj
           ? { reason, ...(askMaterial ? { virginPct: Number(virgin), regrindPct: Number(regrind) } : {}) }
@@ -96,7 +105,9 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
       } catch {
         toast('error', `A ${D.short} foi aberta, mas a foto não foi enviada. Abra a ${D.short} e tente anexar de novo.`);
       }
-      toast('ok', `${r.code} aberta${stopped ? ` como crítica: a equipe de ${D.team} foi avisada` : ''}. O comprovante em PDF já está disponível.`);
+      toast('ok', planned
+        ? `${r.code} enviada para a análise da Logística. Você será avisado quando ela aprovar a data.`
+        : `${r.code} aberta${stopped ? ` como crítica: a equipe de ${D.team} foi avisada` : ''}. O comprovante em PDF já está disponível.`);
       await qc.invalidateQueries({ queryKey: ['os'] });
       onCreated(r.id);
     } catch (e) {
@@ -117,6 +128,15 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
           <button onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-gray-100" aria-label="Fechar"><X size={20} /></button>
         </div>
         <div className="space-y-4 overflow-y-auto px-5 py-4">
+          {opts.data?.canSchedule && (
+            <div>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Quando">
+                <button type="button" role="radio" aria-checked={!planned} className={choice(!planned)} onClick={() => setPlanned(false)}>Corretiva (agora)</button>
+                <button type="button" role="radio" aria-checked={planned} className={choice(planned)} onClick={() => setPlanned(true)}><CalendarClock size={16} className="mr-1 inline" />Programada</button>
+              </div>
+              {planned && <span className="mt-1 block text-xs text-gray-600">A Logística analisa a data e aprova, muda ou recusa. Aprovada, a OS entra na fila da manutenção para o dia marcado.</span>}
+            </div>
+          )}
           <Field label="Setor" required error={tried && missing.area ? 'Escolha o setor.' : undefined}>
             <Select value={areaId} onChange={(e) => setAreaId(e.target.value ? Number(e.target.value) : '')}>
               <option value="">Selecione…</option>
@@ -199,6 +219,16 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
             <PnInput value={partNumber} onChange={setPartNumber} machine={location === 'maquina' ? asset : null} error={tried && missing.partNumber} />
             {tried && missing.partNumber && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha um PN da lista ou deixe em branco.</span>}
           </div>
+          {planned ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Data e hora" required error={tried && missing.plannedAt ? (plannedAt ? 'Essa data já passou.' : 'Informe a data.') : undefined}>
+                <Input type="datetime-local" value={plannedAt} onChange={(e) => setPlannedAt(e.target.value)} />
+              </Field>
+              <Field label="Horas de parada" required error={tried && missing.plannedHours ? 'Informe as horas.' : undefined}>
+                <Input type="number" inputMode="decimal" min={0.5} step={0.5} value={plannedHours} onChange={(e) => setPlannedHours(e.target.value)} placeholder="Ex.: 4" />
+              </Field>
+            </div>
+          ) : (
           <div>
             <span className="mb-1 block text-sm font-medium text-gray-700">{stoppedQuestion} <span className="text-red-600" aria-hidden>*</span></span>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={stoppedQuestion}>
@@ -208,7 +238,8 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
             {stopped && <span className="mt-1 block text-xs text-red-700">A {D.short} entra como crítica e a equipe de {D.team} é avisada na hora.</span>}
             {tried && missing.stopped && <span className="mt-1 block text-xs text-red-600" role="alert">Responda se a máquina está parada.</span>}
           </div>
-          <Field label={adj ? 'Motivo / problema da parada' : 'O que está acontecendo e onde é o problema?'} required error={tried && missing.description ? 'Descreva o problema.' : undefined}>
+          )}
+          <Field label={adj ? 'Motivo / problema da parada' : planned ? 'O que será feito na manutenção?' : 'O que está acontecendo e onde é o problema?'} required error={tried && missing.description ? 'Descreva o problema.' : undefined}>
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} placeholder={adj ? 'O que está acontecendo e onde é o problema. Ex.: peça saindo com peso abaixo do especificado' : 'O que está acontecendo e onde é o problema. Ex.: vazamento de óleo no cilindro do molde'} />
           </Field>
           <PhotoPicker files={files} onChange={setFiles} />
@@ -217,7 +248,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
         </div>
         <div className="flex justify-end gap-2 border-t px-5 py-3">
           <Button onClick={onClose}>Cancelar</Button>
-          <Button kind="primary" onClick={submit} loading={busy}>Abrir {D.short}</Button>
+          <Button kind="primary" onClick={submit} loading={busy}>{planned ? 'Enviar para a Logística' : `Abrir ${D.short}`}</Button>
         </div>
       </div>
     </div>

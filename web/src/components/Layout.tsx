@@ -14,7 +14,7 @@ import { isIos, useInstall } from '../lib/install';
 import { startPreview, stopPreview } from '../lib/preview';
 import { useQualityAccess } from '../lib/quality';
 import { useRealtime } from '../lib/realtime';
-import { useWoList } from '../lib/workOrders';
+import { useWoList, useWoOptions } from '../lib/workOrders';
 import { can, useMe, useSession } from '../lib/session';
 import { IssueOverlay } from './IssueDetail';
 import { useOpenIssue } from './issues';
@@ -55,7 +55,9 @@ export function Layout() {
     cx('flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm', isActive ? 'bg-brand-600 text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white');
   const overdueBy = (id: number) => counts.data?.byArea.find((a: any) => a.id === id)?.overdue ?? 0;
   const workOrders = useWoList('abertas', {}, true, 'manutencao');
-  const waitingOs = workOrders.data?.filter((o) => o.status === 'aberta').length ?? 0;
+  const osOptions = useWoOptions('manutencao');
+  // líderes and gestores of Logística also count the planned maintenance waiting for their analysis
+  const waitingOs = workOrders.data?.filter((o) => o.status === 'aberta' || (osOptions.data?.canAnalyze && o.status === 'em_analise')).length ?? 0;
   const adjustments = useWoList('abertas', {}, true, 'ajuste');
   const waitingOa = adjustments.data?.filter((o) => o.status === 'aberta').length ?? 0;
   const { pathname } = useLocation();
@@ -79,7 +81,7 @@ export function Layout() {
       <NavLink to="/aprovacoes" className={link}><ShieldCheck size={18} />Aprovações</NavLink>
       <NavLink to="/os" className={link}>
         <Wrench size={18} /><span className="flex-1">Ordens de Manutenção</span>
-        {waitingOs > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite">{waitingOs}</span>}
+        {waitingOs > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite ou análise">{waitingOs}</span>}
       </NavLink>
       <NavLink to="/ajustes" className={link}>
         <SlidersHorizontal size={18} /><span className="flex-1">Ordens de Ajuste</span>

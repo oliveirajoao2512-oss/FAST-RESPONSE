@@ -147,7 +147,10 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
     ['Part number', o.part_number ? `${o.part_number}${o.part_description ? ` · ${o.part_description}` : ''}` : '—'],
     ...(o.virgin_pct != null ? [['Material', `${o.virgin_pct}% virgem · ${o.regrind_pct}% moído`] as [string, string]] : []),
     [adj ? 'Hora da chamada' : 'Aberta em', dt(o.opened_at)],
-    ['Máquina parada', o.machine_stopped ? 'Sim' : 'Não'],
+    o.scheduled ? ['Manutenção programada', `pedida para ${dt(o.requested_start)} · ${o.planned_hours} h de parada`] : ['Máquina parada', o.machine_stopped ? 'Sim' : 'Não'],
+    ...(o.scheduled ? [['Análise da Logística', o.analyzed_at
+      ? `${o.status === 'recusada' ? 'Recusada' : `Aprovada para ${dt(o.planned_start)}`} por ${o.analyzed_by_name} em ${dt(o.analyzed_at)}${o.analysis_note ? ` · ${o.analysis_note}` : ''}`
+      : 'Aguardando'] as [string, string]] : []),
   ]);
   need(30);
   text(adj ? 'Motivo / problema da parada' : 'O que está acontecendo', M, y - 9, 8, font, MUTED);

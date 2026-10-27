@@ -139,3 +139,16 @@ que contêm o trecho, que batem pela descrição e os parecidos (1 dígito errad
 partir de 8 caracteres). PNs da máquina escolhida aparecem primeiro. Com o PN certo o campo fica verde com a descrição; com um PN
 fora da base aparece "Você quis dizer …?" e a ordem não é aberta até escolher um PN da lista ou deixar em branco. O servidor faz a
 mesma conferência. Enquanto a base estiver vazia, o PN continua livre.
+
+## Manutenção programada
+
+Ao abrir uma OS, escolha **Programada** no topo do formulário e informe a data e a hora, quantas horas a máquina vai ficar
+parada e o que será feito. A OS fica **Em análise na Logística**: o gestor e o líder da área Logística são avisados e veem
+a OS no topo da fila (o número no menu inclui as que aguardam a análise deles). Eles podem:
+
+- **Aprovar**, na data pedida ou em outra, ajustando as horas e deixando uma observação. A OS passa a **Programada**, a equipe
+  de manutenção e quem pediu são avisados, e ela aparece em "Manutenções programadas" na fila, por data. A equipe aceita
+  ("Iniciar a manutenção") e o fluxo segue igual ao da corretiva. A espera conta a partir da data aprovada.
+- **Recusar**, com o motivo. A OS sai da fila, aparece em Finalizadas como "Recusada pela Logística" e quem pediu é avisado.
+
+OS em análise ou recusadas não entram nos indicadores. O comprovante em PDF mostra a data pedida, a análise e a data aprovada.

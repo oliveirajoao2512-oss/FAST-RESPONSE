@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, Check, CheckCircle2, FileDown, LogOut, Pause, Pin, PinOff, Play, Trash2, Wrench, X } from 'lucide-react';
+import { ArrowRightLeft, CalendarCheck, CalendarX, Check, CheckCircle2, FileDown, LogOut, Pause, Pin, PinOff, Play, Trash2, Wrench, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { WO_PRIORITIES, WO_PRIORITY_LABELS } from '@shared/maintenance';
 import { errorMessage, post } from '../../lib/api';
@@ -29,18 +29,18 @@ export function WoDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const opts = useWoOptions();
   const q = useWoDetail(id);
   const o = q.data;
-  useTick(!!o && o.status !== 'finalizada');
+  useTick(!!o && o.status !== 'finalizada' && o.status !== 'recusada');
   return (
     <Modal open wide onClose={onClose} title={o ? `${o.code} · ${o.asset_ref}` : D.d === 'ajuste' ? 'Ordem de ajuste' : 'Ordem de manutenção'}>
       {q.isLoading ? <Spinner /> : q.error ? <ErrorBox error={q.error} onRetry={() => q.refetch()} /> : o && (
-        <Body o={o} meId={me.id} isAdmin={me.role === 'admin'} canWork={!!opts.data?.canWork} canLead={!!opts.data?.canLead} team={opts.data?.team ?? []} onClose={onClose} />
+        <Body o={o} meId={me.id} isAdmin={me.role === 'admin'} canWork={!!opts.data?.canWork} canLead={!!opts.data?.canLead} canAnalyze={!!opts.data?.canAnalyze} team={opts.data?.team ?? []} onClose={onClose} />
       )}
     </Modal>
   );
 }
 
-function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
-  o: WorkOrderDetail; meId: string; isAdmin: boolean; canWork: boolean; canLead: boolean; team: { id: string; name: string; role: string }[]; onClose: () => void;
+function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }: {
+  o: WorkOrderDetail; meId: string; isAdmin: boolean; canWork: boolean; canLead: boolean; canAnalyze: boolean; team: { id: string; name: string; role: string }[]; onClose: () => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -52,7 +52,8 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
   const finished = o.status === 'finalizada';
   const working = o.workers.some((w) => w.id === meId);
   const handOverToMe = o.transfer_to === meId;
-  const live = !finished;
+  const live = !finished && o.status !== 'recusada';
+  const inAnalysis = o.status === 'em_analise';
 
   const run = async (action: string, body: unknown = {}, ok?: string) => {
     setBusy(action);
@@ -69,7 +70,7 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
     }
   };
 
-  const acceptLabel = handOverToMe ? `Assumir a ${S}` : o.status === 'aberta' ? `Aceitar ${S}` : `Entrar na ${S}`;
+  const acceptLabel = handOverToMe ? `Assumir a ${S}` : o.status === 'programada' ? 'Iniciar a manutenção' : o.status === 'aberta' ? `Aceitar ${S}` : `Entrar na ${S}`;
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
@@ -95,8 +96,10 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
         </div>
       )}
 
+      {inAnalysis && canAnalyze && <ScheduleAnalysis o={o} run={run} busy={busy} />}
+
       {/* main actions: large, for use on tablets and phones */}
-      {live && (canWork || working) && (
+      {live && !inAnalysis && (canWork || working) && (
         <div className="flex flex-wrap gap-2">
           {canWork && !working && !handOverToMe && (
             <Button kind="primary" className="min-h-11 flex-1 sm:flex-none" loading={busy === 'aceitar'} onClick={() => run('aceitar', {}, o.status === 'aberta' ? `${S} aceita. Quem abriu já está vendo que você está atuando.` : `Você entrou na ${S}.`)}>
@@ -117,7 +120,7 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
         </div>
       )}
 
-      {live && canLead && <QueueControls o={o} team={team} run={run} busy={busy} />}
+      {live && !inAnalysis && canLead && <QueueControls o={o} team={team} run={run} busy={busy} />}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_16rem]">
         <div className="space-y-4">
@@ -130,7 +133,19 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
               </p>
             </Section>
           )}
-          <Section title={adj ? 'Motivo / problema da parada' : 'Problema'}>
+          {o.scheduled && (
+            <Section title="Manutenção programada">
+              <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+                <div><dt className="text-xs text-gray-500">Data pedida</dt><dd>{fmtDateTime(o.requested_start)}</dd></div>
+                <div><dt className="text-xs text-gray-500">Horas de parada</dt><dd>{o.planned_hours} h</dd></div>
+                {o.analyzed_at && <div className="sm:col-span-2"><dt className="text-xs text-gray-500">Análise da Logística</dt><dd>
+                  {o.status === 'recusada' ? <b className="text-red-700">Recusada</b> : <>Aprovada para <b>{fmtDateTime(o.planned_start)}</b></>}
+                  {' '}por {o.analyzed_by_name} em {fmtShort(o.analyzed_at)}{o.analysis_note ? ` · ${o.analysis_note}` : ''}
+                </dd></div>}
+              </dl>
+            </Section>
+          )}
+          <Section title={adj ? 'Motivo / problema da parada' : o.scheduled ? 'O que será feito' : 'Problema'}>
             <p className="whitespace-pre-wrap text-sm text-gray-800">{o.description}</p>
             <p className="mt-1 text-xs text-gray-500">Aberta por {o.opened_by_name} em {fmtDateTime(o.opened_at)}</p>
           </Section>
@@ -156,10 +171,10 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
         <aside className="space-y-3">
           <Section title="Tempos (automáticos)">
             <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-              <Time label="Espera na fila" ms={o.times.waitMs} running={o.status === 'aberta'} />
+              <Time label="Espera na fila" ms={inAnalysis ? null : o.times.waitMs} running={o.status === 'aberta' || o.status === 'programada'} />
               <Time label={adj ? 'Tempo de ajuste' : 'Atendimento'} ms={o.times.workMs} running={o.status === 'em_atendimento'} />
               <Time label="Pausado" ms={o.times.pausedMs} running={o.status === 'pausada'} />
-              <Time label="Total" ms={o.times.totalMs} running={live} />
+              <Time label="Total" ms={inAnalysis || o.status === 'recusada' ? null : o.times.totalMs} running={live && !inAnalysis} />
             </dl>
           </Section>
           {o.hoursByWorker.length > 0 && (
@@ -181,6 +196,51 @@ function Body({ o, meId, isAdmin, canWork, canLead, team, onClose }: {
         onConfirm={async (userId) => (await run('passar', { userId }, `Pedido enviado. A ${S} muda de mãos quando o colega aceitar.`)) && setPrompt(null)} />}
       {prompt === 'finalizar' && <FinishModal o={o} onClose={() => setPrompt(null)} onDone={() => { setPrompt(null); }} />}
       {prompt === 'excluir' && <PurgeModal o={o} onClose={() => setPrompt(null)} onDone={onClose} />}
+    </div>
+  );
+}
+
+/** Logistics leadership: approve the planned maintenance (the date can be changed) or refuse it with a reason. */
+function ScheduleAnalysis({ o, run, busy }: { o: WorkOrderDetail; run: (a: string, b?: unknown, ok?: string) => Promise<boolean>; busy: string | null }) {
+  const local = (x: string | null) => {
+    if (!x) return '';
+    const d = new Date(x);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  };
+  const [when, setWhen] = useState(local(o.requested_start));
+  const [hours, setHours] = useState(String(o.planned_hours ?? ''));
+  const [obs, setObs] = useState('');
+  const [refusing, setRefusing] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const h = Number(hours.replace(',', '.'));
+  return (
+    <div className="space-y-3 rounded-xl border border-violet-300 bg-violet-50 p-3">
+      <p className="text-sm font-semibold text-violet-900">Análise da Logística</p>
+      {!refusing ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Data e hora aprovadas"><Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
+            <Field label="Horas de parada"><Input type="number" inputMode="decimal" min={0.5} step={0.5} value={hours} onChange={(e) => setHours(e.target.value)} /></Field>
+          </div>
+          <Field label="Observação (opcional)"><Input value={obs} onChange={(e) => setObs(e.target.value)} maxLength={500} placeholder="Ex.: antecipar a produção do PN 10001060542" /></Field>
+          <div className="flex flex-wrap gap-2">
+            <Button kind="success" className="min-h-11" disabled={!when || !(h > 0)} loading={busy === 'analisar'}
+              onClick={() => run('analisar', { decisao: 'aprovar', plannedStart: new Date(when).toISOString(), plannedHours: h, obs: obs.trim() || null }, 'Manutenção programada aprovada. A manutenção já foi avisada.')}>
+              <CalendarCheck size={18} />Aprovar{when !== local(o.requested_start) ? ' com a nova data' : ''}
+            </Button>
+            <Button className="min-h-11" onClick={() => setRefusing(true)}><CalendarX size={18} />Recusar</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="Motivo da recusa" required><Textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={500} /></Field>
+          <div className="flex flex-wrap gap-2">
+            <Button kind="danger" className="min-h-11" disabled={!motivo.trim()} loading={busy === 'analisar'}
+              onClick={() => run('analisar', { decisao: 'recusar', motivo: motivo.trim() }, 'Manutenção programada recusada. Quem pediu foi avisado.')}>Recusar</Button>
+            <Button className="min-h-11" onClick={() => setRefusing(false)}>Voltar</Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

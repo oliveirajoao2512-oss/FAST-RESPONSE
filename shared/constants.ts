@@ -117,6 +117,7 @@ export const NOTIFICATION_TYPES = [
   'os_transferida',
   'os_indicada',
   'os_devolvida',
+  'os_programada',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
