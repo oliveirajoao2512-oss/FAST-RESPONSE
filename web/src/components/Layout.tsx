@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  Award, Bell, Download, CheckSquare, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, ScrollText, Search, Settings,
-  ShieldCheck, Siren, Users, WifiOff, X, BarChart3, Database, ClipboardCheck, ChevronDown, Wrench, Eye, SlidersHorizontal, PieChart,
+  Bell, Download, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, Search, Settings,
+  Siren, WifiOff, X, BarChart3, ClipboardCheck, Wrench, Eye, SlidersHorizontal,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -23,7 +23,6 @@ import { AreaDot, Button, cx, Field, Modal, Select } from './ui';
 
 export function Layout() {
   const me = useMe();
-  const meta = useMeta();
   const conn = useRealtime(true);
   const [menu, setMenu] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -60,55 +59,32 @@ export function Layout() {
   const waitingOs = workOrders.data?.filter((o) => o.status === 'aberta' || (osOptions.data?.canAnalyze && o.status === 'em_analise')).length ?? 0;
   const adjustments = useWoList('abertas', {}, true, 'ajuste');
   const waitingOa = adjustments.data?.filter((o) => o.status === 'aberta').length ?? 0;
-  const { pathname } = useLocation();
-  const inGestao = ['/ranking', '/relatorios', '/admin', '/qualidade'].some((p) => pathname.startsWith(p));
-  const [gestao, setGestao] = useState(() => {
-    try { return localStorage.getItem('fr-nav-gestao') === '1'; } catch { return false; }
-  });
-  const toggleGestao = () => {
-    setGestao(!gestao);
-    try { localStorage.setItem('fr-nav-gestao', gestao ? '0' : '1'); } catch {}
+  const groups = useNavGroups();
+  const myOverdue = me.area ? overdueBy(me.area.id) : 0;
+  const groupLink = (g: NavGroup, extra?: ReactNode) => {
+    const active = groups.current?.key === g.key;
+    return (
+      <NavLink to={g.tabs[0].to} className={() => link({ isActive: active })}>
+        <g.icon size={18} /><span className="flex-1">{g.label}</span>{extra}
+      </NavLink>
+    );
   };
-  const gestaoOpen = gestao || inGestao;
+  const badge = (n: number, title: string) => n > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title={title}>{n}</span>;
 
   const nav = (
     <nav className="flex flex-col gap-0.5 p-3" onClick={() => setMenu(false)}>
       <NavLink to="/" end className={link}><Gauge size={18} />Painel geral</NavLink>
-      {can.viewPlantPanel(me) && <NavLink to="/painel-planta" className={link}><PieChart size={18} />Painel da planta</NavLink>}
+      {groupLink(groups.pendencias, badge(myOverdue, 'Atrasadas da sua área'))}
       <NavLink to="/fast-response" className={link}><Siren size={18} />Fast Response</NavLink>
-      <NavLink to="/minhas" className={link}><CheckSquare size={18} />Minhas pendências</NavLink>
-      <NavLink to="/pendencias" className={link}><LayoutList size={18} />Todas as pendências</NavLink>
-      <NavLink to="/aprovacoes" className={link}><ShieldCheck size={18} />Aprovações</NavLink>
       <NavLink to="/os" className={link}>
-        <Wrench size={18} /><span className="flex-1">Ordens de Manutenção</span>
-        {waitingOs > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite ou análise">{waitingOs}</span>}
+        <Wrench size={18} /><span className="flex-1">Ordens de Manutenção</span>{badge(waitingOs, 'Aguardando aceite ou análise')}
       </NavLink>
       <NavLink to="/ajustes" className={link}>
-        <SlidersHorizontal size={18} /><span className="flex-1">Ordens de Ajuste</span>
-        {waitingOa > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Aguardando aceite">{waitingOa}</span>}
+        <SlidersHorizontal size={18} /><span className="flex-1">Ordens de Ajuste</span>{badge(waitingOa, 'Aguardando aceite')}
       </NavLink>
-      <div className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Áreas</div>
-      {meta?.areas.map((a) => (
-        <NavLink key={a.id} to={`/areas/${a.slug}`} className={link}>
-          <AreaDot color={a.color} /><span className="flex-1">{a.name}</span>
-          {overdueBy(a.id) > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Atrasadas">{overdueBy(a.id)}</span>}
-        </NavLink>
-      ))}
-      <button type="button" onClick={(e) => { e.stopPropagation(); toggleGestao(); }} aria-expanded={gestaoOpen}
-        className="mt-4 mb-1 flex items-center justify-between rounded-lg px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:bg-white/10 hover:text-white">
-        Gestão<ChevronDown size={16} className={cx('transition-transform', gestaoOpen && 'rotate-180')} />
-      </button>
-      {gestaoOpen && (
-        <>
-          <NavLink to="/ranking" className={link}><Award size={18} />Ranking mensal</NavLink>
-          {can.viewReports(me) && <NavLink to="/relatorios" className={link}><BarChart3 size={18} />Relatórios</NavLink>}
-          {quality && <NavLink to="/qualidade" className={link}><ClipboardCheck size={18} />Resposta Rápida</NavLink>}
-          {can.manageUsers(me) && <NavLink to="/admin/usuarios" className={link}><Users size={18} />Usuários</NavLink>}
-          {can.manageCatalog(me) && <NavLink to="/admin/cadastros" className={link}><Database size={18} />Cadastros</NavLink>}
-          {(can.manageSettings(me) || can.viewAudit(me)) && <NavLink to="/admin/configuracoes" className={link}><Settings size={18} />Configurações</NavLink>}
-          {can.viewAudit(me) && <NavLink to="/admin/auditoria" className={link}><ScrollText size={18} />Auditoria</NavLink>}
-        </>
-      )}
+      {quality && <NavLink to="/qualidade" className={link}><ClipboardCheck size={18} />Resposta Rápida</NavLink>}
+      {groupLink(groups.indicadores)}
+      {groups.admin.tabs.length > 0 && groupLink(groups.admin)}
     </nav>
   );
 
@@ -143,6 +119,7 @@ export function Layout() {
           </div>
         )}
         <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
+          <SectionTabs areaOverdue={overdueBy} />
           <Outlet />
         </main>
       </div>
@@ -394,6 +371,75 @@ function PreviewBanner() {
       <Eye size={16} />
       <span className="flex-1">Visualizando como <b>{ROLE_LABELS[me.role]}</b>{me.area ? ` · ${me.area.name}` : ''}. Somente leitura.</span>
       <button onClick={() => stopPreview()} className="rounded-lg bg-white px-3 py-1 font-medium text-indigo-800 hover:bg-indigo-50">Sair da visualização</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- menu groups: screens with close functions share one menu entry and a row of tabs
+
+interface NavTab { to: string; label: string; match?: (path: string) => boolean }
+interface NavGroup { key: string; label: string; icon: typeof Gauge; tabs: NavTab[] }
+
+function useNavGroups() {
+  const me = useMe();
+  const meta = useMeta();
+  const { pathname } = useLocation();
+  const firstArea = meta?.areas.find((a) => a.id === me.area?.id) ?? meta?.areas[0];
+  const pendencias: NavGroup = {
+    key: 'pendencias', label: 'Pendências', icon: LayoutList, tabs: [
+      { to: '/minhas', label: 'Minhas' },
+      { to: '/pendencias', label: 'Todas', match: (p) => p === '/pendencias' },
+      ...(firstArea ? [{ to: `/areas/${firstArea.slug}`, label: 'Por área', match: (p: string) => p.startsWith('/areas/') }] : []),
+      { to: '/aprovacoes', label: 'Aprovações' },
+    ],
+  };
+  const indicadores: NavGroup = {
+    key: 'indicadores', label: 'Indicadores', icon: BarChart3, tabs: [
+      ...(can.viewPlantPanel(me) ? [{ to: '/painel-planta', label: 'Painel da planta' }] : []),
+      ...(can.viewReports(me) ? [{ to: '/relatorios', label: 'Relatórios' }] : []),
+      { to: '/ranking', label: 'Ranking mensal' },
+    ],
+  };
+  const admin: NavGroup = {
+    key: 'admin', label: 'Administração', icon: Settings, tabs: [
+      ...(can.manageUsers(me) ? [{ to: '/admin/usuarios', label: 'Usuários' }] : []),
+      ...(can.manageCatalog(me) ? [{ to: '/admin/cadastros', label: 'Cadastros' }] : []),
+      ...(can.manageSettings(me) || can.viewAudit(me) ? [{ to: '/admin/configuracoes', label: 'Configurações' }] : []),
+      ...(can.viewAudit(me) ? [{ to: '/admin/auditoria', label: 'Auditoria' }] : []),
+    ],
+  };
+  const isOn = (t: NavTab) => (t.match ? t.match(pathname) : pathname === t.to || pathname.startsWith(`${t.to}/`));
+  const current = [pendencias, indicadores, admin].find((g) => g.tabs.some(isOn));
+  return { pendencias, indicadores, admin, current, isOn };
+}
+
+function SectionTabs({ areaOverdue }: { areaOverdue: (id: number) => number }) {
+  const meta = useMeta();
+  const { pathname } = useLocation();
+  const { current, isOn } = useNavGroups();
+  if (!current || current.tabs.length < 2) return null;
+  const onAreas = pathname.startsWith('/areas/');
+  return (
+    <div className="mb-4 space-y-2">
+      <div className="flex flex-wrap gap-1 border-b border-gray-200" role="tablist" aria-label={current.label}>
+        {current.tabs.map((t) => (
+          <NavLink key={t.to} to={t.to} role="tab" aria-selected={isOn(t)}
+            className={cx('-mb-px border-b-2 px-3 py-2 text-sm font-medium', isOn(t) ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-600 hover:text-gray-900')}>
+            {t.label}
+          </NavLink>
+        ))}
+      </div>
+      {onAreas && (
+        <div className="flex flex-wrap gap-1.5" aria-label="Áreas">
+          {meta?.areas.map((a) => (
+            <NavLink key={a.id} to={`/areas/${a.slug}`}
+              className={({ isActive }) => cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm', isActive ? 'border-brand-600 bg-brand-50 font-medium text-brand-800' : 'border-gray-200 bg-white text-gray-700 hover:border-brand-300')}>
+              <AreaDot color={a.color} />{a.name}
+              {areaOverdue(a.id) > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white" title="Atrasadas">{areaOverdue(a.id)}</span>}
+            </NavLink>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

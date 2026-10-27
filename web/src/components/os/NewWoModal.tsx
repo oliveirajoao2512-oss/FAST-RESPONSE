@@ -167,7 +167,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
                     </button>
                   ))}
                 </div>
-              ) : <p className="text-sm text-gray-500">Nenhuma {location === 'montagem' ? 'montagem' : 'máquina'} cadastrada. Peça ao gestor para incluir em Gestão → Cadastros.</p>}
+              ) : <p className="text-sm text-gray-500">Nenhuma {location === 'montagem' ? 'montagem' : 'máquina'} cadastrada. Peça ao gestor para incluir em Administração → Cadastros.</p>}
               {tried && missing.asset && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha {location === 'montagem' ? 'a montagem' : 'a máquina'}.</span>}
             </div>
           )}

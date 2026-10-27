@@ -14,7 +14,7 @@ Abertura de ordens de manutenção corretiva pelo sistema, no lugar da OS em pap
 | Excluir definitivamente (OS de teste) | — | — | — | ✓ |
 | Resto do sistema (pendências, painéis, etc.) | como hoje | **sem acesso** | como hoje | como hoje |
 
-- **Manutentor** é um perfil próprio, criado em Gestão → Usuários. Ele entra com o próprio e-mail ou matrícula e cai
+- **Manutentor** é um perfil próprio, criado em Administração → Usuários. Ele entra com o próprio e-mail ou matrícula e cai
   direto na fila de OS. O servidor recusa qualquer outra rota para esse perfil, não é só o menu escondido.
 - **Gerente e líder de manutenção** são identificados pelo cargo: todo gestor ou líder cadastrado na área
   Manutenção. Não é preciso cadastrar nomes.
@@ -23,7 +23,7 @@ Abertura de ordens de manutenção corretiva pelo sistema, no lugar da OS em pap
 ## Abertura
 
 **Onde é?** Máquina ou Montagem (a Ordem de Ajuste só existe em máquina). Em seguida aparece a lista correspondente,
-na ordem da planta. As listas ficam em Gestão → Cadastros (tipos "Máquina" e "Montagem"): para incluir ou desativar
+na ordem da planta. As listas ficam em Administração → Cadastros (tipos "Máquina" e "Montagem"): para incluir ou desativar
 uma máquina ou montagem, basta editar lá. Não é possível digitar um local fora da lista.
 
 Campos: setor (já vem a área de quem abre), máquina ou montagem da lista,
@@ -64,7 +64,7 @@ Máquina parada → prioridade **crítica** e notificação na hora para manuten
 
 ## Indicadores
 
-Aba **Indicadores** (e atalho em Gestão → Relatórios → Painel de manutenção): fila agora, abertas e finalizadas por mês,
+Aba **Indicadores** (e atalho em Administração → Relatórios → Painel de manutenção): fila agora, abertas e finalizadas por mês,
 espera e atendimento médios por mês, máquinas com mais horas paradas, horas por manutentor, OS por tipo e por setor.
 **Exportar Excel** gera uma planilha com todas as OS do período e os tempos em horas.
 
@@ -129,7 +129,7 @@ dashboard dos dois módulos (sem comandar as filas) e o Painel da planta.
 
 ## Base de part numbers
 
-Em **Gestão → Cadastros → Part numbers** fica a lista de PNs da empresa (código, descrição, cliente e máquina padrão).
+Em **Administração → Cadastros → Part numbers** fica a lista de PNs da empresa (código, descrição, cliente e máquina padrão).
 O botão **Importar planilha** lê a planilha de cadastro do PCP (.xlsx/.xlsm, abas com coluna "PART NUMBER" ou "PN"), mostra
 quantos PNs são novos e só grava depois de confirmar. A importação adiciona PNs novos e completa campos vazios; não apaga nem
 sobrescreve o que foi editado à mão. PN que sai de linha é desativado (não é excluído).

@@ -80,7 +80,9 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
   const tecnico = await newUserPage(browser, users.tecnico.email);
 
   // líder deixa a página da área aberta (para verificar sincronização sem recarregar)
-  await lider.getByRole('link', { name: 'Manutenção', exact: true }).click();
+  await lider.getByRole('link', { name: 'Pendências', exact: true }).click();
+  await lider.getByRole('tab', { name: 'Por área' }).click();
+  await lider.getByRole('link', { name: /^Manutenção/ }).click();
   await expect(lider.getByRole('heading', { name: 'Manutenção' })).toBeVisible();
 
   // --- cadastro rápido pelo operador
@@ -165,7 +167,8 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
 
   // --- operador (quem abriu) valida pela tela de aprovações
   await closeIssue(operador);
-  await operador.getByRole('link', { name: 'Aprovações' }).click();
+  await operador.getByRole('link', { name: 'Pendências', exact: true }).click();
+  await operador.getByRole('tab', { name: 'Aprovações' }).click();
   await expect(operador.getByText('Falha no molde da injetora 07')).toBeVisible({ timeout: 10_000 });
   await operador.getByRole('button', { name: 'Validar' }).click();
   await operador.getByRole('dialog', { name: /Validar solução/ }).getByRole('button', { name: 'Aprovar' }).click();
@@ -179,8 +182,7 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
 
   // --- ranking reflete a conclusão validada
   await closeIssue(tecnico);
-  await tecnico.getByRole('button', { name: 'Gestão' }).click();
-  await tecnico.getByRole('link', { name: 'Ranking mensal' }).click();
+  await tecnico.getByRole('link', { name: 'Indicadores' }).click();
   await expect(tecnico.getByText('Como a pontuação é calculada')).toBeVisible();
   await expect(tecnico.getByRole('cell', { name: /Tecnico Manutencao/ })).toBeVisible();
   await tecnico.screenshot({ path: `${SHOTS}/desktop-ranking.png`, fullPage: true });
@@ -230,11 +232,10 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
   await expect(lider.getByText(/Sem conexão|Reconectando/)).toHaveCount(0, { timeout: 15_000 });
 
   // --- permissões na interface
-  await expect(operador.getByRole('link', { name: 'Relatórios' })).toHaveCount(0);
-  await expect(operador.getByRole('link', { name: 'Usuários' })).toHaveCount(0);
+  await expect(operador.getByRole('link', { name: 'Administração' })).toHaveCount(0);
   await closeIssue(lider);
-  await lider.getByRole('button', { name: 'Gestão' }).click();
-  await lider.getByRole('link', { name: 'Relatórios' }).click();
+  await lider.getByRole('link', { name: 'Indicadores' }).click();
+  await lider.getByRole('tab', { name: 'Relatórios' }).click();
   await expect(lider.getByRole('heading', { name: 'Indicadores gerenciais' })).toBeVisible();
   await expect(lider.getByText('Comparativo entre áreas')).toBeVisible();
 });
@@ -249,7 +250,9 @@ for (const [name, viewport] of [['tablet', { width: 820, height: 1180 }], ['celu
     await noHorizontalScroll();
     await page.screenshot({ path: `${SHOTS}/${name}-dashboard.png`, fullPage: true });
     await page.getByRole('button', { name: 'Abrir menu' }).click();
-    await page.getByRole('link', { name: 'Manutenção', exact: true }).click();
+    await page.getByRole('link', { name: 'Pendências', exact: true }).click();
+    await page.getByRole('tab', { name: 'Por área' }).click();
+    await page.getByRole('link', { name: /^Manutenção/ }).click();
     await expect(page.getByRole('heading', { name: 'Manutenção' })).toBeVisible();
     await noHorizontalScroll();
     await page.screenshot({ path: `${SHOTS}/${name}-area.png` });
@@ -276,7 +279,7 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   const man = await mctx.newPage();
   await login(man, users.manutentor.email);
   await expect(man.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
-  await expect(man.getByRole('link', { name: 'Todas as pendências' })).toHaveCount(0);
+  await expect(man.getByRole('link', { name: 'Pendências', exact: true })).toHaveCount(0);
   await man.goto('/pendencias');
   await expect(man).toHaveURL(/\/os$/);
 
@@ -410,15 +413,16 @@ test('16. administrador visualiza como outro perfil (somente leitura)', async ({
   await dlg.getByRole('button', { name: 'Visualizar' }).click();
   await expect(page.getByText(/Visualizando como/)).toContainText('Manutentor');
   await expect(page.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Todas as pendências' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Pendências', exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${SHOTS}/visualizar-como-manutentor.png` });
   await page.getByRole('button', { name: 'Sair da visualização' }).click();
   await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
   await expect(page.getByText(/Visualizando como/)).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Todas as pendências' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Pendências', exact: true })).toBeVisible();
 
   // plant panel (Power BI style): administrator and plant manager only
-  await page.getByRole('link', { name: 'Painel da planta' }).click();
+  await page.getByRole('link', { name: 'Indicadores' }).click();
+  await expect(page.getByRole('tab', { name: 'Painel da planta' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Dias sem máquina parada')).toBeVisible();
   await page.getByRole('button', { name: 'Processos', exact: true }).click();
   await expect(page.getByText('Motivos - todos')).toBeVisible();

@@ -2,7 +2,7 @@
 
 Área do sistema para as não conformidades de **clientes (NC Externa)**, **internas (NC Interna)** e de
 **fornecedores (NC Fornecedor)**, no mesmo formato da planilha "Quadro de Resposta Rápida".
-Fica no menu **Gestão → Resposta Rápida**, logo abaixo de Auditoria.
+Fica no menu **Administração → Resposta Rápida**, logo abaixo de Auditoria.
 
 ## Quem acessa
 
