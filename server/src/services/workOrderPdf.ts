@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import { DateTime } from 'luxon';
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
-import { WO_LOCATION_LABELS, WO_PRIORITY_LABELS, WO_STATUS_LABELS, type WoDomain, type WoLocation, type WoPriority, type WoStatus } from '../../../shared/maintenance.js';
+import { WO_COMPONENT_LABELS, WO_LOCATION_LABELS, WO_PRIORITY_LABELS, WO_STATUS_LABELS, type WoComponent, type WoDomain, type WoLocation, type WoPriority, type WoStatus } from '../../../shared/maintenance.js';
 
 export interface PdfInput {
   domain: WoDomain;
@@ -134,7 +134,7 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
   y -= 58;
   if (o.machine_stopped) {
     page.drawRectangle({ x: M, y: y - 18, width: 118, height: 18, color: rgb(0.86, 0.15, 0.15) });
-    text(o.location_type === 'montagem' ? 'MONTAGEM PARADA' : o.location_type === 'dispositivo' ? 'TRIM DIE / DISPOSITIVO PARADO' : 'MÁQUINA PARADA', M + 8, y - 13, 9.5, bold, rgb(1, 1, 1));
+    text(o.location_type === 'montagem' ? 'MONTAGEM PARADA' : 'MÁQUINA PARADA', M + 8, y - 13, 9.5, bold, rgb(1, 1, 1));
     y -= 26;
   }
 
@@ -142,7 +142,8 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
   fields([
     ['Solicitante', o.opened_by_name],
     ['Setor', o.area_name],
-    [o.location_type === 'molde' ? 'Molde (máquina)' : WO_LOCATION_LABELS[(o.location_type ?? 'maquina') as WoLocation], o.asset_ref],
+    [o.location_type ? WO_LOCATION_LABELS[o.location_type as WoLocation] : 'Equipamento', o.asset_ref],
+    ...(o.component ? [['Onde foi o problema', WO_COMPONENT_LABELS[o.component as WoComponent]] as [string, string]] : []),
     [adj ? 'Motivo' : 'Tipo de manutenção', input.category],
     ['Part number', o.part_number ? `${o.part_number}${o.part_description ? ` · ${o.part_description}` : ''}` : '—'],
     ...(o.virgin_pct != null ? [['Material', `${o.virgin_pct}% virgem · ${o.regrind_pct}% moído`] as [string, string]] : []),

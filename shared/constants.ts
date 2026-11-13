@@ -74,12 +74,11 @@ export const STEP_STATUS_LABELS: Record<StepStatus, string> = {
   cancelada: 'Cancelada',
 };
 
-export const ASSET_TYPES = ['maquina', 'montagem', 'dispositivo', 'equipamento', 'molde', 'item', 'op', 'outro'] as const;
+export const ASSET_TYPES = ['maquina', 'montagem', 'equipamento', 'molde', 'item', 'op', 'outro'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   maquina: 'Máquina',
   montagem: 'Montagem',
-  dispositivo: 'Trim die / dispositivo',
   equipamento: 'Equipamento',
   molde: 'Molde',
   item: 'Item',

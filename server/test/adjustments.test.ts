@@ -70,7 +70,7 @@ describe('fluxo da Ordem de Ajuste', () => {
   it('não aparece na fila de manutenção, nem a OS na fila de ajuste', async () => {
     expect((await operador.get('/api/os')).body.some((o: any) => o.id === id)).toBe(false);
     expect((await operador.get(`/api/os/${id}`)).status).toBe(404);
-    const os = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '3', kind: 'eletrica', machineStopped: false, description: 'x' });
+    const os = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '3', component: 'maquina', kind: 'eletrica', machineStopped: false, description: 'x' });
     expect((await operador.get('/api/oa')).body.some((o: any) => o.id === os.body.id)).toBe(false);
   });
 
@@ -164,10 +164,10 @@ describe('painel da planta (estilo Power BI) e plant manager', () => {
 
 describe('part number nas duas ordens e histórico por PN', () => {
   it('OS também guarda o PN, padronizado; dashboard, histórico e painel filtram por PN', async () => {
-    const os = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '10', kind: 'hidraulica', partNumber: '  pn  7788 ', machineStopped: true, description: 'Vazamento' });
+    const os = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '10', component: 'maquina', kind: 'hidraulica', partNumber: '  pn  7788 ', machineStopped: true, description: 'Vazamento' });
     expect(os.status).toBe(201);
     expect((await operador.get(`/api/os/${os.body.id}`)).body.part_number).toBe('PN 7788');
-    const other = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '10', kind: 'eletrica', machineStopped: false, description: 'Sem PN' });
+    const other = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '10', component: 'maquina', kind: 'eletrica', machineStopped: false, description: 'Sem PN' });
     expect((await operador.get(`/api/os/${other.body.id}`)).body.part_number).toBeNull();
     expect((await operador.get('/api/os/options')).body.partNumbers).toContain('PN 7788');
     expect((await manutentor.post(`/api/os/${os.body.id}/aceitar`)).status).toBe(200);

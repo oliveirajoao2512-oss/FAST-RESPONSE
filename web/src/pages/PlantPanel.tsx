@@ -29,7 +29,7 @@ interface Panel {
   period: { opened: number; finished: number; stops: number; downtimeH: number; mttrH: number | null; waitH: number | null; availability: number | null; mtbfH: number | null };
   now: { open: number; waiting: number; stopped: number; daysSinceStop: number | null };
   months: { month: number; future: boolean; opened: number; finished: number; stops: number; downtimeH: number | null; mttrH: number | null; waitH: number | null; availability: number | null }[];
-  byCategory: Tally[]; byAsset: Tally[]; byLocation: Tally[]; byArea: Tally[]; byPn: Tally[]; byShift: Tally[];
+  byCategory: Tally[]; byAsset: Tally[]; byLocation: Tally[]; byArea: Tally[]; byPn: Tally[]; byShift: Tally[]; byComponent: Tally[];
   partNumbers: string[];
   byWorker: { name: string; hours: number; orders: number }[];
 }
@@ -56,7 +56,7 @@ export function PlantPanelPage() {
     if (w === 'ajuste' && location && location !== 'maquina') setLocation('');
   };
   const locations: WoLocation[] = domainLocations(domain);
-  const assetOptions = (location ? [location] : locations.filter((l) => l !== 'molde')).flatMap((l) => (d?.places[l] ?? []).map((p) => ({ l, code: p.code })));
+  const assetOptions = (location ? [location] : locations).flatMap((l) => (d?.places[l] ?? []).map((p) => ({ l, code: p.code })));
 
   return (
     <div className="-m-3 flex min-h-full bg-[#e6e8eb] sm:-m-5">
@@ -92,7 +92,7 @@ export function PlantPanelPage() {
               </select>
             </Filter>
           )}
-          <Filter label={location === 'molde' ? 'Máquina do molde' : location ? WO_LOCATION_LABELS[location] : domain === 'ajuste' ? 'Máquina' : 'Equipamento'}>
+          <Filter label={location === 'montagem' ? 'Montagem' : domain === 'ajuste' || location === 'maquina' ? 'Máquina' : 'Máquina / montagem'}>
             <select value={asset} onChange={(e) => setAsset(e.target.value)} className={cx(selectCls, 'w-44')}>
               <option value="">Todas</option>
               {assetOptions.map((a) => <option key={`${a.l}-${a.code}`} value={a.code}>{locations.length > 1 && !location ? `${WO_LOCATION_LABELS[a.l]} ${a.code}` : a.code}</option>)}
@@ -285,6 +285,12 @@ function Report({ d, month, onMonth, onAsset, onPn }: { d: Panel; month: number 
         <HBars rows={d.byWorker.map((w) => ({ key: w.name, label: w.name, value: Math.round(w.hours * 10) / 10, note: `${w.orders} ${D.short}`, fmt: hfmt }))} color={ORANGE} />
       </Tile>
 
+      {!adj && (
+        <Tile section="Onde foi o problema" title="Máquina x dispositivo x trim die - qtd" className="xl:col-span-4">
+          <HBars rows={d.byComponent.map((c) => ({ key: c.key, label: c.label, value: c.n, note: c.downtimeH ? `${hfmt(c.downtimeH)} parada` : '' }))} color={ORANGE} />
+        </Tile>
+      )}
+
       <Tile section="Turnos" title={`${D.short} abertas por turno - qtd`} className="xl:col-span-4">
         <HBars rows={d.byShift.map((t) => ({ key: t.key, label: t.label, value: t.n, note: t.downtimeH ? `${hfmt(t.downtimeH)} parada` : '' }))} color={NAVY} />
       </Tile>
@@ -294,8 +300,8 @@ function Report({ d, month, onMonth, onAsset, onPn }: { d: Panel; month: number 
           <HBars rows={d.byCategory.map((c) => ({ key: c.key, label: c.label, value: c.n, note: c.downtimeH ? `${hfmt(c.downtimeH)} parada` : '' }))} color={ORANGE} />
         </Tile>
       ) : (
-        <Tile section="Origem" title="Máquina x montagem e setores que abrem - qtd" className="xl:col-span-8">
-          <div className="grid gap-4 md:grid-cols-2">
+        <Tile section="Origem" title="Máquina x montagem e setores que abrem - qtd" className="xl:col-span-4">
+          <div className="grid gap-4">
             <HBars rows={d.byLocation.map((l) => ({ key: l.key, label: l.label, value: l.n, note: l.downtimeH ? `${hfmt(l.downtimeH)} parada` : '' }))} color={NAVY} />
             <HBars rows={d.byArea.map((a) => ({ key: a.key, label: a.label, value: a.n, note: '' }))} color={ORANGE} />
           </div>

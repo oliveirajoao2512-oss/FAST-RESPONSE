@@ -48,22 +48,17 @@ export const worksDomain = (d: WoDomain, a: Actor, areaId: number | null | undef
   a.role === WO_DOMAIN[d].workerRole || leadsDomain(a, areaId);
 
 /** Where the order is: a machine or an assembly cell. Adjustments only happen on machines. */
-export const WO_LOCATIONS = ['maquina', 'montagem', 'molde', 'dispositivo'] as const;
+export const WO_LOCATIONS = ['maquina', 'montagem'] as const;
 export type WoLocation = (typeof WO_LOCATIONS)[number];
-export const WO_LOCATION_LABELS: Record<WoLocation, string> = { maquina: 'Máquina', montagem: 'Montagem', molde: 'Molde', dispositivo: 'Trim die / dispositivo' };
-export const domainLocations = (d: WoDomain): WoLocation[] => (d === 'ajuste' ? ['maquina'] : ['maquina', 'molde', 'dispositivo', 'montagem']);
-/** Registered list a place is picked from: a mold is identified by the machine it is running on. */
-export const placeAssetType = (l: WoLocation): 'maquina' | 'montagem' | 'dispositivo' => (l === 'molde' ? 'maquina' : l);
-/** Words for a place in sentences ("a máquina", "esta montagem", "A máquina está parada?"). */
-export const PLACE_WORDS: Record<WoLocation, { a: string; this: string; noun: string; stopped: string }> = {
-  maquina: { a: 'a máquina', this: 'esta máquina', noun: 'máquina', stopped: 'A máquina está parada?' },
-  montagem: { a: 'a montagem', this: 'esta montagem', noun: 'montagem', stopped: 'A montagem está parada?' },
-  molde: { a: 'a máquina onde está o molde', this: 'o molde desta máquina', noun: 'máquina', stopped: 'A máquina está parada?' },
-  dispositivo: { a: 'o trim die / dispositivo', this: 'este trim die / dispositivo', noun: 'trim die / dispositivo', stopped: 'O trim die / dispositivo está parado?' },
-};
-/** "Máquina 24", "Montagem 0013.01", "Molde · máquina 24", "Trim die / dispositivo D464". */
-export const placeLabel = (o: { location_type: WoLocation | null; asset_ref: string }) =>
-  o.location_type === 'molde' ? `Molde · máquina ${o.asset_ref}` : o.location_type ? `${WO_LOCATION_LABELS[o.location_type]} ${o.asset_ref}` : o.asset_ref;
+export const WO_LOCATION_LABELS: Record<WoLocation, string> = { maquina: 'Máquina', montagem: 'Montagem' };
+export const domainLocations = (d: WoDomain): WoLocation[] => (d === 'ajuste' ? ['maquina'] : ['maquina', 'montagem']);
+/** Maintenance order on a machine: which part of it has the problem (the trim die and the devices belong to the machine). */
+export const WO_COMPONENTS = ['maquina', 'dispositivo', 'trim_die'] as const;
+export type WoComponent = (typeof WO_COMPONENTS)[number];
+export const WO_COMPONENT_LABELS: Record<WoComponent, string> = { maquina: 'Máquina', dispositivo: 'Dispositivo', trim_die: 'Trim die' };
+/** "Máquina 24", "Máquina 24 · trim die", "Montagem 0013.01"; old history may only have the device code ("D464 · dispositivo"). */
+export const placeLabel = (o: { location_type: WoLocation | null; asset_ref: string; component?: WoComponent | null }) =>
+  `${o.location_type ? `${WO_LOCATION_LABELS[o.location_type]} ` : ''}${o.asset_ref}${o.component && o.component !== 'maquina' ? ` · ${WO_COMPONENT_LABELS[o.component].toLowerCase()}` : ''}`;
 
 /** Dashboards of a module: its area leadership, plus the plant manager (read only). */
 export const seesDomainDashboard = (a: Actor, areaId: number | null | undefined) => leadsDomain(a, areaId) || a.role === 'plant_manager';

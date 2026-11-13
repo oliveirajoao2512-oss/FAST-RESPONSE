@@ -63,7 +63,7 @@ describe('planilha de cadastro do PCP', () => {
 });
 
 describe('cadastro de PNs e validação na abertura das ordens', () => {
-  const openOs = (partNumber: string) => operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '5', kind: 'hidraulica', partNumber, machineStopped: false, description: 'Teste PN' });
+  const openOs = (partNumber: string) => operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '5', component: 'maquina', kind: 'hidraulica', partNumber, machineStopped: false, description: 'Teste PN' });
 
   it('com a base vazia o PN é livre', async () => {
     expect((await openOs('QUALQUER 1')).status).toBe(201);

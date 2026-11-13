@@ -169,7 +169,7 @@ test('2-12. fluxo completo entre usuários simultâneos', async ({ browser }) =>
   await closeIssue(operador);
   await operador.getByRole('link', { name: 'Pendências', exact: true }).click();
   await operador.getByRole('tab', { name: 'Aprovações' }).click();
-  await expect(operador.getByText('Falha no molde da injetora 07')).toBeVisible({ timeout: 10_000 });
+  await expect(operador.getByText('Falha no molde da injetora 07').first()).toBeVisible({ timeout: 10_000 });
   await operador.getByRole('button', { name: 'Validar' }).click();
   await operador.getByRole('dialog', { name: /Validar solução/ }).getByRole('button', { name: 'Aprovar' }).click();
   await expect(operador.getByText(`${code} validada e concluída`)).toBeVisible();
@@ -288,8 +288,9 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await operador.getByRole('button', { name: 'Abrir OS' }).click();
   const dlg = operador.getByRole('dialog', { name: 'Abrir ordem de manutenção' });
   await dlg.getByLabel('Setor').selectOption({ label: 'Produção' });
-  await dlg.getByRole('radio', { name: 'Máquina', exact: true }).click();
+  await dlg.getByRole('radiogroup', { name: 'Onde é?' }).getByRole('radio', { name: 'Máquina', exact: true }).click();
   await dlg.getByRole('radio', { name: '17A', exact: true }).click();
+  await dlg.getByRole('radiogroup', { name: 'Onde está o problema' }).getByRole('radio', { name: 'Trim die' }).click();
   await dlg.getByRole('radio', { name: 'Mecânica' }).click();
   await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
   await dlg.getByLabel('O que está acontecendo e onde é o problema?').fill('Vazamento de óleo no cilindro do molde');

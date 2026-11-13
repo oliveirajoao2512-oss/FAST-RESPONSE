@@ -159,10 +159,10 @@ Cada ordem (manutenção ou ajuste) conta no **turno em que foi aberta**, pelo h
 
 Onde aparece: filtro "Turno de abertura" e tabela "por turno de abertura" (abertas, espera média, atendimento médio e horas de máquina parada) no Dashboard de cada módulo, coluna "Turno" no Excel exportado e quadro "abertas por turno" no Painel da planta.
 
-## Onde foi o problema: máquina, molde, trim die / dispositivo ou montagem
+## Onde foi o problema: máquina, dispositivo ou trim die
 
-Ao abrir uma OS, "Onde é?" tem quatro opções: **Máquina**, **Molde** (escolhido pela máquina em que o molde está), **Trim die / dispositivo** (lista própria em Administração → Cadastros, tipo "Trim die / dispositivo") e **Montagem**. Ordens de ajuste continuam só em máquina. No Dashboard há o filtro "Onde foi o problema" e o quadro "Onde foram os problemas" (clique para filtrar).
+Na OS de máquina, depois de escolher a máquina aparece **"Onde está o problema na máquina X?"** com três opções: **Máquina**, **Dispositivo** ou **Trim die** (obrigatório, porque dispositivo e trim die fazem parte da máquina). Montagem e Ordem de Ajuste não têm essa pergunta. No Dashboard de manutenção há o filtro "Onde foi o problema" e o quadro "Onde foram os problemas" (clique para filtrar); no Painel da planta, o quadro "Máquina x dispositivo x trim die"; no Excel, a coluna "Onde foi o problema".
 
 ## Histórico importado
 
-As OS antigas da planilha de manutenção (abas "molde" e "dispositivo", outubro/2026) foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.
+As OS antigas da planilha de manutenção (outubro/2026) foram carregadas. A aba "molde" entrou como problema na própria máquina; a aba "dispositivo" entrou como problema em dispositivo, só com o código do dispositivo (a planilha não diz a máquina). Elas foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.

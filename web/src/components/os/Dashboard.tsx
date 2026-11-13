@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Download, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { domainLocations, placeLabel, woCategory, WO_LOCATION_LABELS, type WoLocation } from '@shared/maintenance';
+import { placeLabel, woCategory, WO_COMPONENT_LABELS, WO_COMPONENTS } from '@shared/maintenance';
 import { shiftOf } from '@shared/shifts';
 import { get, qs } from '../../lib/api';
 import { useMeta } from '../../lib/meta';
@@ -55,7 +55,7 @@ interface Report {
   byCategory: Group[];
   byArea: Group[];
   byPn: Group[];
-  byLocation: Group[];
+  byComponent: Group[];
   byShift: (Group & { start: string; end: string; waitH: number | null })[];
   pnCoverage: number | null;
   heat: number[][];
@@ -76,11 +76,11 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
   const [asset, setAsset] = useState('');
   const [pn, setPn] = useState('');
   const [shift, setShift] = useState('');
-  const [location, setLocation] = useState('');
+  const [component, setComponent] = useState('');
   const range = period === 'custom' ? custom : rangeOf(period);
-  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined, shift: shift || undefined, location: location || undefined };
+  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined, shift: shift || undefined, component: component || undefined };
   const r = useQuery<Report>({ queryKey: ['os', D.d, 'report', params], queryFn: () => get(`${D.api}/report${qs(params)}`) });
-  const filtered = !!(areaId || category || asset || pn || shift || location);
+  const filtered = !!(areaId || category || asset || pn || shift || component);
 
   return (
     <div className="space-y-4">
@@ -114,11 +114,11 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
             {r.data?.filters.partNumbers.map((p) => <option key={p} value={p}>{p}</option>)}
           </Select>
         </label>
-        {domainLocations(D.d).length > 1 && (
+        {!adj && (
           <label className="text-xs text-gray-600">Onde foi o problema
-            <Select value={location} onChange={(e) => setLocation(e.target.value)} className="mt-0.5 w-48">
+            <Select value={component} onChange={(e) => setComponent(e.target.value)} className="mt-0.5 w-40">
               <option value="">Todos</option>
-              {domainLocations(D.d).map((l) => <option key={l} value={l}>{WO_LOCATION_LABELS[l as WoLocation]}</option>)}
+              {WO_COMPONENTS.map((c) => <option key={c} value={c}>{WO_COMPONENT_LABELS[c]}</option>)}
             </Select>
           </label>
         )}
@@ -133,20 +133,20 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
             Máquina {asset}<button aria-label="Tirar filtro de máquina" onClick={() => setAsset('')}><X size={14} /></button>
           </span>
         )}
-        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); setShift(''); setLocation(''); }}>Limpar filtros</Button>}
+        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); setShift(''); setComponent(''); }}>Limpar filtros</Button>}
         <a href={`${D.api}/export.xlsx${qs(params)}`} className="ml-auto"><Button><Download size={16} />Exportar Excel</Button></a>
       </div>
 
       {r.isLoading ? <Spinner /> : r.error ? <ErrorBox error={r.error} onRetry={() => r.refetch()} /> : r.data && (
-        <Charts d={r.data} adj={adj} pn={pn} shift={shift} onCategory={setCategory} onAsset={setAsset} onPn={setPn} onShift={setShift} onLocation={setLocation} />
+        <Charts d={r.data} adj={adj} pn={pn} shift={shift} onCategory={setCategory} onAsset={setAsset} onPn={setPn} onShift={setShift} onComponent={setComponent} />
       )}
 
-      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} shift={shift} location={location} onOpen={onOpen} />
+      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} shift={shift} component={component} onOpen={onOpen} />
     </div>
   );
 }
 
-function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift, onLocation }: { d: Report; adj: boolean; pn: string; shift: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void; onShift: (s: string) => void; onLocation: (l: string) => void }) {
+function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift, onComponent }: { d: Report; adj: boolean; pn: string; shift: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void; onShift: (s: string) => void; onComponent: (c: string) => void }) {
   const D = useWoDomain();
   const series = d.series.map((s) => ({ ...s, label: bucketLabel(s.key, d.bucket), waitH: round1(s.waitH), workH: round1(s.workH) }));
   const per = d.bucket === 'dia' ? 'por dia' : d.bucket === 'semana' ? 'por semana' : 'por mês';
@@ -226,8 +226,8 @@ function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift, onLocat
           </Card>
         ) : (
           <Card title="Onde foram os problemas" actions={<span className="text-xs text-gray-500">clique para filtrar</span>}>
-            <HBars data={d.byLocation.filter((l) => l.key).map((l) => ({ key: l.key, label: l.label, value: l.n, extra: l.stoppedH ? `${h(l.stoppedH)} parada` : '' }))}
-              unit={(v) => `${v} ${D.short}`} color={C_OPENED} onPick={onLocation} empty="Nenhuma ordem no período." />
+            <HBars data={d.byComponent.map((c) => ({ key: c.key, label: c.label, value: c.n, extra: [c.stoppedH ? `${h(c.stoppedH)} parada` : '', c.workH != null ? `atendimento médio ${h(c.workH)}` : ''].filter(Boolean).join(' · ') }))}
+              unit={(v) => `${v} ${D.short}`} color={C_OPENED} onPick={onComponent} empty="Nenhuma OS de máquina com essa informação no período." />
             <div className="mt-3 border-t pt-2 text-xs font-medium text-gray-500">Setores que mais abrem</div>
             <HBars data={d.byArea.map((a) => ({ key: a.key, label: a.label, value: a.n, extra: '' }))} unit={(v) => `${v} ${D.short}`} color={C_OPENED} empty="—" />
           </Card>
@@ -339,7 +339,7 @@ function Heatmap({ heat, short }: { heat: number[][]; short: string }) {
 }
 
 /** Finished orders in the period, with the same filters, to look back at each one. */
-function History({ range, asset, pn, areaId, category, shift, location, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; shift: string; location: string; onOpen: (id: string) => void }) {
+function History({ range, asset, pn, areaId, category, shift, component, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; shift: string; component: string; onOpen: (id: string) => void }) {
   const D = useWoDomain();
   const adj = D.d === 'ajuste';
   const [text, setText] = useState('');
@@ -347,8 +347,8 @@ function History({ range, asset, pn, areaId, category, shift, location, onOpen }
   const list = useWoList('finalizadas', { ...range, asset: asset || undefined, pn: pn || undefined, q: text.trim() || undefined });
   const rows = useMemo(() => (list.data ?? []).filter((o) =>
     (!areaId || String(o.area_id) === areaId) && (!category || String(o.kind ?? o.reason) === category) &&
-    (!location || o.location_type === location) &&
-    (!shift || (!o.imported && shiftOf(o.opened_at, cfg?.shifts ?? [], cfg?.timezone ?? 'America/Sao_Paulo') === shift))), [list.data, areaId, category, shift, location, cfg]);
+    (!component || o.component === component) &&
+    (!shift || (!o.imported && shiftOf(o.opened_at, cfg?.shifts ?? [], cfg?.timezone ?? 'America/Sao_Paulo') === shift))), [list.data, areaId, category, shift, component, cfg]);
   return (
     <Card title={pn ? `Histórico do part number ${pn}` : `Histórico de ${D.short} finalizadas`} actions={
       <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Buscar no histórico…" aria-label="Buscar no histórico" className="w-56" />}>

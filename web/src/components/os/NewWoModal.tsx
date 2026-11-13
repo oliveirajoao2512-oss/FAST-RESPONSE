@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Camera, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, domainLocations, PLACE_WORDS, WO_KIND_LABELS, WO_KINDS, WO_LOCATION_LABELS, type WoKind, type WoLocation } from '@shared/maintenance';
+import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, domainLocations, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_KIND_LABELS, WO_KINDS, WO_LOCATION_LABELS, type WoComponent, type WoKind, type WoLocation } from '@shared/maintenance';
 import { api as request, post } from '../../lib/api';
 import { useMe } from '../../lib/session';
 import { useToast } from '../../lib/toast';
@@ -68,17 +68,20 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [error, setError] = useState<unknown>(null);
   const [tried, setTried] = useState(false);
 
-  // where: machine, assembly cell, mold (picked by its machine) or device (adjustments only on machines), then the registered list
+  // where: machine or assembly cell (adjustments only on machines), then the registered list of that kind;
+  // a maintenance order on a machine also says whether the problem is the machine itself, a device or the trim die
   const locations = domainLocations(D.d);
   const [location, setLocation] = useState<WoLocation | null>(locations.length === 1 ? locations[0] : null);
   const places = location ? opts.data?.places?.[location] ?? [] : [];
-  const sameMachine = (openList.data ?? []).filter((o) => asset && o.asset_ref.trim().toLowerCase() === asset.toLowerCase() && (o.location_type === 'dispositivo') === (location === 'dispositivo'));
+  const sameMachine = (openList.data ?? []).filter((o) => asset && o.asset_ref.trim().toLowerCase() === asset.toLowerCase());
+  const [component, setComponent] = useState<WoComponent | null>(null);
+  const askComponent = !adj && location === 'maquina';
 
-  const stoppedQuestion = PLACE_WORDS[location ?? 'maquina'].stopped;
+  const stoppedQuestion = location === 'montagem' ? 'A montagem está parada?' : 'A máquina está parada?';
   const askMaterial = adj && reason === ADJ_MATERIAL_REASON;
   const pctOk = (v: string) => v.trim() !== '' && Number(v) >= 0 && Number(v) <= 100;
   const missing = {
-    area: !areaId, location: !location, asset: !asset.trim(), kind: adj ? !reason : !kind, stopped: !planned && stopped === null, description: !description.trim(),
+    area: !areaId, location: !location, asset: !asset.trim(), component: askComponent && !component, kind: adj ? !reason : !kind, stopped: !planned && stopped === null, description: !description.trim(),
     plannedAt: planned && (!plannedAt || new Date(plannedAt).getTime() < Date.now() - 3600_000),
     plannedHours: planned && !(Number(plannedHours.replace(',', '.')) > 0),
     material: askMaterial && (!pctOk(virgin) || !pctOk(regrind)),
@@ -91,7 +94,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
     setError(null);
     try {
       const r = await post<{ id: string; code: string }>(D.api, {
-        areaId, location, assetRef: asset.trim(), description: description.trim(),
+        areaId, location, assetRef: asset.trim(), description: description.trim(), ...(askComponent ? { component } : {}),
         ...(planned
           ? { scheduled: true, plannedStart: new Date(plannedAt).toISOString(), plannedHours: Number(plannedHours.replace(',', '.')) }
           : { machineStopped: stopped }),
@@ -146,18 +149,18 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
           {locations.length > 1 && (
             <div>
               <span className="mb-1 block text-sm font-medium text-gray-700">Onde é? <span className="text-red-600" aria-hidden>*</span></span>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Onde é?">
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Onde é?">
                 {locations.map((l) => (
                   <button key={l} type="button" role="radio" aria-checked={location === l} className={choice(location === l)}
-                    onClick={() => { if (l !== location) setAsset(''); setLocation(l); }}>{WO_LOCATION_LABELS[l]}</button>
+                    onClick={() => { if (l !== location) { setAsset(''); setComponent(null); } setLocation(l); }}>{WO_LOCATION_LABELS[l]}</button>
                 ))}
               </div>
-              {tried && missing.location && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha onde é.</span>}
+              {tried && missing.location && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha máquina ou montagem.</span>}
             </div>
           )}
           {location && (
             <div>
-              <span className="mb-1 block text-sm font-medium text-gray-700">{location === 'molde' ? 'Máquina onde está o molde' : WO_LOCATION_LABELS[location]} <span className="text-red-600" aria-hidden>*</span></span>
+              <span className="mb-1 block text-sm font-medium text-gray-700">{WO_LOCATION_LABELS[location]} <span className="text-red-600" aria-hidden>*</span></span>
               {places.length ? (
                 <div className="grid max-h-48 grid-cols-3 gap-1.5 overflow-y-auto rounded-lg border border-gray-200 p-1.5 sm:grid-cols-4" role="radiogroup" aria-label={WO_LOCATION_LABELS[location]}>
                   {places.map((p) => (
@@ -167,13 +170,24 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
                     </button>
                   ))}
                 </div>
-              ) : <p className="text-sm text-gray-500">Nenhum(a) {PLACE_WORDS[location].noun} cadastrado(a). Peça ao gestor para incluir em Administração → Cadastros.</p>}
-              {tried && missing.asset && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha {PLACE_WORDS[location].a}.</span>}
+              ) : <p className="text-sm text-gray-500">Nenhuma {location === 'montagem' ? 'montagem' : 'máquina'} cadastrada. Peça ao gestor para incluir em Administração → Cadastros.</p>}
+              {tried && missing.asset && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha {location === 'montagem' ? 'a montagem' : 'a máquina'}.</span>}
+            </div>
+          )}
+          {askComponent && asset && (
+            <div>
+              <span className="mb-1 block text-sm font-medium text-gray-700">Onde está o problema na máquina {asset}? <span className="text-red-600" aria-hidden>*</span></span>
+              <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Onde está o problema">
+                {WO_COMPONENTS.map((c) => (
+                  <button key={c} type="button" role="radio" aria-checked={component === c} className={choice(component === c)} onClick={() => setComponent(c)}>{WO_COMPONENT_LABELS[c]}</button>
+                ))}
+              </div>
+              {tried && missing.component && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha máquina, dispositivo ou trim die.</span>}
             </div>
           )}
           {sameMachine.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
-              Já existe {D.short} aberta para {PLACE_WORDS[location ?? 'maquina'].this}:
+              Já existe {D.short} aberta para {location === 'montagem' ? 'esta montagem' : 'esta máquina'}:
               {sameMachine.map((o) => (
                 <button key={o.id} type="button" onClick={() => onCreated(o.id)} className="mt-1 flex w-full items-center gap-2 text-left underline-offset-2 hover:underline">
                   <span className="font-mono text-xs">{o.code}</span><WoStatusBadge status={o.status} /><span className="truncate">{o.description}</span>

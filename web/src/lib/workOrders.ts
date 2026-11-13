@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
-import { WO_DOMAIN, type WoDomain, type WoKind, type WoLocation, type WoPriority, type WoStatus, type WoTimes } from '@shared/maintenance';
+import { WO_DOMAIN, type WoComponent, type WoDomain, type WoKind, type WoLocation, type WoPriority, type WoStatus, type WoTimes } from '@shared/maintenance';
 import { get, qs } from './api';
 
 /** Which order module the components below are showing (maintenance or process adjustment). */
@@ -59,6 +59,8 @@ export interface WorkOrder {
   /** loaded from the old spreadsheet history: only the day is known */
   imported: boolean;
   legacy_number: string | null;
+  /** maintenance on a machine: the machine itself, a device or the trim die */
+  component: WoComponent | null;
 }
 
 export interface WorkOrderDetail extends WorkOrder {

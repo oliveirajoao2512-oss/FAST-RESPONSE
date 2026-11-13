@@ -26,7 +26,7 @@ afterAll(async () => {
 });
 
 const open = (cl: Client, extra: Record<string, unknown> = {}) =>
-  cl.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '17A', kind: 'mecanica', machineStopped: false, description: 'Vazamento de óleo no cilindro', ...extra });
+  cl.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '17A', component: 'maquina', kind: 'mecanica', machineStopped: false, description: 'Vazamento de óleo no cilindro', ...extra });
 const detail = async (id: string) => (await operador.get(`/api/os/${id}`)).body;
 
 describe('tempos', () => {
@@ -223,7 +223,7 @@ describe('administrador: visualizar como outro perfil', () => {
     expect(me).toMatchObject({ role: 'manutentor', preview: true, name: 'Admin Teste' });
     expect((await man.get('/api/os')).status).toBe(200);
     expect((await man.get('/api/issues')).status).toBe(403);
-    const w = await man.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '1A', kind: 'outros', machineStopped: false, description: 'teste' });
+    const w = await man.post('/api/os', { areaId: prod, location: 'maquina', assetRef: '1A', component: 'maquina', kind: 'outros', machineStopped: false, description: 'teste' });
     expect(w.status).toBe(403);
     expect(w.body.erro).toMatch(/somente leitura/);
 
@@ -306,25 +306,24 @@ describe('manutenção programada com análise da Logística', () => {
   });
 });
 
-describe('molde e dispositivo', () => {
-  it('molde é escolhido pela máquina; dispositivo vem da lista própria do cadastro', async () => {
-    const opts = (await operador.get('/api/os/options')).body;
-    expect(opts.places.molde.map((p: any) => p.code)).toEqual(opts.places.maquina.map((p: any) => p.code));
-    const mold = await open(operador, { location: 'molde', assetRef: '17A', description: 'Molde vazando água' });
-    expect(mold.status).toBe(201);
-    expect((await detail(mold.body.id)).location_type).toBe('molde');
-    expect((await open(operador, { location: 'dispositivo', assetRef: 'D999' })).status).toBe(400);
-    await one(`INSERT INTO assets (type, code) VALUES ('dispositivo', 'D999') ON CONFLICT DO NOTHING`);
-    const dev = await open(operador, { location: 'dispositivo', assetRef: 'd999', description: 'Faca solta' });
-    expect(dev.status).toBe(201);
-    expect((await detail(dev.body.id)).asset_ref).toBe('D999');
-    expect((await operador.post('/api/oa', { areaId: prod, location: 'dispositivo', assetRef: 'D999', reason: 6, machineStopped: false, description: 'x' })).status).toBe(400);
+describe('onde foi o problema na máquina', () => {
+  it('OS em máquina exige máquina, dispositivo ou trim die; montagem e ajuste não', async () => {
+    expect((await open(operador, { component: undefined })).status).toBe(400);
+    const r = await open(operador, { component: 'trim_die', description: 'Trim die desalinhado' });
+    expect(r.status).toBe(201);
+    expect((await detail(r.body.id)).component).toBe('trim_die');
+    const m = await open(operador, { location: 'montagem', assetRef: '0013.01', component: 'dispositivo' });
+    expect(m.status).toBe(201);
+    expect((await detail(m.body.id)).component).toBeNull();
+    const rep = (await gerenteMan.get('/api/os/report?component=trim_die')).body;
+    expect(rep.totals.opened).toBeGreaterThanOrEqual(1);
+    expect(rep.byComponent.map((c: any) => c.label)).toEqual(['Trim die']);
   });
   it('histórico importado (só com a data) não entra na tabela por turno nem no mapa de horários', async () => {
     const before = (await gerenteMan.get('/api/os/report')).body;
     const u = await one<{ id: string }>(`SELECT id FROM users WHERE role = 'admin' LIMIT 1`);
-    await one(`INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, location_type, kind, machine_stopped, description, status, opened_at, first_accepted_at, finished_at, imported, legacy_number)
-      VALUES ('manutencao', nextval('work_order_number_seq'), 'OS-H-0001', $1, $2, '17A', 'molde', 'mecanica', true, 'importada', 'finalizada', now() - interval '2 days', now() - interval '2 days', now() - interval '2 days' + interval '20 minutes', true, '209682')`, [u!.id, prod]);
+    await one(`INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, location_type, component, kind, machine_stopped, description, status, opened_at, first_accepted_at, finished_at, imported, legacy_number)
+      VALUES ('manutencao', nextval('work_order_number_seq'), 'OS-H-0001', $1, $2, 'D464', NULL, 'dispositivo', 'mecanica', false, 'importada', 'finalizada', now() - interval '2 days', now() - interval '2 days', now() - interval '2 days' + interval '20 minutes', true, '209682')`, [u!.id, prod]);
     const after = (await gerenteMan.get('/api/os/report')).body;
     expect(after.totals.opened).toBe(before.totals.opened + 1);
     const sum = (r: any) => r.byShift.reduce((a: number, t: any) => a + t.n, 0);
