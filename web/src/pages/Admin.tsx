@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileUp, KeyRound, Pencil, Plus, Save } from 'lucide-react';
+import { FileUp, KeyRound, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { pnKey } from '@shared/partNumbers';
+import { shiftRanges } from '@shared/shifts';
 import { ASSET_TYPE_LABELS, ASSET_TYPES, PRIORITIES, PRIORITY_LABELS, ORDER_ONLY_ROLES, ROLE_LABELS, ROLES } from '@shared/constants';
 import { FormError } from '../components/actions';
 import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../components/ui';
@@ -200,6 +201,21 @@ export function SettingsPage() {
         <Field label="Feriados (AAAA-MM-DD, um por linha)" className="sm:col-span-2">
           <Textarea value={cfg.deadline.holidays.join('\n')} disabled={!editable} onChange={(e) => set('deadline.holidays', e.target.value.split(/\s+/).filter(Boolean))} />
         </Field>
+      </Section>
+      <Section title="Turnos">
+        <p className="text-sm text-gray-600 sm:col-span-2">Cada ordem de manutenção e de ajuste conta no turno em que foi aberta. Informe o horário em que cada turno começa: ele vai até o início do próximo.</p>
+        <div className="space-y-2 sm:col-span-2">
+          {cfg.shifts.map((s: { name: string; start: string }, i: number) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <div className="w-44"><Input value={s.name} disabled={!editable} aria-label="Nome do turno" onChange={(e) => set('shifts', cfg.shifts.map((x: any, j: number) => (j === i ? { ...x, name: e.target.value } : x)))} /></div>
+              <span className="text-sm text-gray-600">começa às</span>
+              <div className="w-36"><Input type="time" value={s.start} disabled={!editable} aria-label="Início do turno" onChange={(e) => set('shifts', cfg.shifts.map((x: any, j: number) => (j === i ? { ...x, start: e.target.value } : x)))} /></div>
+              {editable && cfg.shifts.length > 1 && <Button kind="ghost" size="sm" aria-label="Remover turno" onClick={() => set('shifts', cfg.shifts.filter((_: any, j: number) => j !== i))}><Trash2 size={15} /></Button>}
+            </div>
+          ))}
+          {editable && cfg.shifts.length < 6 && <Button size="sm" onClick={() => set('shifts', [...cfg.shifts, { name: `${cfg.shifts.length + 1}º turno`, start: '00:00' }])}><Plus size={15} />Adicionar turno</Button>}
+          <p className="text-xs text-gray-500">{shiftRanges(cfg.shifts.filter((s: any) => /^\d{2}:\d{2}$/.test(s.start))).map((s) => `${s.name}: ${s.start} às ${s.end}`).join(' · ')}</p>
+        </div>
       </Section>
       <Section title="Fluxo e encerramento">
         <div className="space-y-2 sm:col-span-2">

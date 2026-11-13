@@ -1,8 +1,11 @@
 import type { Complexity, Priority, Role } from './constants.js';
+import type { Shift } from './shifts.js';
 
 /** Company configuration, editable by administrators. Stored in the `settings` table. */
 export interface AppConfig {
   timezone: string;
+  /** Work shifts by start time; orders are counted in the shift they were opened. */
+  shifts: Shift[];
   deadline: {
     /** Calendar days added to the opening day (D + days). */
     days: number;
@@ -60,6 +63,11 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   timezone: 'America/Sao_Paulo',
+  shifts: [
+    { name: '1º turno', start: '06:00' },
+    { name: '2º turno', start: '14:00' },
+    { name: '3º turno', start: '22:00' },
+  ],
   deadline: {
     days: 1,
     time: '23:59',

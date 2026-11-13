@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { DEFAULT_CONFIG, mergeConfig } from '../../../shared/config.js';
 import { ASSET_TYPES, ROLES } from '../../../shared/constants.js';
 import { normalizePn } from '../../../shared/maintenance.js';
+import { shiftsProblem } from '../../../shared/shifts.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { hashPassword, requireUser, revokeUserSessions } from '../auth.js';
@@ -295,4 +296,7 @@ function validateConfig(c: ReturnType<typeof mergeConfig>) {
   if (c.complexity.moderateMinSteps >= c.complexity.complexMinSteps) throw badRequest('Etapas para "complexa" devem ser maiores que para "moderada".');
   for (const v of Object.values(c.scoring.base)) if (v < 0 || v > 1000) throw badRequest('Pontuação base inválida.');
   if (c.deadline.holidays.some((h) => !/^\d{4}-\d{2}-\d{2}$/.test(h))) throw badRequest('Feriados devem estar no formato AAAA-MM-DD.');
+  const shifts = shiftsProblem(c.shifts);
+  if (shifts) throw badRequest(shifts);
+  c.shifts = c.shifts.map((s) => ({ name: s.name.trim(), start: s.start }));
 }

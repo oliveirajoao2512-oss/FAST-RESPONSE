@@ -29,7 +29,7 @@ interface Panel {
   period: { opened: number; finished: number; stops: number; downtimeH: number; mttrH: number | null; waitH: number | null; availability: number | null; mtbfH: number | null };
   now: { open: number; waiting: number; stopped: number; daysSinceStop: number | null };
   months: { month: number; future: boolean; opened: number; finished: number; stops: number; downtimeH: number | null; mttrH: number | null; waitH: number | null; availability: number | null }[];
-  byCategory: Tally[]; byAsset: Tally[]; byLocation: Tally[]; byArea: Tally[]; byPn: Tally[];
+  byCategory: Tally[]; byAsset: Tally[]; byLocation: Tally[]; byArea: Tally[]; byPn: Tally[]; byShift: Tally[];
   partNumbers: string[];
   byWorker: { name: string; hours: number; orders: number }[];
 }
@@ -285,12 +285,16 @@ function Report({ d, month, onMonth, onAsset, onPn }: { d: Panel; month: number 
         <HBars rows={d.byWorker.map((w) => ({ key: w.name, label: w.name, value: Math.round(w.hours * 10) / 10, note: `${w.orders} ${D.short}`, fmt: hfmt }))} color={ORANGE} />
       </Tile>
 
+      <Tile section="Turnos" title={`${D.short} abertas por turno - qtd`} className="xl:col-span-4">
+        <HBars rows={d.byShift.map((t) => ({ key: t.key, label: t.label, value: t.n, note: t.downtimeH ? `${hfmt(t.downtimeH)} parada` : '' }))} color={NAVY} />
+      </Tile>
+
       {adj ? (
-        <Tile section="Ocorrências" title="Motivos - todos" className="xl:col-span-12">
+        <Tile section="Ocorrências" title="Motivos - todos" className="xl:col-span-8">
           <HBars rows={d.byCategory.map((c) => ({ key: c.key, label: c.label, value: c.n, note: c.downtimeH ? `${hfmt(c.downtimeH)} parada` : '' }))} color={ORANGE} />
         </Tile>
       ) : (
-        <Tile section="Origem" title="Máquina x montagem e setores que abrem - qtd" className="xl:col-span-12">
+        <Tile section="Origem" title="Máquina x montagem e setores que abrem - qtd" className="xl:col-span-8">
           <div className="grid gap-4 md:grid-cols-2">
             <HBars rows={d.byLocation.map((l) => ({ key: l.key, label: l.label, value: l.n, note: l.downtimeH ? `${hfmt(l.downtimeH)} parada` : '' }))} color={NAVY} />
             <HBars rows={d.byArea.map((a) => ({ key: a.key, label: a.label, value: a.n, note: '' }))} color={ORANGE} />

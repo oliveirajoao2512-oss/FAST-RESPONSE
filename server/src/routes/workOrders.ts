@@ -8,6 +8,7 @@ import {
   WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
+import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { requireUser } from '../auth.js';
@@ -145,6 +146,7 @@ const reportQuery = z.object({
   asset: z.string().trim().max(120).optional(),
   location: z.enum(WO_LOCATIONS).optional(),
   pn: z.string().trim().max(60).optional(),
+  shift: z.string().trim().max(40).optional(),
 });
 
 const pnLabel = (r: any) => (r.part_description ? `${r.part_number} · ${r.part_description}` : r.part_number ?? '');
@@ -172,7 +174,8 @@ async function resolvePartNumber(typed: string | null | undefined): Promise<stri
 /** Dashboard filters: period (default: last 6 months), requesting area, type/reason, machine and part number. */
 async function readFilters(req: FastifyRequest) {
   const qs = parse(reportQuery, req.query);
-  const zone = (await getConfig()).timezone;
+  const { timezone: zone, shifts } = await getConfig();
+  const shiftOfRow = (r: any) => shiftOf(r.opened_at, shifts, zone);
   const to = qs.to ? DateTime.fromISO(qs.to, { zone }) : DateTime.now().setZone(zone);
   const from = qs.from ? DateTime.fromISO(qs.from, { zone }) : to.minus({ months: 5 }).startOf('month');
   const match = (r: any) =>
@@ -180,8 +183,9 @@ async function readFilters(req: FastifyRequest) {
     (!qs.category || String(r.kind ?? r.reason) === qs.category) &&
     (!qs.asset || r.asset_ref.trim().toUpperCase() === qs.asset.toUpperCase()) &&
     (!qs.location || r.location_type === qs.location) &&
-    (!qs.pn || r.part_number === normalizePn(qs.pn));
-  return { from: from.startOf('day'), to: to.endOf('day'), zone, match };
+    (!qs.pn || r.part_number === normalizePn(qs.pn)) &&
+    (!qs.shift || shiftOfRow(r) === qs.shift);
+  return { from: from.startOf('day'), to: to.endOf('day'), zone, match, shifts, shiftOfRow };
 }
 
 export async function workOrderRoutes(app: FastifyInstance) {
@@ -662,7 +666,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   app.get(`${api}/report`, async (req) => {
     const u = requireUser(req);
     await guardDashboard(u);
-    const { from, to, zone, match } = await readFilters(req);
+    const { from, to, zone, match, shifts, shiftOfRow } = await readFilters(req);
     const f = from.toJSDate(), t = to.toJSDate();
     const all = await reportRows(f, t);
     const rows = all.filter(match);
@@ -716,6 +720,13 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const byArea = group((r) => String(r.area_id), (r) => r.area_name);
     const byPn = group((r) => r.part_number ?? '', pnLabel).filter((x) => x.key).slice(0, 15);
     const withPn = opened.filter((r) => r.part_number).length;
+    // shift in which each order was opened, in the order of the day
+    const shiftGroups = group((r) => shiftOfRow(r) ?? '', (r) => shiftOfRow(r) ?? '');
+    const byShift = shiftRanges(shifts).map((s) => {
+      const g = shiftGroups.find((x) => x.key === s.name);
+      const w = opened.filter((r) => r.first_accepted_at && shiftOfRow(r) === s.name).map((r) => r.times.waitMs);
+      return { key: s.name, label: s.name, start: s.start, end: s.end, n: g?.n ?? 0, stoppedH: g?.stoppedH ?? 0, finished: g?.finished ?? 0, workH: g?.workH ?? null, waitH: avg(w) };
+    });
 
     // when problems appear: openings by weekday × hour
     const heat = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
@@ -774,6 +785,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       byCategory,
       byArea,
       byPn,
+      byShift,
       pnCoverage: opened.length ? withPn / opened.length : null,
       heat,
       pauses: [...pauseReasons.values()].sort((a, b) => b.hours - a.hours),
@@ -790,25 +802,25 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   app.get(`${api}/export.xlsx`, async (req, reply) => {
     const u = requireUser(req);
     await guardDashboard(u);
-    const { from, to, zone, match } = await readFilters(req);
+    const { from, to, zone, match, shiftOfRow } = await readFilters(req);
     const rows = (await reportRows(from.toJSDate(), to.toJSDate())).filter((r) => match(r) && new Date(r.opened_at) >= from.toJSDate());
     const dt = (x: string | Date | null): OutCell => ({ v: x ? DateTime.fromJSDate(new Date(x)).setZone(zone).toFormat('dd/MM/yyyy HH:mm') : null });
     const h = (msv: number | null): OutCell => ({ v: msv == null ? null : Math.round((msv / 3600_000) * 100) / 100 });
     const adj = d === 'ajuste';
     const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Local', 'Máquina / montagem', adj ? 'Motivo' : 'Tipo', 'Part number', ...(adj ? ['% virgem', '% moído'] : []),
-      'Máquina parada', 'Problema', 'Aberta por', adj ? 'Hora da chamada' : 'Abertura', adj ? 'Hora inicial' : 'Primeiro aceite', adj ? 'Hora final' : 'Finalização',
+      'Máquina parada', 'Problema', 'Aberta por', adj ? 'Hora da chamada' : 'Abertura', 'Turno', adj ? 'Hora inicial' : 'Primeiro aceite', adj ? 'Hora final' : 'Finalização',
       'Finalizada por', adj ? 'Ação tomada' : 'Serviço realizado', adj ? 'Observações' : 'Material', 'Espera (h)', adj ? 'Tempo de ajuste (h)' : 'Atendimento (h)', 'Pausado (h)', 'Total (h)'];
     const sheet = {
       name: D.title,
       freezeRow: 1, autoFilterRow: 1,
-      widths: [15, 15, 11, 16, 11, 24, adj ? 40 : 12, 16, ...(adj ? [9, 9] : []), 10, 50, 22, 17, 17, 17, 22, 50, 30, 10, 12, 10, 10],
+      widths: [15, 15, 11, 16, 11, 24, adj ? 40 : 12, 16, ...(adj ? [9, 9] : []), 10, 50, 22, 17, 11, 17, 17, 22, 50, 30, 10, 12, 10, 10],
       rows: [
         head.map((v) => ({ v, s: 2 })),
         ...rows.map((r) => [
           { v: r.code }, { v: WO_STATUS_LABELS[r.status as WoStatus] }, { v: WO_PRIORITY_LABELS[r.priority as WoPriority] }, { v: r.area_name },
           { v: r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : null }, { v: r.asset_ref }, { v: categoryOf(r) }, { v: r.part_number }, ...(adj ? [{ v: r.virgin_pct }, { v: r.regrind_pct }] : []),
           { v: r.machine_stopped ? 'Sim' : 'Não' }, { v: r.description },
-          { v: r.opened_by_name }, dt(r.opened_at), dt(r.first_accepted_at), dt(r.finished_at), { v: r.finished_by_name }, { v: r.service_done },
+          { v: r.opened_by_name }, dt(r.opened_at), { v: shiftOfRow(r) }, dt(r.first_accepted_at), dt(r.finished_at), { v: r.finished_by_name }, { v: r.service_done },
           { v: r.material }, h(r.first_accepted_at ? r.times.waitMs : null), h(r.times.workMs), h(r.times.pausedMs), h(r.finished_at ? r.times.totalMs : null),
         ] as OutCell[]),
       ],
@@ -845,7 +857,7 @@ function plantPanelRoutes(app: FastifyInstance) {
     if (!can.viewPlantPanel(u)) throw forbidden('O painel da planta é exclusivo do administrador e do plant manager.');
     const qs = parse(panelQuery, req.query);
     const d = qs.domain;
-    const zone = (await getConfig()).timezone;
+    const { timezone: zone, shifts } = await getConfig();
     const nowDt = DateTime.now().setZone(zone);
     const year = qs.year ?? nowDt.year;
     const yStart = DateTime.fromObject({ year, month: 1, day: 1 }, { zone });
@@ -963,6 +975,10 @@ function plantPanelRoutes(app: FastifyInstance) {
       byLocation: tally((r) => r.location_type ?? 'sem', (r) => (r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : 'Sem local'), opened_rows),
       byArea: tally((r) => String(r.area_id), (r) => r.area_name, opened_rows),
       byPn: tally((r) => r.part_number ?? '', pnLabel, opened_rows).filter((x) => x.key).slice(0, 12),
+      byShift: (() => {
+        const t = tally((r) => shiftOf(r.opened_at, shifts, zone) ?? '', (r) => shiftOf(r.opened_at, shifts, zone) ?? '', opened_rows);
+        return shiftRanges(shifts).map((s) => ({ key: s.name, label: `${s.name} (${s.start}–${s.end})`, n: t.find((x) => x.key === s.name)?.n ?? 0, downtimeH: t.find((x) => x.key === s.name)?.downtimeH ?? 0 }));
+      })(),
       partNumbers: (await q<{ pn: string }>(`SELECT DISTINCT part_number AS pn FROM work_orders WHERE domain = $1 AND part_number IS NOT NULL`, [d]))
         .map((r) => r.pn).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
       byWorker: [...workers.values()].map((w) => ({ name: w.name, hours: w.hours, orders: w.orders.size })).sort((x, y) => y.hours - x.hours),

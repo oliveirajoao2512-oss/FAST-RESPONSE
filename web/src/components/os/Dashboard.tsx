@@ -3,7 +3,9 @@ import { Download, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { woCategory } from '@shared/maintenance';
+import { shiftOf } from '@shared/shifts';
 import { get, qs } from '../../lib/api';
+import { useMeta } from '../../lib/meta';
 import { duration, fmtShort, num } from '../../lib/format';
 import { useWoDomain, useWoList } from '../../lib/workOrders';
 import { Button, Card, cx, Empty, ErrorBox, Input, Kpi, Segmented, Select, Spinner } from '../ui';
@@ -53,6 +55,7 @@ interface Report {
   byCategory: Group[];
   byArea: Group[];
   byPn: Group[];
+  byShift: (Group & { start: string; end: string; waitH: number | null })[];
   pnCoverage: number | null;
   heat: number[][];
   pauses: { reason: string; n: number; hours: number }[];
@@ -71,10 +74,11 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
   const [category, setCategory] = useState('');
   const [asset, setAsset] = useState('');
   const [pn, setPn] = useState('');
+  const [shift, setShift] = useState('');
   const range = period === 'custom' ? custom : rangeOf(period);
-  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined };
+  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined, shift: shift || undefined };
   const r = useQuery<Report>({ queryKey: ['os', D.d, 'report', params], queryFn: () => get(`${D.api}/report${qs(params)}`) });
-  const filtered = !!(areaId || category || asset || pn);
+  const filtered = !!(areaId || category || asset || pn || shift);
 
   return (
     <div className="space-y-4">
@@ -108,25 +112,31 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
             {r.data?.filters.partNumbers.map((p) => <option key={p} value={p}>{p}</option>)}
           </Select>
         </label>
+        <label className="text-xs text-gray-600">Turno de abertura
+          <Select value={shift} onChange={(e) => setShift(e.target.value)} className="mt-0.5 w-40">
+            <option value="">Todos</option>
+            {r.data?.byShift.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+          </Select>
+        </label>
         {asset && (
           <span className="inline-flex items-center gap-1 self-center rounded-full bg-brand-50 px-3 py-1 text-sm text-brand-800">
             Máquina {asset}<button aria-label="Tirar filtro de máquina" onClick={() => setAsset('')}><X size={14} /></button>
           </span>
         )}
-        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); }}>Limpar filtros</Button>}
+        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); setShift(''); }}>Limpar filtros</Button>}
         <a href={`${D.api}/export.xlsx${qs(params)}`} className="ml-auto"><Button><Download size={16} />Exportar Excel</Button></a>
       </div>
 
       {r.isLoading ? <Spinner /> : r.error ? <ErrorBox error={r.error} onRetry={() => r.refetch()} /> : r.data && (
-        <Charts d={r.data} adj={adj} pn={pn} onCategory={setCategory} onAsset={setAsset} onPn={setPn} />
+        <Charts d={r.data} adj={adj} pn={pn} shift={shift} onCategory={setCategory} onAsset={setAsset} onPn={setPn} onShift={setShift} />
       )}
 
-      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} onOpen={onOpen} />
+      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} shift={shift} onOpen={onOpen} />
     </div>
   );
 }
 
-function Charts({ d, adj, pn, onCategory, onAsset, onPn }: { d: Report; adj: boolean; pn: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void }) {
+function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift }: { d: Report; adj: boolean; pn: string; shift: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void; onShift: (s: string) => void }) {
   const D = useWoDomain();
   const series = d.series.map((s) => ({ ...s, label: bucketLabel(s.key, d.bucket), waitH: round1(s.waitH), workH: round1(s.workH) }));
   const per = d.bucket === 'dia' ? 'por dia' : d.bucket === 'semana' ? 'por semana' : 'por mês';
@@ -208,10 +218,48 @@ function Charts({ d, adj, pn, onCategory, onAsset, onPn }: { d: Report; adj: boo
         </Card>
       </div>
 
+      <Card title={`${D.short} por turno de abertura`} actions={<span className="text-xs text-gray-500">{shift ? `filtrando ${shift}` : 'clique para filtrar'}</span>}>
+        <ShiftTable rows={d.byShift} adj={adj} short={D.short} onPick={onShift} />
+      </Card>
+
       <Card title="Quando os chamados acontecem" actions={<span className="text-xs text-gray-500">aberturas por dia da semana e hora</span>}>
         <Heatmap heat={d.heat} short={D.short} />
       </Card>
     </>
+  );
+}
+
+/** One row per shift, in the order of the day. */
+function ShiftTable({ rows, adj, short, onPick }: { rows: Report['byShift']; adj: boolean; short: string; onPick: (s: string) => void }) {
+  const total = rows.reduce((a, r) => a + r.n, 0);
+  if (!total) return <p className="text-sm text-gray-500">Nenhuma ordem no período.</p>;
+  return (
+    <div className="-mx-4 overflow-x-auto">
+      <table className="w-full min-w-[40rem] text-sm">
+        <thead>
+          <tr className="border-b text-left text-xs text-gray-500">
+            <th className="px-4 pb-2 font-medium">Turno</th>
+            <th className="pb-2 text-right font-medium">Abertas</th>
+            <th className="pb-2 text-right font-medium">% do total</th>
+            <th className="pb-2 text-right font-medium">Espera média</th>
+            <th className="pb-2 text-right font-medium">{adj ? 'Ajuste médio' : 'Atendimento médio'}</th>
+            <th className="px-4 pb-2 text-right font-medium">Máquina parada</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} onClick={() => onPick(r.key)} className="cursor-pointer border-b last:border-0 hover:bg-gray-50" title="Filtrar por este turno">
+              <td className="px-4 py-2"><span className="font-medium text-gray-900">{r.label}</span> <span className="text-xs text-gray-500">{r.start}–{r.end}</span></td>
+              <td className="py-2 text-right tabular"><b>{r.n}</b> <span className="text-xs text-gray-500">{short}</span></td>
+              <td className="py-2 text-right tabular text-gray-700">{Math.round((r.n / total) * 100)}%</td>
+              <td className="py-2 text-right tabular text-gray-700">{h(r.waitH)}</td>
+              <td className="py-2 text-right tabular text-gray-700">{h(r.workH)}</td>
+              <td className="px-4 py-2 text-right tabular text-gray-700">{r.stoppedH ? h(r.stoppedH) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -272,13 +320,15 @@ function Heatmap({ heat, short }: { heat: number[][]; short: string }) {
 }
 
 /** Finished orders in the period, with the same filters, to look back at each one. */
-function History({ range, asset, pn, areaId, category, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; onOpen: (id: string) => void }) {
+function History({ range, asset, pn, areaId, category, shift, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; shift: string; onOpen: (id: string) => void }) {
   const D = useWoDomain();
   const adj = D.d === 'ajuste';
   const [text, setText] = useState('');
+  const cfg = useMeta()?.config;
   const list = useWoList('finalizadas', { ...range, asset: asset || undefined, pn: pn || undefined, q: text.trim() || undefined });
   const rows = useMemo(() => (list.data ?? []).filter((o) =>
-    (!areaId || String(o.area_id) === areaId) && (!category || String(o.kind ?? o.reason) === category)), [list.data, areaId, category]);
+    (!areaId || String(o.area_id) === areaId) && (!category || String(o.kind ?? o.reason) === category) &&
+    (!shift || shiftOf(o.opened_at, cfg?.shifts ?? [], cfg?.timezone ?? 'America/Sao_Paulo') === shift)), [list.data, areaId, category, shift, cfg]);
   return (
     <Card title={pn ? `Histórico do part number ${pn}` : `Histórico de ${D.short} finalizadas`} actions={
       <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Buscar no histórico…" aria-label="Buscar no histórico" className="w-56" />}>

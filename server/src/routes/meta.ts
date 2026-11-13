@@ -28,7 +28,7 @@ export async function metaRoutes(app: FastifyInstance) {
     return {
       areas, categories, users,
       stepTemplates: templates?.value ?? DEFAULT_STEP_TEMPLATES,
-      config: { timezone: cfg.timezone, deadline: cfg.deadline, workflow: cfg.workflow, scoring: cfg.scoring, complexity: cfg.complexity, recurrence: cfg.recurrence, escalation: cfg.escalation },
+      config: { timezone: cfg.timezone, shifts: cfg.shifts, deadline: cfg.deadline, workflow: cfg.workflow, scoring: cfg.scoring, complexity: cfg.complexity, recurrence: cfg.recurrence, escalation: cfg.escalation },
     };
   });
 

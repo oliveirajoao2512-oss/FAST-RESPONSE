@@ -152,3 +152,9 @@ a OS no topo da fila (o número no menu inclui as que aguardam a análise deles)
 - **Recusar**, com o motivo. A OS sai da fila, aparece em Finalizadas como "Recusada pela Logística" e quem pediu é avisado.
 
 OS em análise ou recusadas não entram nos indicadores. O comprovante em PDF mostra a data pedida, a análise e a data aprovada.
+
+## Turnos
+
+Cada ordem (manutenção ou ajuste) conta no **turno em que foi aberta**, pelo horário da fábrica. Os turnos são cadastrados em **Administração → Configurações → Turnos**, pelo horário em que cada um começa (padrão: 06:00, 14:00 e 22:00; o último vai até o início do primeiro, passando da meia-noite). Como o turno é calculado a partir da hora de abertura, mudar os horários recalcula também as ordens antigas.
+
+Onde aparece: filtro "Turno de abertura" e tabela "por turno de abertura" (abertas, espera média, atendimento médio e horas de máquina parada) no Dashboard de cada módulo, coluna "Turno" no Excel exportado e quadro "abertas por turno" no Painel da planta.

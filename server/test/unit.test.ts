@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG, mergeConfig } from '../../shared/config.js';
 import { computeCriticalSafetyDue, computeDefaultDue, isOverdue } from '../../shared/deadline.js';
 import { can } from '../../shared/permissions.js';
 import { scoreIssue } from '../../shared/scoring.js';
+import { shiftOf, shiftRanges, shiftsProblem } from '../../shared/shifts.js';
 import { autoComplexity, canSimpleTransition, completionProblems, stepProgress } from '../../shared/workflow.js';
 
 const cfg = DEFAULT_CONFIG;
@@ -127,5 +128,26 @@ describe('permissões', () => {
     expect(can.changeDeadline(actor('colaborador', 'tec', 3), issue, ['colaborador'])).toBe(false);
     expect(can.requestDeadline(actor('colaborador', 'tec', 3), issue)).toBe(true);
     expect(can.changeDeadline(actor('lider', 'l1', 3), issue, ['colaborador'])).toBe(true);
+  });
+});
+
+describe('turno de abertura', () => {
+  const shifts = DEFAULT_CONFIG.shifts;
+  const z = 'America/Sao_Paulo';
+  it('usa o horário da fábrica e o último turno passa da meia-noite', () => {
+    expect(shiftOf('2026-11-13T09:05:00-03:00', shifts, z)).toBe('1º turno');
+    expect(shiftOf('2026-11-13T06:00:00-03:00', shifts, z)).toBe('1º turno');
+    expect(shiftOf('2026-11-13T13:59:00-03:00', shifts, z)).toBe('1º turno');
+    expect(shiftOf('2026-11-13T14:00:00-03:00', shifts, z)).toBe('2º turno');
+    expect(shiftOf('2026-11-13T23:30:00-03:00', shifts, z)).toBe('3º turno');
+    expect(shiftOf('2026-11-14T02:10:00-03:00', shifts, z)).toBe('3º turno');
+    expect(shiftOf('2026-11-13T08:00:00Z', shifts, z)).toBe('3º turno'); // 05:00 na fábrica
+  });
+  it('intervalos e validação', () => {
+    expect(shiftRanges(shifts).map((s) => `${s.start}-${s.end}`)).toEqual(['06:00-14:00', '14:00-22:00', '22:00-06:00']);
+    expect(shiftsProblem(shifts)).toBeNull();
+    expect(shiftsProblem([])).not.toBeNull();
+    expect(shiftsProblem([{ name: 'A', start: '06:00' }, { name: 'B', start: '06:00' }])).not.toBeNull();
+    expect(shiftsProblem([{ name: 'A', start: '25:00' }])).not.toBeNull();
   });
 });

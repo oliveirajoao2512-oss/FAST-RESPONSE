@@ -105,6 +105,11 @@ describe('fluxo da Ordem de Ajuste', () => {
     expect(r.body.workers.map((w: any) => w.name)).toContain('Bruno Tecnico');
     const only6 = await gestorProc.get('/api/oa/report?category=6');
     expect(only6.body.totals.opened).toBe(1);
+    // every order falls in exactly one shift, and filtering by a shift keeps only its orders
+    expect(r.body.byShift.map((t: any) => t.key)).toEqual(['1º turno', '2º turno', '3º turno']);
+    expect(r.body.byShift.reduce((a: number, t: any) => a + t.n, 0)).toBe(2);
+    const busy = r.body.byShift.find((t: any) => t.n > 0);
+    expect((await gestorProc.get(`/api/oa/report?shift=${encodeURIComponent(busy.key)}`)).body.totals.opened).toBe(busy.n);
     const x = await ctx.app.inject({ method: 'GET', url: '/api/oa/export.xlsx', headers: { cookie: liderProc.cookie } });
     expect(x.statusCode).toBe(200);
   });
