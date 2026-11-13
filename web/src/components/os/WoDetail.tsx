@@ -147,7 +147,9 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
           )}
           <Section title={adj ? 'Motivo / problema da parada' : o.scheduled ? 'O que será feito' : 'Problema'}>
             <p className="whitespace-pre-wrap text-sm text-gray-800">{o.description}</p>
-            <p className="mt-1 text-xs text-gray-500">Aberta por {o.opened_by_name} em {fmtDateTime(o.opened_at)}</p>
+            <p className="mt-1 text-xs text-gray-500">{o.imported
+              ? `Carregada do histórico antigo${o.legacy_number ? ` (OS nº ${o.legacy_number})` : ''}: aberta em ${new Date(o.opened_at).toLocaleDateString('pt-BR')}, sem hora registrada`
+              : `Aberta por ${o.opened_by_name} em ${fmtDateTime(o.opened_at)}`}</p>
           </Section>
           {finished && (
             <Section title={adj ? 'Ação tomada' : 'Serviço realizado'}>

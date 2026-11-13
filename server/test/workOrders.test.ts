@@ -305,3 +305,30 @@ describe('manutenção programada com análise da Logística', () => {
     expect(n!.n).toBeGreaterThan(0);
   });
 });
+
+describe('molde e dispositivo', () => {
+  it('molde é escolhido pela máquina; dispositivo vem da lista própria do cadastro', async () => {
+    const opts = (await operador.get('/api/os/options')).body;
+    expect(opts.places.molde.map((p: any) => p.code)).toEqual(opts.places.maquina.map((p: any) => p.code));
+    const mold = await open(operador, { location: 'molde', assetRef: '17A', description: 'Molde vazando água' });
+    expect(mold.status).toBe(201);
+    expect((await detail(mold.body.id)).location_type).toBe('molde');
+    expect((await open(operador, { location: 'dispositivo', assetRef: 'D999' })).status).toBe(400);
+    await one(`INSERT INTO assets (type, code) VALUES ('dispositivo', 'D999') ON CONFLICT DO NOTHING`);
+    const dev = await open(operador, { location: 'dispositivo', assetRef: 'd999', description: 'Faca solta' });
+    expect(dev.status).toBe(201);
+    expect((await detail(dev.body.id)).asset_ref).toBe('D999');
+    expect((await operador.post('/api/oa', { areaId: prod, location: 'dispositivo', assetRef: 'D999', reason: 6, machineStopped: false, description: 'x' })).status).toBe(400);
+  });
+  it('histórico importado (só com a data) não entra na tabela por turno nem no mapa de horários', async () => {
+    const before = (await gerenteMan.get('/api/os/report')).body;
+    const u = await one<{ id: string }>(`SELECT id FROM users WHERE role = 'admin' LIMIT 1`);
+    await one(`INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, location_type, kind, machine_stopped, description, status, opened_at, first_accepted_at, finished_at, imported, legacy_number)
+      VALUES ('manutencao', nextval('work_order_number_seq'), 'OS-H-0001', $1, $2, '17A', 'molde', 'mecanica', true, 'importada', 'finalizada', now() - interval '2 days', now() - interval '2 days', now() - interval '2 days' + interval '20 minutes', true, '209682')`, [u!.id, prod]);
+    const after = (await gerenteMan.get('/api/os/report')).body;
+    expect(after.totals.opened).toBe(before.totals.opened + 1);
+    const sum = (r: any) => r.byShift.reduce((a: number, t: any) => a + t.n, 0);
+    expect(sum(after)).toBe(sum(before));
+    expect(after.heat.flat().reduce((a: number, b: number) => a + b, 0)).toBe(before.heat.flat().reduce((a: number, b: number) => a + b, 0));
+  });
+});

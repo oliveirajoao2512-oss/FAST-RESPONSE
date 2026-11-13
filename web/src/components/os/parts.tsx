@@ -1,5 +1,5 @@
 import { AlertOctagon, CalendarClock, Pause, Pin, Wrench } from 'lucide-react';
-import { woCategory, WO_PRIORITY_LABELS, WO_STATUS_LABELS, type WoPriority, type WoStatus } from '@shared/maintenance';
+import { placeLabel, woCategory, WO_PRIORITY_LABELS, WO_STATUS_LABELS, type WoPriority, type WoStatus } from '@shared/maintenance';
 import { duration, fmtShort } from '../../lib/format';
 import type { WorkOrder } from '../../lib/workOrders';
 import { AreaDot, cx } from '../ui';
@@ -82,6 +82,7 @@ export function WoHeadline({ o }: { o: WorkOrder }) {
       <WoPriorityBadge priority={o.priority} />
       <WoStatusBadge status={o.status} />
       {o.machine_stopped && o.status !== 'finalizada' && <StoppedTag />}
+      {o.imported && <span className="inline-flex items-center rounded bg-gray-200 px-1.5 py-0.5 text-xs font-semibold text-gray-700 whitespace-nowrap" title="Carregada do histórico antigo: só a data é conhecida, sem a hora">HISTÓRICO{o.legacy_number ? ` · OS ${o.legacy_number}` : ''}</span>}
       {o.scheduled && o.status !== 'em_analise' && o.status !== 'programada' && <span className="inline-flex items-center gap-1 rounded bg-indigo-600 px-1.5 py-0.5 text-xs font-bold text-white whitespace-nowrap"><CalendarClock size={12} />PROGRAMADA</span>}
     </span>
   );
@@ -90,7 +91,7 @@ export function WoHeadline({ o }: { o: WorkOrder }) {
 export function WoWhere({ o }: { o: WorkOrder }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 text-sm text-gray-600">
-      <span className="font-semibold text-gray-900">{o.location_type === 'montagem' ? 'Montagem ' : o.location_type === 'maquina' ? 'Máquina ' : ''}{o.asset_ref}</span>
+      <span className="font-semibold text-gray-900">{placeLabel(o)}</span>
       <span>· {woCategory(o)}</span>
       {o.part_number && <span>· PN {o.part_number}</span>}
       <span className="inline-flex items-center gap-1">· <AreaDot color={o.area_color} />{o.area_name}</span>

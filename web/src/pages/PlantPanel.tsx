@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { SlidersHorizontal, Wrench } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { WO_DOMAIN, WO_LOCATION_LABELS, type WoDomain, type WoLocation } from '@shared/maintenance';
+import { domainLocations, WO_DOMAIN, WO_LOCATION_LABELS, type WoDomain, type WoLocation } from '@shared/maintenance';
 import { get, qs } from '../lib/api';
 import { num } from '../lib/format';
 import { cx, ErrorBox, Spinner } from '../components/ui';
@@ -53,10 +53,10 @@ export function PlantPanelPage() {
     setDomain(w);
     setAsset('');
     setPn('');
-    if (w === 'ajuste' && location === 'montagem') setLocation('');
+    if (w === 'ajuste' && location && location !== 'maquina') setLocation('');
   };
-  const locations: WoLocation[] = domain === 'ajuste' ? ['maquina'] : ['maquina', 'montagem'];
-  const assetOptions = (location ? [location] : locations).flatMap((l) => (d?.places[l] ?? []).map((p) => ({ l, code: p.code })));
+  const locations: WoLocation[] = domainLocations(domain);
+  const assetOptions = (location ? [location] : locations.filter((l) => l !== 'molde')).flatMap((l) => (d?.places[l] ?? []).map((p) => ({ l, code: p.code })));
 
   return (
     <div className="-m-3 flex min-h-full bg-[#e6e8eb] sm:-m-5">
@@ -92,7 +92,7 @@ export function PlantPanelPage() {
               </select>
             </Filter>
           )}
-          <Filter label={location === 'montagem' ? 'Montagem' : domain === 'ajuste' || location === 'maquina' ? 'Máquina' : 'Máquina / montagem'}>
+          <Filter label={location === 'molde' ? 'Máquina do molde' : location ? WO_LOCATION_LABELS[location] : domain === 'ajuste' ? 'Máquina' : 'Equipamento'}>
             <select value={asset} onChange={(e) => setAsset(e.target.value)} className={cx(selectCls, 'w-44')}>
               <option value="">Todas</option>
               {assetOptions.map((a) => <option key={`${a.l}-${a.code}`} value={a.code}>{locations.length > 1 && !location ? `${WO_LOCATION_LABELS[a.l]} ${a.code}` : a.code}</option>)}

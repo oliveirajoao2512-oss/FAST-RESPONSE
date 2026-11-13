@@ -158,3 +158,11 @@ OS em análise ou recusadas não entram nos indicadores. O comprovante em PDF mo
 Cada ordem (manutenção ou ajuste) conta no **turno em que foi aberta**, pelo horário da fábrica. Os turnos são cadastrados em **Administração → Configurações → Turnos**, pelo horário em que cada um começa (padrão: 06:00, 14:00 e 22:00; o último vai até o início do primeiro, passando da meia-noite). Como o turno é calculado a partir da hora de abertura, mudar os horários recalcula também as ordens antigas.
 
 Onde aparece: filtro "Turno de abertura" e tabela "por turno de abertura" (abertas, espera média, atendimento médio e horas de máquina parada) no Dashboard de cada módulo, coluna "Turno" no Excel exportado e quadro "abertas por turno" no Painel da planta.
+
+## Onde foi o problema: máquina, molde, trim die / dispositivo ou montagem
+
+Ao abrir uma OS, "Onde é?" tem quatro opções: **Máquina**, **Molde** (escolhido pela máquina em que o molde está), **Trim die / dispositivo** (lista própria em Administração → Cadastros, tipo "Trim die / dispositivo") e **Montagem**. Ordens de ajuste continuam só em máquina. No Dashboard há o filtro "Onde foi o problema" e o quadro "Onde foram os problemas" (clique para filtrar).
+
+## Histórico importado
+
+As OS antigas da planilha de manutenção (abas "molde" e "dispositivo", outubro/2026) foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.

@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, LOGISTICS_AREA_SLUG, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
-  WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
+  WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, PLACE_WORDS, domainLocations, placeAssetType, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
 import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
@@ -41,11 +41,11 @@ async function logisticsLeaders(db: Db) {
   return (await q<{ id: string }>(`SELECT id FROM users WHERE active AND role IN ('gestor','lider') AND area_id = $1`, [await logisticsAreaId()], db)).map((r) => r.id);
 }
 
-/** Machines and assembly cells registered in Cadastros, in the plant's order. */
+/** Machines, assembly cells and devices registered in Cadastros, in the plant's order (a mold is picked by its machine). */
 async function placeLists(types: WoLocation[]) {
-  const rows = await q<{ type: WoLocation; code: string; description: string | null }>(
-    `SELECT type, code, description FROM assets WHERE active AND type = ANY($1) ORDER BY sort, code`, [types]);
-  return Object.fromEntries(types.map((t) => [t, rows.filter((r) => r.type === t).map(({ code, description }) => ({ code, description }))])) as Record<WoLocation, { code: string; description: string | null }[]>;
+  const rows = await q<{ type: string; code: string; description: string | null }>(
+    `SELECT type, code, description FROM assets WHERE active AND type = ANY($1) ORDER BY sort, code`, [[...new Set(types.map(placeAssetType))]]);
+  return Object.fromEntries(types.map((t) => [t, rows.filter((r) => r.type === placeAssetType(t)).map(({ code, description }) => ({ code, description }))])) as Record<WoLocation, { code: string; description: string | null }[]>;
 }
 
 /** Technicians and leadership of the domain (who can receive an order). */
@@ -57,7 +57,7 @@ async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
 
 const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.location_type, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
   w.status, w.suggested_to, w.transfer_from, w.transfer_to, w.service_done, w.material, w.opened_at, w.first_accepted_at, w.finished_at,
-  w.finished_by, w.updated_at, w.version,
+  w.finished_by, w.updated_at, w.version, w.imported, w.legacy_number,
   w.scheduled, w.requested_start, w.planned_start, w.planned_hours::float AS planned_hours, w.analyzed_at, w.analysis_note, an.name AS analyzed_by_name,
   pn.description AS part_description,
   ob.name AS opened_by_name, a.name AS area_name, a.color AS area_color, sg.name AS suggested_name, tf.name AS transfer_from_name,
@@ -175,7 +175,8 @@ async function resolvePartNumber(typed: string | null | undefined): Promise<stri
 async function readFilters(req: FastifyRequest) {
   const qs = parse(reportQuery, req.query);
   const { timezone: zone, shifts } = await getConfig();
-  const shiftOfRow = (r: any) => shiftOf(r.opened_at, shifts, zone);
+  // imported history only has the day, not the hour: it has no shift
+  const shiftOfRow = (r: any) => (r.imported ? null : shiftOf(r.opened_at, shifts, zone));
   const to = qs.to ? DateTime.fromISO(qs.to, { zone }) : DateTime.now().setZone(zone);
   const from = qs.from ? DateTime.fromISO(qs.from, { zone }) : to.minus({ months: 5 }).startOf('month');
   const match = (r: any) =>
@@ -324,8 +325,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     } else if (b.machineStopped === undefined) throw badRequest('Responda se a máquina está parada.', { machineStopped: 'obrigatório' });
     if (d === 'ajuste' && !b.reason) throw badRequest('Informe o motivo do ajuste.', { reason: 'obrigatório' });
     if (!domainLocations(d).includes(b.location)) throw badRequest('Ordens de ajuste são abertas somente em máquinas.');
-    const place = await one<{ code: string }>('SELECT code FROM assets WHERE active AND type = $1 AND lower(code) = lower($2)', [b.location, b.assetRef]);
-    if (!place) throw badRequest(`Escolha ${b.location === 'montagem' ? 'a montagem' : 'a máquina'} da lista.`, { assetRef: 'fora da lista' });
+    const place = await one<{ code: string }>('SELECT code FROM assets WHERE active AND type = $1 AND lower(code) = lower($2)', [placeAssetType(b.location), b.assetRef]);
+    if (!place) throw badRequest(`Escolha ${PLACE_WORDS[b.location].a} da lista.`, { assetRef: 'fora da lista' });
     const part = await resolvePartNumber(b.partNumber);
     const material = d === 'ajuste' && b.reason === ADJ_MATERIAL_REASON;
     if (material && (b.virginPct == null || b.regrindPct == null)) throw badRequest('Informe a % de material virgem e a % de moído.');
@@ -718,6 +719,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       .sort((a, b) => b.stoppedH - a.stoppedH || b.n - a.n).slice(0, 12);
     const byCategory = group((r) => String(r.kind ?? r.reason), (r) => categoryOf(r));
     const byArea = group((r) => String(r.area_id), (r) => r.area_name);
+    // where the problem was: machine, mold, trim die / device or assembly cell
+    const byLocation = group((r) => r.location_type ?? '', (r) => (r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : 'Não informado'));
     const byPn = group((r) => r.part_number ?? '', pnLabel).filter((x) => x.key).slice(0, 15);
     const withPn = opened.filter((r) => r.part_number).length;
     // shift in which each order was opened, in the order of the day
@@ -730,7 +733,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
 
     // when problems appear: openings by weekday × hour
     const heat = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
-    for (const r of opened) {
+    for (const r of opened.filter((o) => !o.imported)) {
       const x = DateTime.fromJSDate(new Date(r.opened_at)).setZone(zone);
       heat[x.weekday - 1][x.hour]++;
     }
@@ -786,6 +789,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       byArea,
       byPn,
       byShift,
+      byLocation,
       pnCoverage: opened.length ? withPn / opened.length : null,
       heat,
       pauses: [...pauseReasons.values()].sort((a, b) => b.hours - a.hours),
@@ -882,7 +886,7 @@ function plantPanelRoutes(app: FastifyInstance) {
       Math.max(0, Math.min(b, to ? new Date(to).getTime() : nowMs) - Math.max(a, new Date(from).getTime()));
     const downtime = (a: number, b: number) => rows.reduce((t, r) => t + (r.machine_stopped ? clip(r.opened_at, r.finished_at, a, b) : 0), 0);
     // equipment considered for availability: the chosen one, or every registered machine/assembly of the filter
-    const units = qs.asset ? 1 : types.reduce((n, t) => n + (places[t]?.length ?? 0), 0) || 1;
+    const units = qs.asset ? 1 : new Set(types.flatMap((t) => (places[t] ?? []).map((p) => `${placeAssetType(t)}:${p.code}`))).size || 1;
 
     const stats = (a: number, b: number) => {
       const end = Math.min(b, nowMs);
@@ -976,7 +980,8 @@ function plantPanelRoutes(app: FastifyInstance) {
       byArea: tally((r) => String(r.area_id), (r) => r.area_name, opened_rows),
       byPn: tally((r) => r.part_number ?? '', pnLabel, opened_rows).filter((x) => x.key).slice(0, 12),
       byShift: (() => {
-        const t = tally((r) => shiftOf(r.opened_at, shifts, zone) ?? '', (r) => shiftOf(r.opened_at, shifts, zone) ?? '', opened_rows);
+        const sh = (r: any) => (r.imported ? '' : shiftOf(r.opened_at, shifts, zone) ?? '');
+        const t = tally(sh, sh, opened_rows);
         return shiftRanges(shifts).map((s) => ({ key: s.name, label: `${s.name} (${s.start}–${s.end})`, n: t.find((x) => x.key === s.name)?.n ?? 0, downtimeH: t.find((x) => x.key === s.name)?.downtimeH ?? 0 }));
       })(),
       partNumbers: (await q<{ pn: string }>(`SELECT DISTINCT part_number AS pn FROM work_orders WHERE domain = $1 AND part_number IS NOT NULL`, [d]))

@@ -56,6 +56,9 @@ export interface WorkOrder {
   analyzed_at: string | null;
   analyzed_by_name: string | null;
   analysis_note: string | null;
+  /** loaded from the old spreadsheet history: only the day is known */
+  imported: boolean;
+  legacy_number: string | null;
 }
 
 export interface WorkOrderDetail extends WorkOrder {
