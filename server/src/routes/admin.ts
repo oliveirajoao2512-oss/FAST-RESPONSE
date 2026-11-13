@@ -20,12 +20,15 @@ import { readXlsx, XlsxError } from '../services/xlsx.js';
 
 const userBody = z.object({
   name: z.string().trim().min(2).max(120),
-  email: z.string().trim().toLowerCase().email('e-mail inválido').max(200),
+  // optional: operators without corporate e-mail log in with the registration number
+  email: z.string().trim().toLowerCase().max(200).nullish()
+    .transform((s) => s || null)
+    .refine((s) => s === null || z.string().email().safeParse(s).success, 'e-mail inválido'),
   registration: optText(40),
   role: z.enum(ROLES),
   areaId: z.number().int().positive().nullish(),
   active: z.boolean().default(true),
-});
+}).refine((b) => b.email || b.registration, { message: 'Informe o e-mail ou a matrícula: um dos dois é usado no login.', path: ['email'] });
 
 export async function adminRoutes(app: FastifyInstance) {
   const admin = (req: any) => {
@@ -44,7 +47,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/api/admin/users', async (req, reply) => {
     const me = admin(req);
     // the temporary password has no rules: the user must set a personal one (with rules) on first login
-    const b = parse(userBody.extend({ password: z.string().min(1, 'Informe a senha provisória').max(200) }), req.body);
+    const b = parse(userBody.and(z.object({ password: z.string().min(1, 'Informe a senha provisória').max(200) })), req.body);
     if ((b.role === 'lider' || b.role === 'colaborador') && !b.areaId) throw badRequest('Líderes e colaboradores precisam de uma área.');
     try {
       const row = await one<{ id: string }>(

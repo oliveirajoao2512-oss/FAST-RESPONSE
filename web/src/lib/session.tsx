@@ -8,7 +8,7 @@ import { stopPreview } from './preview';
 
 export interface Me extends Actor {
   name: string;
-  email: string;
+  email: string | null;
   role: Role;
   mustChangePassword: boolean;
   area: { id: number; name: string; slug: string } | null;

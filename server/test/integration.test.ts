@@ -364,6 +364,20 @@ describe('8. permissões por perfil', () => {
     expect((await simplesLogin.post('/api/auth/change-password', { current: 'a', next: 'b' })).status).toBe(400);
     expect((await admin.post('/api/admin/users', { name: 'Dup', email: 'NOVO@teste.local', role: 'gestor', password: 'Provisoria1' })).status).toBe(409);
   });
+  it('usuário sem e-mail entra pela matrícula e não gera envio de e-mail', async () => {
+    expect((await admin.post('/api/admin/users', { name: 'Sem Nada', email: '', role: 'colaborador', areaId: PROD, password: 'x' })).status).toBe(400);
+    expect((await admin.post('/api/admin/users', { name: 'Email Ruim', email: 'nao-e-email', registration: 'M1', role: 'colaborador', areaId: PROD, password: 'x' })).status).toBe(400);
+    const r = await admin.post('/api/admin/users', { name: 'Só Matrícula', email: '', registration: '40123', role: 'colaborador', areaId: PROD, password: 'Provisoria1' });
+    expect(r.status).toBe(201);
+    const u = (await admin.get('/api/admin/users')).body.find((x: any) => x.id === r.body.id);
+    expect(u.email).toBeNull();
+    const mat = await new Client(ctx.app).login('40123', 'Provisoria1');
+    expect((await mat.post('/api/auth/change-password', { current: 'Provisoria1', next: 'Matricula2026' })).status).toBe(200);
+    expect((await mat.get('/api/issues')).status).toBe(200);
+    // editing keeps the user without e-mail; removing the registration too is refused
+    expect((await admin.put(`/api/admin/users/${r.body.id}`, { name: 'Só Matrícula', email: null, registration: '40123', role: 'colaborador', areaId: PROD, active: true })).status).toBe(200);
+    expect((await admin.put(`/api/admin/users/${r.body.id}`, { name: 'Só Matrícula', email: null, registration: '', role: 'colaborador', areaId: PROD, active: true })).status).toBe(400);
+  });
   it('alteração de prazo pelo colaborador exige aprovação do líder; quem pede não aprova', async () => {
     const id = await newIssue(liderMan, { title: 'Ajuste de prazo', areaId: MAN, assigneeId: ctx.users.tecMan.id });
     const newDue = new Date(Date.now() + 4 * 86400_000);

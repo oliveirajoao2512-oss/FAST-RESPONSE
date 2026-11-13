@@ -19,7 +19,7 @@ export function UsersPage() {
   const [edit, setEdit] = useState<any>(null);
   const [reset, setReset] = useState<any>(null);
   const [filter, setFilter] = useState('');
-  const list = (q.data ?? []).filter((u: any) => !filter || `${u.name} ${u.email} ${u.registration ?? ''}`.toLowerCase().includes(filter.toLowerCase()));
+  const list = (q.data ?? []).filter((u: any) => !filter || `${u.name} ${u.email ?? ''} ${u.registration ?? ''}`.toLowerCase().includes(filter.toLowerCase()));
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -38,7 +38,7 @@ export function UsersPage() {
               {list.map((u: any) => (
                 <tr key={u.id} className={cx(!u.active && 'text-gray-400')}>
                   <td className="px-3 py-2 font-medium">{u.name}</td>
-                  <td>{u.email}{u.registration && <div className="text-xs text-gray-500">Mat. {u.registration}</div>}</td>
+                  <td>{u.email ?? <span className="text-gray-500">Sem e-mail</span>}{u.registration && <div className="text-xs text-gray-500">Mat. {u.registration}</div>}</td>
                   <td>{ROLE_LABELS[u.role as keyof typeof ROLE_LABELS]}</td>
                   <td>{u.area_name ?? '—'}</td>
                   <td>{!u.active ? 'Inativo' : u.locked ? <span className="text-red-700">Bloqueado (tentativas)</span> : u.must_change_password ? 'Senha provisória' : 'Ativo'}</td>
@@ -73,7 +73,7 @@ function UserModal({ user, areas, onClose }: { user: any; areas: any[]; onClose:
   const submit = async () => {
     setBusy(true);
     setError(null);
-    const body: any = { name: f.name, email: f.email, registration: f.registration || null, role: f.role, areaId: f.areaId ? Number(f.areaId) : null, active: f.active };
+    const body: any = { name: f.name, email: f.email.trim() || null, registration: f.registration || null, role: f.role, areaId: f.areaId ? Number(f.areaId) : null, active: f.active };
     try {
       if (isNew) await post('/api/admin/users', { ...body, password: f.password });
       else await put(`/api/admin/users/${user.id}`, body);
@@ -91,8 +91,8 @@ function UserModal({ user, areas, onClose }: { user: any; areas: any[]; onClose:
       <FormError error={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Nome completo" required className="sm:col-span-2"><Input value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
-        <Field label="E-mail" required hint="Usado no login e nas notificações."><Input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} /></Field>
-        <Field label="Matrícula" hint="Também pode ser usada no login."><Input value={f.registration} onChange={(e) => set('registration', e.target.value)} /></Field>
+        <Field label="E-mail" hint="Opcional. Quem não tem e-mail entra pela matrícula e recebe os avisos só no sistema."><Input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} /></Field>
+        <Field label="Matrícula" required={!f.email.trim()} hint="Usada no login. Obrigatória quando não há e-mail."><Input value={f.registration} onChange={(e) => set('registration', e.target.value)} /></Field>
         <Field label="Perfil" required hint={f.role === 'manutentor' ? 'Entra só nas Ordens de Manutenção, sem acesso ao resto do sistema.' : f.role === 'tecnico_processo' ? 'Entra só nas Ordens de Ajuste, sem acesso ao resto do sistema.' : f.role === 'plant_manager' ? 'Permissões de gestor na planta inteira, dashboards dos dois módulos e o Painel da planta.' : undefined}>
           <Select value={f.role} onChange={(e) => set('role', e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</Select>
         </Field>

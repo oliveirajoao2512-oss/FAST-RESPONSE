@@ -30,7 +30,9 @@ export async function notify(db: Db, events: RealtimeEvent[], n: NotifyInput) {
   );
   if (rows.length && emailEnabled()) {
     await q(
-      `INSERT INTO notification_deliveries (notification_id, channel, status) SELECT unnest($1::bigint[]), 'email', 'pendente'`,
+      // users without e-mail only get the in-app notification
+    `INSERT INTO notification_deliveries (notification_id, channel, status)
+     SELECT n.id, 'email', 'pendente' FROM notifications n JOIN users u ON u.id = n.user_id WHERE n.id = ANY($1::bigint[]) AND u.email IS NOT NULL`,
       [rows.map((r) => r.id)],
       db,
     );

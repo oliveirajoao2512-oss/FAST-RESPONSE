@@ -5,7 +5,7 @@ import { publish, type RealtimeEvent } from './realtime.js';
 
 export interface SessionUser extends Actor {
   name: string;
-  email: string;
+  email: string | null;
   mustChangePassword: boolean;
   /** Administrator previewing the system as another profile (read-only). */
   preview?: boolean;
