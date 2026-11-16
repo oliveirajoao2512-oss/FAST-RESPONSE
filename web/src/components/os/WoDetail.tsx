@@ -1,17 +1,18 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, CalendarCheck, CalendarX, Check, CheckCircle2, FileDown, LogOut, Pause, Pin, PinOff, Play, Trash2, Wrench, X } from 'lucide-react';
+import { ArrowRightLeft, CalendarCheck, CalendarX, Check, CheckCircle2, FileDown, LogOut, Pause, Pencil, Pin, PinOff, Play, Trash2, UserPlus, Wrench, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { WO_PRIORITIES, WO_PRIORITY_LABELS } from '@shared/maintenance';
-import { errorMessage, post } from '../../lib/api';
+import { componentTool, WO_PRIORITIES, WO_PRIORITY_LABELS } from '@shared/maintenance';
+import { errorMessage, post, withSlot } from '../../lib/api';
 import { duration, fmtDateTime, fmtShort } from '../../lib/format';
 import { useMe } from '../../lib/session';
 import { useToast } from '../../lib/toast';
 import { eventText, useWoDetail, useWoDomain, useWoOptions, type WorkOrderDetail } from '../../lib/workOrders';
 import { Button, cx, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../ui';
 import { PhotoPicker, uploadWoFiles } from './NewWoModal';
-import { WoHeadline, WoSituation, WoWhere } from './parts';
+import { WoHeadline, WoSituation, WoToolTag, WoWhere } from './parts';
+import { ToolPicker } from './ToolPicker';
 
-type Prompt = 'pausar' | 'devolver' | 'passar' | 'finalizar' | 'excluir' | null;
+type Prompt = 'pausar' | 'devolver' | 'passar' | 'incluir' | 'dispositivo' | 'finalizar' | 'excluir' | null;
 
 /** Re-renders every 30 s so the running times stay current. */
 function useTick(on: boolean) {
@@ -31,7 +32,7 @@ export function WoDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const o = q.data;
   useTick(!!o && o.status !== 'finalizada' && o.status !== 'recusada');
   return (
-    <Modal open wide onClose={onClose} title={o ? `${o.code} · ${o.asset_ref}` : D.d === 'ajuste' ? 'Ordem de ajuste' : 'Ordem de manutenção'}>
+    <Modal open wide onClose={onClose} title={o ? `${o.code} · ${o.asset_ref}${o.tool_code && o.location_type ? ` · ${o.tool_code}` : ''}` : D.d === 'ajuste' ? 'Ordem de ajuste' : 'Ordem de manutenção'}>
       {q.isLoading ? <Spinner /> : q.error ? <ErrorBox error={q.error} onRetry={() => q.refetch()} /> : o && (
         <Body o={o} meId={me.id} isAdmin={me.role === 'admin'} canWork={!!opts.data?.canWork} canLead={!!opts.data?.canLead} canAnalyze={!!opts.data?.canAnalyze} team={opts.data?.team ?? []} onClose={onClose} />
       )}
@@ -54,6 +55,10 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
   const handOverToMe = o.transfer_to === meId;
   const live = !finished && o.status !== 'recusada';
   const inAnalysis = o.status === 'em_analise';
+  const toolType = componentTool(o.component);
+  const canEditTool = !!toolType && o.status !== 'recusada' && (o.opened_by === meId || canWork);
+  const others = team.filter((t) => !o.workers.some((w) => w.id === t.id));
+  const canInclude = (o.status === 'em_atendimento' || o.status === 'pausada') && (working || canLead) && others.length > 0;
 
   const run = async (action: string, body: unknown = {}, ok?: string) => {
     setBusy(action);
@@ -78,7 +83,14 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
         <WoWhere o={o} />
         <div className="text-sm"><WoSituation o={o} meId={meId} /></div>
       </div>
-      <a href={`${D.api}/${o.id}/comprovante.pdf`} target="_blank" rel="noreferrer" className="inline-flex">
+      {toolType && (
+        <div className={cx('flex flex-wrap items-center gap-3 rounded-xl border-2 px-3 py-2.5', o.tool_code ? 'border-gray-900 bg-gray-50' : 'border-dashed border-amber-400 bg-amber-50')}>
+          <WoToolTag o={o} big />
+          <span className="min-w-0 flex-1 text-sm text-gray-700">{o.tool_code ? o.tool_description ?? '' : `Quem abriu não sabia qual. ${canEditTool ? 'Informe aqui quando identificar.' : ''}`}</span>
+          {canEditTool && <Button size="sm" onClick={() => setPrompt('dispositivo')}><Pencil size={14} />{o.tool_code ? 'Trocar' : 'Informar'}</Button>}
+        </div>
+      )}
+      <a href={withSlot(`${D.api}/${o.id}/comprovante.pdf`)} target="_blank" rel="noreferrer" className="inline-flex">
         <Button size="sm"><FileDown size={16} />Comprovante (PDF)</Button>
       </a>
 
@@ -116,6 +128,7 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
               <Button className="min-h-11" onClick={() => setPrompt('devolver')}><LogOut size={18} />{o.workers.length > 1 ? `Sair da ${S}` : 'Devolver'}</Button>
             </>
           )}
+          {canInclude && <Button className="min-h-11" onClick={() => setPrompt('incluir')}><UserPlus size={18} />Incluir {D.worker}</Button>}
           {!working && canLead && o.status === 'pausada' && <Button className="min-h-11" loading={busy === 'retomar'} onClick={() => run('retomar', {}, 'Atendimento retomado.')}><Play size={18} />Retomar</Button>}
         </div>
       )}
@@ -196,7 +209,11 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
       )}
       {prompt === 'passar' && <PassModal team={team.filter((t) => !o.workers.some((w) => w.id === t.id))} busy={busy === 'passar'} onClose={() => setPrompt(null)}
         onConfirm={async (userId) => (await run('passar', { userId }, `Pedido enviado. A ${S} muda de mãos quando o colega aceitar.`)) && setPrompt(null)} />}
-      {prompt === 'finalizar' && <FinishModal o={o} onClose={() => setPrompt(null)} onDone={() => { setPrompt(null); }} />}
+      {prompt === 'incluir' && <IncludeModal o={o} team={others} busy={busy === 'incluir'} onClose={() => setPrompt(null)}
+        onConfirm={async (userId, desdeInicio) => (await run('incluir', { userId, desdeInicio }, `${team.find((t) => t.id === userId)?.name ?? 'Colega'} incluído na ${S}. As horas já estão contando.`)) && setPrompt(null)} />}
+      {prompt === 'dispositivo' && toolType && <ToolModal o={o} type={toolType} busy={busy === 'dispositivo'} onClose={() => setPrompt(null)}
+        onConfirm={async (toolCode) => (await run('dispositivo', { toolCode }, toolCode ? `${toolType === 'dispositivo' ? 'Dispositivo' : 'Trim die'} ${toolCode} registrado.` : 'Registrado como não informado.')) && setPrompt(null)} />}
+      {prompt === 'finalizar' && <FinishModal o={o} team={others} onClose={() => setPrompt(null)} onDone={() => { setPrompt(null); }} />}
       {prompt === 'excluir' && <PurgeModal o={o} onClose={() => setPrompt(null)} onDone={onClose} />}
     </div>
   );
@@ -305,8 +322,8 @@ function Photos({ o, canAdd }: { o: WorkOrderDetail; canAdd: boolean }) {
     <Section title="Fotos">
       <div className="flex flex-wrap gap-2">
         {o.attachments.map((f) => (
-          <a key={f.id} href={`${D.api}/files/${f.id}`} target="_blank" rel="noreferrer" className="block h-20 w-20 overflow-hidden rounded-lg border border-gray-200 bg-gray-50" title={`${f.purpose === 'servico' ? 'Serviço' : 'Abertura'} · ${f.filename}`}>
-            {f.mime.startsWith('image/') ? <img src={`${D.api}/files/${f.id}`} alt={f.filename} className="h-full w-full object-cover" loading="lazy" /> : <span className="flex h-full items-center justify-center p-1 text-center text-xs text-gray-500">{f.filename}</span>}
+          <a key={f.id} href={withSlot(`${D.api}/files/${f.id}`)} target="_blank" rel="noreferrer" className="block h-20 w-20 overflow-hidden rounded-lg border border-gray-200 bg-gray-50" title={`${f.purpose === 'servico' ? 'Serviço' : 'Abertura'} · ${f.filename}`}>
+            {f.mime.startsWith('image/') ? <img src={withSlot(`${D.api}/files/${f.id}`)} alt={f.filename} className="h-full w-full object-cover" loading="lazy" /> : <span className="flex h-full items-center justify-center p-1 text-center text-xs text-gray-500">{f.filename}</span>}
           </a>
         ))}
         {canAdd && (
@@ -364,7 +381,49 @@ function PassModal({ team, busy, onClose, onConfirm }: { team: { id: string; nam
   );
 }
 
-function FinishModal({ o, onClose, onDone }: { o: WorkOrderDetail; onClose: () => void; onDone: () => void }) {
+/** Someone else is doing the job too: they join the order and their hours count. */
+function IncludeModal({ o, team, busy, onClose, onConfirm }: { o: WorkOrderDetail; team: { id: string; name: string }[]; busy: boolean; onClose: () => void; onConfirm: (id: string, desdeInicio: boolean) => void }) {
+  const D = useWoDomain();
+  const [who, setWho] = useState('');
+  const [fromStart, setFromStart] = useState(false);
+  return (
+    <Modal open onClose={onClose} title={`Incluir ${D.worker} na ${D.short}`}
+      footer={<><Button onClick={onClose}>Cancelar</Button><Button kind="primary" loading={busy} disabled={!who} onClick={() => onConfirm(who, fromStart)}><UserPlus size={16} />Incluir</Button></>}>
+      <div className="space-y-3">
+        <Field label="Quem está trabalhando junto?" required hint={`A pessoa entra na ${D.short} na hora, sem precisar aceitar, e é avisada.`}>
+          <Select value={who} onChange={(e) => setWho(e.target.value)}>
+            <option value="">Selecione…</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </Select>
+        </Field>
+        {o.first_accepted_at && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 px-3 py-2.5 text-sm">
+            <input type="checkbox" checked={fromStart} onChange={(e) => setFromStart(e.target.checked)} className="mt-0.5 accent-brand-600" />
+            <span>Está junto desde o início do atendimento ({fmtShort(o.first_accepted_at)})<span className="block text-xs text-gray-500">Sem marcar, as horas contam a partir de agora.</span></span>
+          </label>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Informs or corrects the device / trim die of the order. */
+function ToolModal({ o, type, busy, onClose, onConfirm }: { o: WorkOrderDetail; type: 'dispositivo' | 'trim_die'; busy: boolean; onClose: () => void; onConfirm: (code: string | null) => void }) {
+  const [code, setCode] = useState<string | null | undefined>(undefined);
+  const name = type === 'dispositivo' ? 'dispositivo' : 'trim die';
+  return (
+    <Modal open onClose={onClose} title={`${o.tool_code ? 'Trocar' : 'Informar'} o ${name} · ${o.code}`}
+      footer={<><Button onClick={onClose}>Cancelar</Button><Button kind="primary" loading={busy} disabled={code === undefined || code === o.tool_code} onClick={() => onConfirm(code ?? null)}><Check size={16} />Salvar</Button></>}>
+      <div className="space-y-2">
+        {o.tool_code && <p className="text-sm text-gray-600">Hoje: <b className="font-mono">{o.tool_code}</b>{o.tool_description ? ` · ${o.tool_description}` : ''}</p>}
+        <ToolPicker type={type} asset={o.location_type ? o.asset_ref : ''} pn={o.part_number ?? ''} value={code} onChange={setCode} />
+        <p className="text-xs text-gray-500">A troca fica registrada no histórico da {o.domain === 'ajuste' ? 'OA' : 'OS'}.</p>
+      </div>
+    </Modal>
+  );
+}
+
+function FinishModal({ o, team, onClose, onDone }: { o: WorkOrderDetail; team: { id: string; name: string }[]; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const D = useWoDomain();
@@ -372,6 +431,8 @@ function FinishModal({ o, onClose, onDone }: { o: WorkOrderDetail; onClose: () =
   const [servico, setServico] = useState('');
   const [material, setMaterial] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [helpers, setHelpers] = useState<string[]>([]);
+  const [askHelpers, setAskHelpers] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const confirm = async () => {
@@ -379,7 +440,7 @@ function FinishModal({ o, onClose, onDone }: { o: WorkOrderDetail; onClose: () =
     setError(null);
     try {
       if (files.length) await uploadWoFiles(D.api, o.id, files, 'servico');
-      await post(`${D.api}/${o.id}/finalizar`, { servico: servico.trim(), material: material.trim() || null });
+      await post(`${D.api}/${o.id}/finalizar`, { servico: servico.trim(), material: material.trim() || null, ajudantes: helpers });
       await qc.invalidateQueries({ queryKey: ['os'] });
       toast('ok', `${o.code} finalizada. Quem abriu foi avisado.`);
       onDone();
@@ -396,6 +457,25 @@ function FinishModal({ o, onClose, onDone }: { o: WorkOrderDetail; onClose: () =
         <Field label={adj ? 'Ação tomada' : 'O que foi feito?'} required><Textarea value={servico} onChange={(e) => setServico(e.target.value)} rows={3} maxLength={2000} placeholder={adj ? 'Ex.: ajustado tempo de sopro e peso conferido' : 'Ex.: troca do retentor do cilindro e teste de vazamento'} /></Field>
         <Field label={adj ? 'Observações' : 'Material utilizado'}><Input value={material} onChange={(e) => setMaterial(e.target.value)} maxLength={500} placeholder="Opcional" /></Field>
         <PhotoPicker files={files} onChange={setFiles} label="Foto do serviço (opcional)" />
+        {team.length > 0 && (
+          <div className="rounded-lg border border-gray-200 px-3 py-2.5">
+            <span className="block text-sm font-medium text-gray-700">{o.workers.length > 1 ? `Feita por ${o.workers.map((w) => w.name.split(' ')[0]).join(', ')}. ` : ''}Mais alguém fez este serviço junto?</span>
+            <div className="mt-1.5 flex gap-2" role="radiogroup" aria-label="Mais alguém fez junto">
+              <Button size="sm" kind={!askHelpers ? 'primary' : 'secondary'} onClick={() => { setAskHelpers(false); setHelpers([]); }}>Não</Button>
+              <Button size="sm" kind={askHelpers ? 'primary' : 'secondary'} onClick={() => setAskHelpers(true)}><UserPlus size={14} />Sim, incluir</Button>
+            </div>
+            {askHelpers && (
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                {team.map((t) => (
+                  <label key={t.id} className={cx('flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-sm', helpers.includes(t.id) ? 'border-brand-500 bg-brand-50' : 'border-gray-200')}>
+                    <input type="checkbox" className="accent-brand-600" checked={helpers.includes(t.id)} onChange={(e) => setHelpers(e.target.checked ? [...helpers, t.id] : helpers.filter((x) => x !== t.id))} />{t.name}
+                  </label>
+                ))}
+                <p className="text-xs text-gray-500 sm:col-span-2">Quem você marcar ganha as horas desde o início deste atendimento e aparece no comprovante.</p>
+              </div>
+            )}
+          </div>
+        )}
         {error != null && <ErrorBox error={error} />}
       </div>
     </Modal>

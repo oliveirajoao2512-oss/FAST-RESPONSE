@@ -6,7 +6,7 @@ import {
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { COMPLEXITY_LABELS, SOURCE_LABELS, STATUS_LABELS, STEP_STATUS_LABELS, ASSET_TYPE_LABELS, type Status } from '@shared/constants';
-import { errorMessage, get, patch, post } from '../lib/api';
+import { errorMessage, get, patch, post, withSlot } from '../lib/api';
 import { age, fmtDateTime, fromLocalInput } from '../lib/format';
 import { useMeta } from '../lib/meta';
 import { can, useMe } from '../lib/session';
@@ -231,8 +231,8 @@ export function IssueDetail({ id }: { id: string }) {
           <ul className="grid gap-2 sm:grid-cols-2">
             {i.attachments.map((a: any) => (
               <li key={a.id}>
-                <a href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg border border-gray-200 p-2 text-sm hover:bg-gray-50">
-                  {a.mime.startsWith('image/') ? <img src={`/api/attachments/${a.id}`} alt="" className="h-12 w-12 rounded object-cover" loading="lazy" /> : <FileText size={28} className="text-gray-400" />}
+                <a href={withSlot(`/api/attachments/${a.id}`)} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg border border-gray-200 p-2 text-sm hover:bg-gray-50">
+                  {a.mime.startsWith('image/') ? <img src={withSlot(`/api/attachments/${a.id}`)} alt="" className="h-12 w-12 rounded object-cover" loading="lazy" /> : <FileText size={28} className="text-gray-400" />}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{a.filename}</span>
                     <span className="text-xs text-gray-500">{a.purpose === 'anexo' ? 'Anexo' : 'Evidência'} · {a.uploaded_by_name} · {fmtDateTime(a.created_at)}</span>
@@ -463,7 +463,7 @@ function StepDetails({ issue, step, manage, onDeadline, run }: { issue: any; ste
         <Button disabled={!comment.trim()} onClick={() => run(() => post(`/api/issues/${issue.id}/comments`, { body: comment, stepId: step.id }), 'Comentário registrado').then(() => setComment(''))}>Enviar</Button>
         <AttachButton issueId={issue.id} stepId={step.id} purpose="evidencia" label="Evidência" />
       </div>
-      {files.length > 0 && <ul className="text-xs">{files.map((f: any) => <li key={f.id}><a className="text-brand-700 underline" href={`/api/attachments/${f.id}`} target="_blank" rel="noreferrer">{f.filename}</a></li>)}</ul>}
+      {files.length > 0 && <ul className="text-xs">{files.map((f: any) => <li key={f.id}><a className="text-brand-700 underline" href={withSlot(`/api/attachments/${f.id}`)} target="_blank" rel="noreferrer">{f.filename}</a></li>)}</ul>}
       {history.length > 0 && (
         <ul className="space-y-0.5 text-xs text-gray-500">{history.map((h: any) => <li key={h.id}>{fmtDateTime(h.at)} · {h.actor_name ?? 'Sistema'} · {describe(h)}</li>)}</ul>
       )}

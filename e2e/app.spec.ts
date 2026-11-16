@@ -283,6 +283,9 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await man.goto('/pendencias');
   await expect(man).toHaveURL(/\/os$/);
 
+  // the device of machine 17A, as registered in Cadastros (normally loaded from the spreadsheet)
+  expect((await adminApi.post('/api/admin/tools', { data: { code: 'D405', description: 'Duto ar ICS', machines: ['17A'] } })).ok()).toBe(true);
+
   // anyone opens an order in a few taps
   await operador.getByRole('link', { name: 'Ordens de Manutenção' }).click();
   await operador.getByRole('button', { name: 'Abrir OS' }).click();
@@ -290,7 +293,10 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await dlg.getByLabel('Setor').selectOption({ label: 'Produção' });
   await dlg.getByRole('radiogroup', { name: 'Onde é?' }).getByRole('radio', { name: 'Máquina', exact: true }).click();
   await dlg.getByRole('radio', { name: '17A', exact: true }).click();
-  await dlg.getByRole('radiogroup', { name: 'Onde está o problema' }).getByRole('radio', { name: 'Trim die' }).click();
+  await dlg.getByRole('radiogroup', { name: 'Onde está o problema' }).getByRole('radio', { name: 'Dispositivo' }).click();
+  // the device of the machine comes by itself
+  await expect(dlg.getByText('encontrado automaticamente')).toBeVisible();
+  await expect(dlg.getByText('Duto ar ICS')).toBeVisible();
   await dlg.getByRole('radio', { name: 'Mecânica' }).click();
   await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
   await dlg.getByLabel('O que está acontecendo e onde é o problema?').fill('Vazamento de óleo no cilindro do molde');
@@ -305,6 +311,7 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   // the maintainer sees it at once (critical, first in the queue) and accepts
   await expect(man.getByText('Vazamento de óleo no cilindro do molde')).toBeVisible({ timeout: 10_000 });
   await expect(man.getByText('MÁQUINA PARADA')).toBeVisible();
+  await expect(man.getByText('D405', { exact: true }).first()).toBeVisible();
   await man.screenshot({ path: `${SHOTS}/os-fila-celular.png`, fullPage: true });
   await man.getByRole('button', { name: 'Aceitar', exact: true }).click();
 
@@ -324,11 +331,15 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await md.getByRole('button', { name: 'Finalizar' }).click();
   const fin = man.getByRole('dialog', { name: /Finalizar OS-/ });
   await fin.getByLabel('O que foi feito?').fill('Troca do retentor do cilindro');
+  // the job was done by two people
+  await fin.getByRole('button', { name: 'Sim, incluir' }).click();
+  await fin.getByLabel('Lider Manutencao').check();
   await fin.getByRole('button', { name: 'Finalizar' }).click();
   await expect(man.getByText(/finalizada\. Quem abriu foi avisado/)).toBeVisible();
 
   await expect(detail.getByText('Troca do retentor do cilindro')).toBeVisible({ timeout: 10_000 });
   await expect(detail.getByText(/Joao Manutentor finalizou a ordem/)).toBeVisible();
+  await expect(detail.getByText(/incluiu Lider Manutencao na ordem/)).toBeVisible();
   const pdfHref = await detail.getByRole('link', { name: 'Comprovante (PDF)' }).getAttribute('href');
   const pdf = await operador.request.get(pdfHref!);
   expect(pdf.headers()['content-type']).toBe('application/pdf');
@@ -336,7 +347,15 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await detail.getByRole('button', { name: 'Fechar' }).click();
   await operador.getByRole('tab', { name: 'Finalizadas' }).click();
   await expect(operador.getByText('Troca do retentor do cilindro')).toBeVisible();
+  await expect(operador.getByRole('combobox', { name: 'Mês' })).toBeVisible();
   await operador.screenshot({ path: `${SHOTS}/os-finalizadas.png` });
+
+  // "Sair" goes back to the login screen
+  await operador.getByRole('button', { name: 'Menu do usuário' }).click();
+  await operador.getByRole('button', { name: 'Sair' }).click();
+  await expect(operador.getByRole('button', { name: 'Entrar' })).toBeVisible();
+  await operador.goto('/os');
+  await expect(operador.getByRole('button', { name: 'Entrar' })).toBeVisible();
 
   // the dashboard is only for the maintenance leadership
   await expect(operador.getByRole('tab', { name: 'Dashboard' })).toHaveCount(0);
@@ -428,4 +447,35 @@ test('16. administrador visualiza como outro perfil (somente leitura)', async ({
   await page.getByRole('button', { name: 'Processos', exact: true }).click();
   await expect(page.getByText('Motivos - todos')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/painel-planta.png` });
+});
+
+test('18. duas janelas no mesmo computador com usuários diferentes', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+  const a = await ctx.newPage();
+  await login(a, users.operador.email);
+  await expect(a.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  // a new window opens with the latest login; "Sair" there and log in as someone else
+  const b = await ctx.newPage();
+  await b.goto('/');
+  await expect(b.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  await b.getByRole('button', { name: 'Menu do usuário' }).click();
+  await b.getByRole('button', { name: 'Sair' }).click();
+  await expect(b.getByRole('button', { name: 'Entrar' })).toBeVisible();
+  await b.getByLabel('E-mail ou matrícula').fill(users.manutentor.email);
+  await b.getByLabel('Senha').fill(PW);
+  await b.getByRole('button', { name: 'Entrar' }).click();
+  await expect(b.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
+  // each window keeps its own user, even after reloading
+  await a.reload();
+  await expect(a.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  await a.getByRole('button', { name: 'Menu do usuário' }).click();
+  await expect(a.getByText('Operador Producao').first()).toBeVisible();
+  // leaving one window does not log the other out
+  await a.getByRole('button', { name: 'Sair' }).click();
+  await expect(a.getByRole('button', { name: 'Entrar' })).toBeVisible();
+  await a.reload();
+  await expect(a.getByRole('button', { name: 'Entrar' })).toBeVisible();
+  await b.reload();
+  await expect(b.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
+  await ctx.close();
 });

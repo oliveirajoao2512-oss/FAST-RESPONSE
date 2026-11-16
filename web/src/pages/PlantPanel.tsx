@@ -42,7 +42,8 @@ const WINDOWS: { value: WoDomain; label: string; short: string; icon: ReactNode 
 export function PlantPanelPage() {
   const [domain, setDomain] = useState<WoDomain>('manutencao');
   const [year, setYear] = useState(() => new Date().getFullYear());
-  const [month, setMonth] = useState<number | null>(null);
+  // opens on the current month; the month filter can switch to another month or the whole year
+  const [month, setMonth] = useState<number | null>(() => new Date().getMonth() + 1);
   const [location, setLocation] = useState<WoLocation | ''>('');
   const [asset, setAsset] = useState('');
   const [pn, setPn] = useState('');
@@ -80,7 +81,7 @@ export function PlantPanelPage() {
           </Filter>
           <Filter label="Mês">
             <select value={month ?? ''} onChange={(e) => setMonth(e.target.value ? Number(e.target.value) : null)} className={selectCls}>
-              <option value="">Todos</option>
+              <option value="">Ano todo</option>
               {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
             </select>
           </Filter>
@@ -104,7 +105,7 @@ export function PlantPanelPage() {
               {(d?.partNumbers ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Filter>
-          <button onClick={() => { setMonth(null); setLocation(''); setAsset(''); setPn(''); }} className="ml-auto rounded-full bg-[#e6e8eb] px-4 py-1.5 text-xs font-semibold text-[#2b3036] hover:bg-white">LIMPAR FILTROS</button>
+          <button onClick={() => { setYear(new Date().getFullYear()); setMonth(new Date().getMonth() + 1); setLocation(''); setAsset(''); setPn(''); }} className="ml-auto rounded-full bg-[#e6e8eb] px-4 py-1.5 text-xs font-semibold text-[#2b3036] hover:bg-white">LIMPAR FILTROS</button>
         </div>
 
         {r.isLoading ? <Spinner /> : r.error ? <ErrorBox error={r.error} onRetry={() => r.refetch()} /> : d && (

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { placeLabel, woCategory, WO_COMPONENT_LABELS, WO_COMPONENTS } from '@shared/maintenance';
 import { shiftOf } from '@shared/shifts';
-import { get, qs } from '../../lib/api';
+import { get, qs, withSlot } from '../../lib/api';
 import { useMeta } from '../../lib/meta';
 import { duration, fmtShort, num } from '../../lib/format';
 import { useWoDomain, useWoList } from '../../lib/workOrders';
@@ -24,9 +24,10 @@ const h = (v: number | null | undefined) =>
 const round1 = (v: number | null) => (v == null ? null : Math.round(v * 10) / 10);
 const iso = (d: Date) => d.toLocaleDateString('en-CA');
 
-type Period = '30d' | '3m' | '6m' | '12m' | 'custom';
+type Period = 'mes' | 'anterior' | '3m' | '6m' | '12m' | 'custom';
 const PERIODS: { value: Period; label: string }[] = [
-  { value: '30d', label: '30 dias' },
+  { value: 'mes', label: 'Este mês' },
+  { value: 'anterior', label: 'Mês passado' },
   { value: '3m', label: '3 meses' },
   { value: '6m', label: '6 meses' },
   { value: '12m', label: '12 meses' },
@@ -35,7 +36,8 @@ const PERIODS: { value: Period; label: string }[] = [
 function rangeOf(p: Period): { from: string; to: string } {
   const now = new Date();
   const to = iso(now);
-  if (p === '30d') return { from: iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)), to };
+  if (p === 'mes') return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to };
+  if (p === 'anterior') return { from: iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: iso(new Date(now.getFullYear(), now.getMonth(), 0)) };
   const back = p === '3m' ? 2 : p === '12m' ? 11 : 5;
   return { from: iso(new Date(now.getFullYear(), now.getMonth() - back, 1)), to };
 }
@@ -56,12 +58,13 @@ interface Report {
   byArea: Group[];
   byPn: Group[];
   byComponent: Group[];
+  byTool: Group[];
   byShift: (Group & { start: string; end: string; waitH: number | null })[];
   pnCoverage: number | null;
   heat: number[][];
   pauses: { reason: string; n: number; hours: number }[];
   workers: { id: string; name: string; hours: number; orders: number; finished: number }[];
-  filters: { areas: { id: number; name: string }[]; categories: { key: string; label: string }[]; partNumbers: string[] };
+  filters: { areas: { id: number; name: string }[]; categories: { key: string; label: string }[]; partNumbers: string[]; tools: string[] };
 }
 interface Group { key: string; label: string; n: number; stoppedH: number; finished: number; workH: number | null }
 
@@ -69,18 +72,20 @@ interface Group { key: string; label: string; n: number; stoppedH: number; finis
 export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
   const D = useWoDomain();
   const adj = D.d === 'ajuste';
-  const [period, setPeriod] = useState<Period>('6m');
-  const [custom, setCustom] = useState(() => rangeOf('6m'));
+  // always opens on the current month; other periods in the filter
+  const [period, setPeriod] = useState<Period>('mes');
+  const [custom, setCustom] = useState(() => rangeOf('mes'));
   const [areaId, setAreaId] = useState('');
   const [category, setCategory] = useState('');
   const [asset, setAsset] = useState('');
   const [pn, setPn] = useState('');
   const [shift, setShift] = useState('');
   const [component, setComponent] = useState('');
+  const [tool, setTool] = useState('');
   const range = period === 'custom' ? custom : rangeOf(period);
-  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined, shift: shift || undefined, component: component || undefined };
+  const params = { ...range, areaId: areaId || undefined, category: category || undefined, asset: asset || undefined, pn: pn || undefined, shift: shift || undefined, component: component || undefined, tool: tool || undefined };
   const r = useQuery<Report>({ queryKey: ['os', D.d, 'report', params], queryFn: () => get(`${D.api}/report${qs(params)}`) });
-  const filtered = !!(areaId || category || asset || pn || shift || component);
+  const filtered = !!(areaId || category || asset || pn || shift || component || tool);
 
   return (
     <div className="space-y-4">
@@ -122,6 +127,15 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
             </Select>
           </label>
         )}
+        {!adj && (
+          <label className="text-xs text-gray-600">Dispositivo / trim die
+            <Select value={tool} onChange={(e) => setTool(e.target.value)} className="mt-0.5 w-36">
+              <option value="">Todos</option>
+              {tool && !r.data?.filters.tools.includes(tool) && <option value={tool}>{tool}</option>}
+              {r.data?.filters.tools.map((t) => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </label>
+        )}
         <label className="text-xs text-gray-600">Turno de abertura
           <Select value={shift} onChange={(e) => setShift(e.target.value)} className="mt-0.5 w-40">
             <option value="">Todos</option>
@@ -133,20 +147,20 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
             Máquina {asset}<button aria-label="Tirar filtro de máquina" onClick={() => setAsset('')}><X size={14} /></button>
           </span>
         )}
-        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); setShift(''); setComponent(''); }}>Limpar filtros</Button>}
-        <a href={`${D.api}/export.xlsx${qs(params)}`} className="ml-auto"><Button><Download size={16} />Exportar Excel</Button></a>
+        {filtered && <Button kind="ghost" size="sm" onClick={() => { setAreaId(''); setCategory(''); setAsset(''); setPn(''); setShift(''); setComponent(''); setTool(''); }}>Limpar filtros</Button>}
+        <a href={withSlot(`${D.api}/export.xlsx${qs(params)}`)} className="ml-auto"><Button><Download size={16} />Exportar Excel</Button></a>
       </div>
 
       {r.isLoading ? <Spinner /> : r.error ? <ErrorBox error={r.error} onRetry={() => r.refetch()} /> : r.data && (
-        <Charts d={r.data} adj={adj} pn={pn} shift={shift} onCategory={setCategory} onAsset={setAsset} onPn={setPn} onShift={setShift} onComponent={setComponent} />
+        <Charts d={r.data} adj={adj} pn={pn} shift={shift} onCategory={setCategory} onAsset={setAsset} onPn={setPn} onShift={setShift} onComponent={setComponent} onTool={setTool} />
       )}
 
-      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} shift={shift} component={component} onOpen={onOpen} />
+      <History range={range} asset={asset} pn={pn} areaId={areaId} category={category} shift={shift} component={component} tool={tool} onOpen={onOpen} />
     </div>
   );
 }
 
-function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift, onComponent }: { d: Report; adj: boolean; pn: string; shift: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void; onShift: (s: string) => void; onComponent: (c: string) => void }) {
+function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift, onComponent, onTool }: { d: Report; adj: boolean; pn: string; shift: string; onCategory: (k: string) => void; onAsset: (a: string) => void; onPn: (p: string) => void; onShift: (s: string) => void; onComponent: (c: string) => void; onTool: (t: string) => void }) {
   const D = useWoDomain();
   const series = d.series.map((s) => ({ ...s, label: bucketLabel(s.key, d.bucket), waitH: round1(s.waitH), workH: round1(s.workH) }));
   const per = d.bucket === 'dia' ? 'por dia' : d.bucket === 'semana' ? 'por semana' : 'por mês';
@@ -230,6 +244,12 @@ function Charts({ d, adj, pn, shift, onCategory, onAsset, onPn, onShift, onCompo
               unit={(v) => `${v} ${D.short}`} color={C_OPENED} onPick={onComponent} empty="Nenhuma OS de máquina com essa informação no período." />
             <div className="mt-3 border-t pt-2 text-xs font-medium text-gray-500">Setores que mais abrem</div>
             <HBars data={d.byArea.map((a) => ({ key: a.key, label: a.label, value: a.n, extra: '' }))} unit={(v) => `${v} ${D.short}`} color={C_OPENED} empty="—" />
+          </Card>
+        )}
+        {!adj && (
+          <Card title="Dispositivos e trim dies com mais OS" actions={<span className="text-xs text-gray-500">clique para filtrar</span>}>
+            <HBars data={d.byTool.map((t) => ({ key: t.key, label: t.label, value: t.n, extra: [t.stoppedH ? `${h(t.stoppedH)} parada` : '', t.workH != null ? `atendimento médio ${h(t.workH)}` : ''].filter(Boolean).join(' · ') }))}
+              unit={(v) => `${v} ${D.short}`} color={C_OPENED} onPick={onTool} empty="Nenhuma OS de dispositivo ou trim die com o código informado no período." />
           </Card>
         )}
         <Card title="Tempo pausado por motivo">
@@ -339,7 +359,7 @@ function Heatmap({ heat, short }: { heat: number[][]; short: string }) {
 }
 
 /** Finished orders in the period, with the same filters, to look back at each one. */
-function History({ range, asset, pn, areaId, category, shift, component, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; shift: string; component: string; onOpen: (id: string) => void }) {
+function History({ range, asset, pn, areaId, category, shift, component, tool, onOpen }: { range: { from: string; to: string }; asset: string; pn: string; areaId: string; category: string; shift: string; component: string; tool: string; onOpen: (id: string) => void }) {
   const D = useWoDomain();
   const adj = D.d === 'ajuste';
   const [text, setText] = useState('');
@@ -347,8 +367,8 @@ function History({ range, asset, pn, areaId, category, shift, component, onOpen 
   const list = useWoList('finalizadas', { ...range, asset: asset || undefined, pn: pn || undefined, q: text.trim() || undefined });
   const rows = useMemo(() => (list.data ?? []).filter((o) =>
     (!areaId || String(o.area_id) === areaId) && (!category || String(o.kind ?? o.reason) === category) &&
-    (!component || o.component === component) &&
-    (!shift || (!o.imported && shiftOf(o.opened_at, cfg?.shifts ?? [], cfg?.timezone ?? 'America/Sao_Paulo') === shift))), [list.data, areaId, category, shift, component, cfg]);
+    (!component || o.component === component) && (!tool || o.tool_code === tool) &&
+    (!shift || (!o.imported && shiftOf(o.opened_at, cfg?.shifts ?? [], cfg?.timezone ?? 'America/Sao_Paulo') === shift))), [list.data, areaId, category, shift, component, tool, cfg]);
   return (
     <Card title={pn ? `Histórico do part number ${pn}` : `Histórico de ${D.short} finalizadas`} actions={
       <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Buscar no histórico…" aria-label="Buscar no histórico" className="w-56" />}>
@@ -386,7 +406,7 @@ function History({ range, asset, pn, areaId, category, shift, component, onOpen 
               ))}
             </tbody>
           </table>
-          {rows.length >= 300 && <p className="px-4 pt-2 text-xs text-gray-500">Mostrando as 300 mais recentes. Use o Excel para o período completo.</p>}
+          {(list.data?.length ?? 0) >= 1500 && <p className="px-4 pt-2 text-xs text-gray-500">Mostrando as 1500 mais recentes. Use o Excel para o período completo.</p>}
         </div>
       )}
     </Card>

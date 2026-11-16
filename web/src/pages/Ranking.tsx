@@ -23,7 +23,7 @@ export function RankingPage() {
   if (q.error) return <ErrorBox error={q.error} onRetry={() => q.refetch()} />;
   const r = q.data;
   const c = r.criteria;
-  const current = new Date().toISOString().slice(0, 7);
+  const current = new Date().toLocaleDateString('en-CA').slice(0, 7);
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
-import { COOKIE, createSession, destroySession, hashPassword, passwordProblem, requireUser, revokeUserSessions, verifyPassword } from '../auth.js';
+import { createSession, requestSlot, sessionToken, destroySession, hashPassword, passwordProblem, requireUser, revokeUserSessions, verifyPassword } from '../auth.js';
 import { one, q, pool } from '../db.js';
 import { badRequest, unauthorized } from '../errors.js';
 import { env } from '../env.js';
@@ -34,9 +34,20 @@ export async function authRoutes(app: FastifyInstance) {
       throw fail();
     }
     await q('UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1', [user.id]);
-    await createSession(user.id, req, reply);
+    const slot = await createSession(user.id, req, reply);
     await audit(pool, { actorId: user.id, action: 'auth.login', entityType: 'user', entityId: user.id, ip: req.ip });
-    return { ok: true, mustChangePassword: user.must_change_password };
+    return { ok: true, mustChangePassword: user.must_change_password, slot };
+  });
+
+  /**
+   * A new tab or window starts with the browser's latest login and gets its own copy of it (a new session in its own
+   * slot): from then on it is independent, so leaving it, or logging in there as someone else, does not touch the
+   * other windows.
+   */
+  app.post('/api/auth/adopt', async (req, reply) => {
+    if (requestSlot(req)) throw badRequest('Esta janela já tem login próprio.');
+    const u = requireUser(req, { allowPendingPassword: true });
+    return { slot: await createSession(u.id, req, reply, { asDefault: false }) };
   });
 
   app.post('/api/auth/logout', async (req, reply) => {
@@ -62,7 +73,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (problem) throw badRequest(problem);
     if (body.next === body.current) throw badRequest('A nova senha deve ser diferente da atual.');
     await q('UPDATE users SET password_hash = $2, must_change_password = false, updated_at = now() WHERE id = $1', [u.id, await hashPassword(body.next)]);
-    await revokeUserSessions(u.id, req.cookies[COOKIE]);
+    await revokeUserSessions(u.id, sessionToken(req));
     await audit(pool, { actorId: u.id, action: 'auth.password_change', entityType: 'user', entityId: u.id, ip: req.ip });
     return { ok: true };
   });

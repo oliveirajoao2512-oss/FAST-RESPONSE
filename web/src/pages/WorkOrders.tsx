@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, Camera, Check, Plus, Search, Wrench } from 'lucide-react';
+import { ArrowRightLeft, Camera, Check, ChevronLeft, ChevronRight, Plus, Search, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { errorMessage, post } from '../lib/api';
@@ -60,7 +60,10 @@ function Page() {
   const seeDashboard = !!opts.data?.canSeeDashboard;
   const current = tab === 'dashboard' && !seeDashboard ? 'fila' : tab;
   const open = useWoList('abertas', { q: term });
-  const done = useWoList('finalizadas', { q: term }, current === 'finalizadas');
+  // finished orders, month by month (current month first); a search looks in every month
+  const [month, setMonth] = useState(thisMonth);
+  const range = monthRange(month);
+  const done = useWoList('finalizadas', term ? { q: term } : { from: range.from, to: range.to }, current === 'finalizadas');
   const canAnalyze = !!opts.data?.canAnalyze;
   const waiting = open.data?.filter((o) => o.status === 'aberta' || (canAnalyze && o.status === 'em_analise')).length ?? 0;
 
@@ -86,14 +89,66 @@ function Page() {
 
       {current === 'fila' && <Queue q={open} canWork={!!opts.data?.canWork} canAnalyze={canAnalyze} onOpen={setOpen} meId={me.id} searching={!!term} />}
       {current === 'finalizadas' && (
-        done.isLoading ? <Spinner /> : done.error ? <ErrorBox error={done.error} onRetry={() => done.refetch()} /> : !done.data?.length ? <Empty>Nenhuma {D.short} finalizada{term ? ' com essa busca' : ''}.</Empty> : (
-          <ul className="space-y-2">{done.data.map((o) => <WoCard key={o.id} o={o} meId={me.id} onOpen={() => setOpen(o.id)} />)}</ul>
-        )
+        <div className="space-y-3">
+          {term ? (
+            <p className="text-sm text-gray-600">Buscando “{term}” em todos os meses{done.data ? ` · ${done.data.length} ${done.data.length === 1 ? 'resultado' : 'resultados'}` : ''}.</p>
+          ) : (
+            <MonthNav month={month} onChange={setMonth} count={done.data?.length} />
+          )}
+          {done.isLoading ? <Spinner /> : done.error ? <ErrorBox error={done.error} onRetry={() => done.refetch()} /> : !done.data?.length ? (
+            <Empty>{term ? `Nenhuma ${D.short} finalizada com essa busca.` : `Nenhuma ${D.short} finalizada em ${monthLabel(month).toLowerCase()}.`}</Empty>
+          ) : term ? (
+            groupByMonth(done.data).map(([m, list]) => (
+              <section key={m}>
+                <h2 className="mb-2 mt-1 flex items-baseline gap-2 text-sm font-semibold text-gray-700">{monthLabel(m)}<span className="font-normal normal-case text-gray-500">{list.length}</span></h2>
+                <ul className="space-y-2">{list.map((o) => <WoCard key={o.id} o={o} meId={me.id} onOpen={() => setOpen(o.id)} />)}</ul>
+              </section>
+            ))
+          ) : (
+            <ul className="space-y-2">{done.data.map((o) => <WoCard key={o.id} o={o} meId={me.id} onOpen={() => setOpen(o.id)} />)}</ul>
+          )}
+        </div>
       )}
       {current === 'dashboard' && <Dashboard onOpen={setOpen} />}
 
       {creating && <NewWoModal onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setOpen(id); }} />}
       {openId && <WoDetail id={openId} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ months of the "Finalizadas" tab
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+function monthRange(m: string) {
+  const [y, mo] = m.split('-').map(Number);
+  return { from: `${m}-01`, to: `${m}-${pad(new Date(y, mo, 0).getDate())}` };
+}
+const shiftMonth = (m: string, by: number) => { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + by, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const monthLabel = (m: string) => { const [y, mo] = m.split('-').map(Number); const t = new Date(y, mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); return t[0].toUpperCase() + t.slice(1); };
+const finishedMonth = (o: WorkOrder) => { const d = new Date(o.finished_at ?? o.analyzed_at ?? o.opened_at); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+function groupByMonth(list: WorkOrder[]): [string, WorkOrder[]][] {
+  const m = new Map<string, WorkOrder[]>();
+  for (const o of list) m.set(finishedMonth(o), [...(m.get(finishedMonth(o)) ?? []), o]);
+  return [...m.entries()].sort(([a], [b]) => b.localeCompare(a));
+}
+
+function MonthNav({ month, onChange, count }: { month: string; onChange: (m: string) => void; count?: number }) {
+  const { short: S } = useWoDomain();
+  const now = thisMonth();
+  const months = useMemo(() => Array.from({ length: 24 }, (_, i) => shiftMonth(now, -i)), [now]);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center rounded-lg border border-gray-300 bg-white">
+        <button type="button" className="p-2 text-gray-600 hover:bg-gray-50" aria-label="Mês anterior" onClick={() => onChange(shiftMonth(month, -1))}><ChevronLeft size={18} /></button>
+        <select value={month} onChange={(e) => onChange(e.target.value)} aria-label="Mês" className="border-0 bg-transparent py-1.5 pl-1 pr-7 text-sm font-semibold focus:ring-0">
+          {(months.includes(month) ? months : [month, ...months]).map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+        </select>
+        <button type="button" className="p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-30" aria-label="Próximo mês" disabled={month >= now} onClick={() => onChange(shiftMonth(month, 1))}><ChevronRight size={18} /></button>
+      </div>
+      {month !== now && <Button size="sm" kind="ghost" onClick={() => onChange(now)}>Mês atual</Button>}
+      {count != null && <span className="text-sm text-gray-600">{count} {count === 1 ? `${S} finalizada` : `${S} finalizadas`}</span>}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 ## 1. Automatizados
 
-### Servidor (unitários + integração) — 126 testes
+### Servidor (unitários + integração) — 144 testes
 
 ```bash
 createdb fastresponse_test          # uma vez; o nome precisa conter "test" (o banco é recriado a cada execução)
@@ -12,7 +12,7 @@ npm test
 Para outro banco: `DATABASE_URL=postgresql://…/fastresponse_test npm test`.
 Os testes de integração sobem a API real contra PostgreSQL real (sem mocks), com 8 usuários de perfis diferentes.
 
-### Navegador (Playwright) — 7 cenários
+### Navegador (Playwright) — 8 cenários
 
 ```bash
 scripts/e2e-local.sh                # cria o banco descartável fastresponse_e2e, sobe a aplicação na porta 3100 e executa
@@ -41,6 +41,7 @@ Capturas de tela ficam em `test-results/screens/`.
 | 14 | Responsividade | navegador (tablet 820 px e celular 390 px, sem rolagem horizontal) |
 | — | Fast Response, reincidência, relatórios/CSV | integração + navegador |
 | — | Qualidade: leitura da planilha, prévia, importação, edição com histórico, exportação e acesso | `quality.test.ts` |
+| — | Dispositivo/trim die (código, sugestão pela máquina e PN, importação da planilha), incluir manutentor, várias janelas com usuários diferentes | `tools.test.ts` + navegador (cenários 15 e 18) |
 
 ## 2. Roteiro de teste manual (homologação)
 

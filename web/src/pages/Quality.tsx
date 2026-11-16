@@ -13,7 +13,7 @@ import { NewNcModal } from '../components/quality/NewNcModal';
 import { OriginTag, QStatusBadge, StepDots, StepLegend } from '../components/quality/parts';
 import { SuggestionsTab, useSuggestions } from '../components/quality/Suggestions';
 import { Button, Card, cx, Empty, ErrorBox, Input, Kpi, Segmented, Select, Spinner } from '../components/ui';
-import { get } from '../lib/api';
+import { get, withSlot } from '../lib/api';
 import { fmtDateTime } from '../lib/format';
 import { usePersistentState } from '../lib/hooks';
 import { dm, dmy, MONTHS, useQualityData, type QualityNc } from '../lib/quality';
@@ -43,7 +43,7 @@ export function QualityPage() {
   const q = useQualityData();
   const toast = useToast();
   const data = q.data;
-  const today = data?.today ?? new Date().toISOString().slice(0, 10);
+  const today = data?.today ?? new Date().toLocaleDateString('en-CA');
   const [tab, setTab] = usePersistentState<'painel' | 'acoes' | 'ocorrencias' | 'importacoes'>('fr-quality-tab', 'painel');
   const [horizon, setHorizon] = useState(7);
   const sugg = useSuggestions(horizon);
@@ -125,7 +125,7 @@ export function QualityPage() {
         <div className="flex flex-wrap gap-2">
           <Button kind="primary" onClick={() => setImporting({ file: null })}><Upload size={16} />Importar planilha</Button>
           <Button onClick={() => setCreating(true)}><Plus size={16} />Nova ocorrência</Button>
-          <a href="/api/quality/export.xlsx" download className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"><Download size={16} />Exportar Excel</a>
+          <a href={withSlot('/api/quality/export.xlsx')} download className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"><Download size={16} />Exportar Excel</a>
         </div>
       </div>
 

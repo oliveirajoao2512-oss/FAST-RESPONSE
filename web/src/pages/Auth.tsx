@@ -3,12 +3,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FormError } from '../components/actions';
 import { Button, Field, Input } from '../components/ui';
-import { errorMessage, post } from '../lib/api';
+import { errorMessage, post, setSlot } from '../lib/api';
 import { useSession } from '../lib/session';
 
 export function LoginPage() {
-  const { refresh } = useSession();
-  const navigate = useNavigate();
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -18,12 +16,12 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await post('/api/auth/login', { login, password });
-      await refresh();
-      navigate('/');
+      const r = await post<{ slot?: string }>('/api/auth/login', { login, password });
+      // this tab keeps its own login; reloading starts clean, with nothing left from a previous user
+      setSlot(r.slot ?? null);
+      location.replace(location.pathname === '/login' ? '/' : location.pathname + location.search);
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setBusy(false);
     }
   };

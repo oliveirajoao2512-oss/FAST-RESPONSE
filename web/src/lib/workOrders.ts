@@ -61,6 +61,9 @@ export interface WorkOrder {
   legacy_number: string | null;
   /** maintenance on a machine: the machine itself, a device or the trim die */
   component: WoComponent | null;
+  /** the device (D405) or trim die (T129) of the order, and its product */
+  tool_code: string | null;
+  tool_description: string | null;
 }
 
 export interface WorkOrderDetail extends WorkOrder {

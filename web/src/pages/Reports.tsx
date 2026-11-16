@@ -5,28 +5,27 @@ import { useState } from 'react';
 import { STATUS_LABELS, type Status } from '@shared/constants';
 import { useOpenIssue } from '../components/issues';
 import { AreaDot, Button, Card, ErrorBox, Input, Kpi, Select, Spinner } from '../components/ui';
-import { get, qs } from '../lib/api';
+import { get, qs, withSlot } from '../lib/api';
 import { fmtDate, hours, num } from '../lib/format';
 import { useMeta } from '../lib/meta';
 import { useWoOptions } from '../lib/workOrders';
 
-function defaultFrom() {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 5, 1);
-  return d.toISOString().slice(0, 10);
-}
+/** Local day (toISOString would give tomorrow's date after 21h in Brazil). */
+const localDay = (d: Date) => d.toLocaleDateString('en-CA');
+/** Indicators open on the current month. */
+const defaultFrom = () => { const d = new Date(); return localDay(new Date(d.getFullYear(), d.getMonth(), 1)); };
 
 export function ReportsPage() {
   const meta = useMeta();
   const openIssue = useOpenIssue();
   const [from, setFrom] = useState(defaultFrom());
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(localDay(new Date()));
   const [areaId, setAreaId] = useState('');
   const [priority, setPriority] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const params = { from, to, areaId, priority, assigneeId };
   const q = useQuery({ queryKey: ['reports', params], queryFn: () => get(`/api/reports${qs(params)}`) });
-  const exp = (table: string) => `/api/reports/export.csv${qs({ ...params, table })}`;
+  const exp = (table: string) => withSlot(`/api/reports/export.csv${qs({ ...params, table })}`);
   const r = q.data;
   // each order dashboard is only for the leadership of its area
   const osLead = !!useWoOptions('manutencao').data?.canSeeDashboard;
@@ -130,7 +129,7 @@ export function ReportsPage() {
               </table>
             </div>
           </Card>
-          <a className="inline-flex items-center gap-1 text-sm text-brand-700" href={`/api/issues/export.csv${qs({ areaId, priority, assigneeId, openedFrom: from, openedTo: to })}`}><Download size={14} />Exportar lista de pendências abertas no período (CSV)</a>
+          <a className="inline-flex items-center gap-1 text-sm text-brand-700" href={withSlot(`/api/issues/export.csv${qs({ areaId, priority, assigneeId, openedFrom: from, openedTo: to })}`)}><Download size={14} />Exportar lista de pendências abertas no período (CSV)</a>
         </>
       )}
     </div>

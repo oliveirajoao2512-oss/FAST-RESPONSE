@@ -5,9 +5,10 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, LOGISTICS_AREA_SLUG, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
-  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
+  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
+import { machineKey, pnDigits, type Tool, type ToolReason } from '../../../shared/tools.js';
 import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
@@ -57,7 +58,7 @@ async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
 
 const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.location_type, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
   w.status, w.suggested_to, w.transfer_from, w.transfer_to, w.service_done, w.material, w.opened_at, w.first_accepted_at, w.finished_at,
-  w.finished_by, w.updated_at, w.version, w.imported, w.legacy_number, w.component,
+  w.finished_by, w.updated_at, w.version, w.imported, w.legacy_number, w.component, w.tool_code, tl.description AS tool_description,
   w.scheduled, w.requested_start, w.planned_start, w.planned_hours::float AS planned_hours, w.analyzed_at, w.analysis_note, an.name AS analyzed_by_name,
   pn.description AS part_description,
   ob.name AS opened_by_name, a.name AS area_name, a.color AS area_color, sg.name AS suggested_name, tf.name AS transfer_from_name,
@@ -68,7 +69,7 @@ const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.a
      FROM work_order_pauses p WHERE p.work_order_id = w.id), '[]') AS pauses,
   (SELECT count(*) FROM work_order_attachments f WHERE f.work_order_id = w.id)::int AS files`;
 const LIST_FROM = `work_orders w JOIN users ob ON ob.id = w.opened_by JOIN areas a ON a.id = w.area_id
-  LEFT JOIN part_numbers pn ON pn.code = w.part_number
+  LEFT JOIN part_numbers pn ON pn.code = w.part_number LEFT JOIN tools tl ON tl.code = w.tool_code
   LEFT JOIN users sg ON sg.id = w.suggested_to LEFT JOIN users tf ON tf.id = w.transfer_from
   LEFT JOIN users tt ON tt.id = w.transfer_to LEFT JOIN users fb ON fb.id = w.finished_by
   LEFT JOIN users an ON an.id = w.analyzed_by`;
@@ -121,6 +122,8 @@ const createSchema = z.object({
   location: z.enum(WO_LOCATIONS),
   assetRef: z.string().trim().min(1, 'obrigatório').max(120),
   component: z.enum(WO_COMPONENTS).optional(),
+  /** the device (D) or trim die (T) when the problem is in one; null when the opener does not know which */
+  toolCode: z.string().trim().max(12).nullish(),
   kind: z.enum(WO_KINDS).optional(),
   reason: z.number().int().refine((n) => ADJ_REASON_CODES.includes(n), 'motivo inválido').optional(),
   partNumber: optText(60),
@@ -149,6 +152,7 @@ const reportQuery = z.object({
   pn: z.string().trim().max(60).optional(),
   shift: z.string().trim().max(40).optional(),
   component: z.enum(WO_COMPONENTS).optional(),
+  tool: z.string().trim().max(12).optional(),
 });
 
 const pnLabel = (r: any) => (r.part_description ? `${r.part_number} · ${r.part_description}` : r.part_number ?? '');
@@ -173,14 +177,58 @@ async function resolvePartNumber(typed: string | null | undefined): Promise<stri
     : `O part number ${pn} não está cadastrado. Escolha um PN da lista ou peça o cadastro ao gestor.`, { partNumber: 'não cadastrado' });
 }
 
-/** Dashboard filters: period (default: last 6 months), requesting area, type/reason, machine and part number. */
+export const activeTools = () =>
+  q<Tool>('SELECT code, type, description, molds, part_numbers, machines, active FROM tools WHERE active ORDER BY code');
+
+/**
+ * The device or trim die of an order. Once tools are registered, only a registered one of the right kind is accepted;
+ * before that, any well-formed code (D405, T129) is kept.
+ */
+async function resolveTool(typed: string | null | undefined, component: string | null, db: Db = pool): Promise<string | null> {
+  const type = componentTool(component as any);
+  if (!typed?.trim() || !type) return null;
+  const what = type === 'dispositivo' ? 'dispositivo' : 'trim die';
+  const code = normalizeToolCode(typed, type);
+  if (!code) throw badRequest(`Código de ${what} inválido: use ${type === 'dispositivo' ? 'D seguido do número (ex.: D405)' : 'T seguido do número (ex.: T129)'}.`, { toolCode: 'inválido' });
+  const registered = await one<{ n: number; found: boolean }>('SELECT count(*)::int AS n, bool_or(code = $1 AND active) AS found FROM tools', [code], db);
+  if (registered!.n && !registered!.found) throw badRequest(`O ${what} ${code} não está cadastrado. Confira o número ou peça o cadastro em Administração → Cadastros.`, { toolCode: 'não cadastrado' });
+  return code;
+}
+
+/**
+ * Devices / trim dies to suggest when an order is opened on a machine: the ones of the part number being made, the
+ * ones registered on the machine, the ones of the products standard on the machine and the ones already used in
+ * orders of that machine, in this order of confidence.
+ */
+async function suggestTools(asset: string, pn: string | null | undefined) {
+  const key = machineKey(asset);
+  const [tools, pns, used] = await Promise.all([
+    activeTools(),
+    q<{ code: string; machine: string }>('SELECT code, machine FROM part_numbers WHERE active AND machine IS NOT NULL'),
+    q<{ tool_code: string; asset_ref: string; n: number }>(
+      `SELECT tool_code, asset_ref, count(*)::int AS n FROM work_orders WHERE tool_code IS NOT NULL AND location_type = 'maquina' GROUP BY 1, 2`),
+  ]);
+  const out = new Map<string, ToolReason>();
+  const add = (code: string, why: ToolReason) => { if (!out.has(code)) out.set(code, why); };
+  const pk = pnDigits(pn);
+  if (pk) for (const t of tools) if (t.part_numbers.includes(pk)) add(t.code, 'pn');
+  if (key) {
+    for (const t of tools) if (t.machines.some((m) => machineKey(m) === key)) add(t.code, 'maquina');
+    const machinePns = new Set(pns.filter((p) => machineKey(p.machine) === key).map((p) => pnDigits(p.code)));
+    for (const t of tools) if (t.part_numbers.some((p) => machinePns.has(p))) add(t.code, 'pn_maquina');
+    for (const u of used.filter((x) => machineKey(x.asset_ref) === key).sort((a, b) => b.n - a.n)) add(u.tool_code, 'historico');
+  }
+  return { tools, suggested: [...out].map(([code, why]) => ({ code, why })) };
+}
+
+/** Dashboard filters: period (default: the current month), requesting area, type/reason, machine and part number. */
 async function readFilters(req: FastifyRequest) {
   const qs = parse(reportQuery, req.query);
   const { timezone: zone, shifts } = await getConfig();
   // imported history only has the day, not the hour: it has no shift
   const shiftOfRow = (r: any) => (r.imported ? null : shiftOf(r.opened_at, shifts, zone));
   const to = qs.to ? DateTime.fromISO(qs.to, { zone }) : DateTime.now().setZone(zone);
-  const from = qs.from ? DateTime.fromISO(qs.from, { zone }) : to.minus({ months: 5 }).startOf('month');
+  const from = qs.from ? DateTime.fromISO(qs.from, { zone }) : to.startOf('month');
   const match = (r: any) =>
     (!qs.areaId || r.area_id === qs.areaId) &&
     (!qs.category || String(r.kind ?? r.reason) === qs.category) &&
@@ -188,7 +236,8 @@ async function readFilters(req: FastifyRequest) {
     (!qs.location || r.location_type === qs.location) &&
     (!qs.pn || r.part_number === normalizePn(qs.pn)) &&
     (!qs.shift || shiftOfRow(r) === qs.shift) &&
-    (!qs.component || r.component === qs.component);
+    (!qs.component || r.component === qs.component) &&
+    (!qs.tool || r.tool_code === normalizeToolCode(qs.tool));
   return { from: from.startOf('day'), to: to.endOf('day'), zone, match, shifts, shiftOfRow };
 }
 
@@ -225,6 +274,13 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     return activePartNumbers();
   });
 
+  /** Devices and trim dies (all of them) and the ones suggested for the machine / part number of the order. */
+  app.get(`${api}/tools`, async (req) => {
+    requireUser(req);
+    const qs = parse(z.object({ asset: z.string().trim().max(120).default(''), pn: z.string().trim().max(60).optional() }), req.query);
+    return suggestTools(qs.asset, qs.pn);
+  });
+
   /** Machines: registered assets first, then references already used in orders. */
   app.get(`${api}/assets`, async (req) => {
     requireUser(req);
@@ -249,7 +305,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       pn: z.string().trim().max(60).optional(),
     }), req.query);
     const term = qs.q?.trim() ? `%${qs.q.trim()}%` : null;
-    const search = `w.domain = $2 AND ($1::text IS NULL OR w.code ILIKE $1 OR w.asset_ref ILIKE $1 OR w.description ILIKE $1 OR w.service_done ILIKE $1 OR w.part_number ILIKE $1)`;
+    const search = `w.domain = $2 AND ($1::text IS NULL OR w.code ILIKE $1 OR w.asset_ref ILIKE $1 OR w.description ILIKE $1 OR w.service_done ILIKE $1 OR w.part_number ILIKE $1 OR w.tool_code ILIKE $1 OR w.legacy_number::text ILIKE $1)`;
     if (qs.view === 'abertas') {
       const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status <> ALL($3) AND ${search} ORDER BY ${QUEUE_ORDER}`, [term, d, WO_CLOSED_STATUSES]);
       return rows.map(withTimes);
@@ -262,7 +318,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
           AND ($3::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at) >= $3) AND ($4::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at) <= $4)
           AND ($5::text IS NULL OR upper(trim(w.asset_ref)) = upper($5))
           AND ($6::text IS NULL OR w.part_number = $6)
-        ORDER BY COALESCE(w.finished_at, w.analyzed_at) DESC LIMIT 300`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
+        ORDER BY COALESCE(w.finished_at, w.analyzed_at) DESC LIMIT 1500`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
     return rows.map(withTimes);
   });
 
@@ -334,6 +390,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const component = d === 'manutencao' && b.location === 'maquina' ? b.component : null;
     if (d === 'manutencao' && b.location === 'maquina' && !component) throw badRequest('Informe se o problema é na máquina, no dispositivo ou no trim die.', { component: 'obrigatório' });
     const part = await resolvePartNumber(b.partNumber);
+    const tool = await resolveTool(b.toolCode, component ?? null);
     const material = d === 'ajuste' && b.reason === ADJ_MATERIAL_REASON;
     if (material && (b.virginPct == null || b.regrindPct == null)) throw badRequest('Informe a % de material virgem e a % de moído.');
     const areaId = await domainAreaId(d);
@@ -353,14 +410,17 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       };
       const w = (await one<any>(
         `INSERT INTO work_orders (domain, number, code, opened_by, area_id, asset_ref, kind, reason, part_number, virgin_pct, regrind_pct, machine_stopped, description, priority, location_type,
-            status, scheduled, requested_start, planned_start, planned_hours, component)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$19,$20) RETURNING id, code`,
+            status, scheduled, requested_start, planned_start, planned_hours, component, tool_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$19,$20,$21) RETURNING id, code`,
         [d, n, woCode(year, n, d), u.id, b.areaId, place.code, row.kind, row.reason, row.part_number, row.virgin_pct, row.regrind_pct,
           stopped, b.description, priority, b.location,
-          planned ? 'em_analise' : 'aberta', planned, planned ? b.plannedStart : null, planned ? b.plannedHours : null, component], ctx.db))!;
+          planned ? 'em_analise' : 'aberta', planned, planned ? b.plannedStart : null, planned ? b.plannedHours : null, component, tool], ctx.db))!;
       const category = categoryOf(row);
       await event(ctx, w.id, 'abriu', {
-        local: WO_LOCATION_LABELS[b.location], maquina: place.code, [d === 'ajuste' ? 'motivo' : 'tipo']: category, parada: stopped,
+        local: WO_LOCATION_LABELS[b.location], maquina: place.code,
+        ...(component && component !== 'maquina' ? { onde: WO_COMPONENT_LABELS[component].toLowerCase() } : {}),
+        ...(tool ? { [component === 'trim_die' ? 'trim_die' : 'dispositivo']: tool } : {}),
+        [d === 'ajuste' ? 'motivo' : 'tipo']: category, parada: stopped,
         ...(planned ? { programada: await fmtWhen(b.plannedStart!), horas: b.plannedHours } : {}),
         ...(row.part_number ? { part_number: row.part_number } : {}),
         ...(material ? { virgem: row.virgin_pct, moido: row.regrind_pct } : {}),
@@ -377,7 +437,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
         await notify(ctx.db, ctx.events, {
           userIds: team, type: 'os_aberta', exceptUserId: u.id, workOrderId: w.id,
-          title: `${w.code}: máquina parada — ${b.assetRef}`, body: `${category} · aberta por ${u.name}. ${b.description.slice(0, 160)}`,
+          title: `${w.code}: máquina parada — ${b.assetRef}${tool ? ` · ${tool}` : ''}`, body: `${category} · aberta por ${u.name}. ${b.description.slice(0, 160)}`,
         });
       }
       return w;
@@ -537,6 +597,44 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   const canHandle = async (ctx: Ctx, w: any, areaId: number | null) =>
     leadsDomain(ctx.actor, areaId) || (await activeWorkers(ctx, w.id)).includes(ctx.actor.id);
 
+  /**
+   * Adds a colleague who is working on the order too (two people on the same job). Done by whoever is on the order or
+   * by the leadership; the colleague's hours count from now, or from when the work started if `desdeInicio`.
+   */
+  act('incluir', async (ctx, w, body, areaId) => {
+    const b = parse(z.object({ userId: uuid, desdeInicio: z.boolean().default(false) }), body);
+    assertOpen(w);
+    if (w.status !== 'em_atendimento' && w.status !== 'pausada') throw unprocessable(`Aceite a ${D.short} antes de incluir outro ${D.worker}.`);
+    if (!(await canHandle(ctx, w, areaId))) throw forbidden(`Só quem está atuando (ou a liderança) pode incluir alguém na ${D.short}.`);
+    const workers = await activeWorkers(ctx, w.id);
+    if (workers.includes(b.userId)) throw badRequest(`Essa pessoa já está atuando nesta ${D.short}.`);
+    const t = await one<any>('SELECT id, name, role, area_id, active FROM users WHERE id = $1', [b.userId], ctx.db);
+    if (!isTeamMember(t, areaId)) throw badRequest(`Escolha um ${D.worker} ativo.`);
+    const since = b.desdeInicio ? (w.first_accepted_at ?? new Date()) : new Date();
+    await q('INSERT INTO work_order_workers (work_order_id, user_id, joined_at) VALUES ($1,$2,$3)', [w.id, b.userId, since], ctx.db);
+    if (w.transfer_to === b.userId) await q('UPDATE work_orders SET transfer_from = NULL, transfer_to = NULL WHERE id = $1', [w.id], ctx.db);
+    if (w.suggested_to === b.userId) await q('UPDATE work_orders SET suggested_to = NULL WHERE id = $1', [w.id], ctx.db);
+    await event(ctx, w.id, 'incluiu', { quem: t.name, ...(b.desdeInicio ? { desde: await fmtWhen(since) } : {}) });
+    await notify(ctx.db, ctx.events, {
+      userIds: [t.id], type: 'os_indicada', exceptUserId: ctx.actor.id, workOrderId: w.id,
+      title: `${w.code}: ${ctx.actor.name} incluiu você na ${D.short}`, body: `${w.asset_ref}${w.tool_code ? ` · ${w.tool_code}` : ''}. Suas horas já estão contando.`,
+    });
+  });
+
+  /** Informs or corrects the device / trim die (the maintainer often confirms the right D at the machine). */
+  act('dispositivo', async (ctx, w, body, areaId) => {
+    const b = parse(z.object({ toolCode: z.string().trim().max(12).nullable() }), body);
+    const type = componentTool(w.component);
+    if (!type) throw unprocessable(`Esta ${D.short} não é de dispositivo nem de trim die.`);
+    const allowed = w.opened_by === ctx.actor.id || worksDomain(d, ctx.actor, areaId);
+    if (!allowed) throw forbidden(`Só quem abriu a ${D.short} ou a equipe de ${D.team} pode alterar o ${type === 'dispositivo' ? 'dispositivo' : 'trim die'}.`);
+    if (w.status === 'recusada') throw unprocessable(`Esta ${D.short} programada foi recusada pela Logística.`);
+    const code = await resolveTool(b.toolCode, w.component, ctx.db);
+    if (code === w.tool_code) return;
+    await q('UPDATE work_orders SET tool_code = $2 WHERE id = $1', [w.id, code], ctx.db);
+    await event(ctx, w.id, 'dispositivo', { tipo: type === 'dispositivo' ? 'o dispositivo' : 'o trim die', de: w.tool_code, para: code ?? 'não informado' });
+  });
+
   act('pausar', async (ctx, w, body, areaId) => {
     const { motivo } = parse(reason, body);
     if (w.status !== 'em_atendimento') throw unprocessable(`Só uma ${D.short} em atendimento pode ser pausada.`);
@@ -555,9 +653,23 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   });
 
   act('finalizar', async (ctx, w, body, areaId) => {
-    const b = parse(z.object({ servico: z.string().trim().min(1, d === 'ajuste' ? 'descreva a ação tomada' : 'descreva o serviço realizado').max(2000), material: optText(500) }), body);
+    const b = parse(z.object({
+      servico: z.string().trim().min(1, d === 'ajuste' ? 'descreva a ação tomada' : 'descreva o serviço realizado').max(2000), material: optText(500),
+      /** colleagues who did the job together but were not on the order: they get the hours from the start of the work */
+      ajudantes: z.array(uuid).max(10).default([]),
+    }), body);
     if (w.status !== 'em_atendimento' && w.status !== 'pausada') throw unprocessable(`Só uma ${D.short} em atendimento pode ser finalizada.`);
     if (!(await canHandle(ctx, w, areaId))) throw forbidden(`Só quem está atuando pode finalizar a ${D.short}.`);
+    const workers = await activeWorkers(ctx, w.id);
+    for (const id of new Set(b.ajudantes)) {
+      if (workers.includes(id)) continue;
+      const t = await one<any>('SELECT id, name, role, area_id, active FROM users WHERE id = $1', [id], ctx.db);
+      if (!isTeamMember(t, areaId)) throw badRequest(`Escolha ${D.worker}es ativos como ajudantes.`);
+      const since = (await one<{ at: Date }>(
+        'SELECT min(joined_at) AS at FROM work_order_workers WHERE work_order_id = $1 AND left_at IS NULL', [w.id], ctx.db))?.at ?? w.first_accepted_at ?? new Date();
+      await q('INSERT INTO work_order_workers (work_order_id, user_id, joined_at) VALUES ($1,$2,$3)', [w.id, id, since], ctx.db);
+      await event(ctx, w.id, 'incluiu', { quem: t.name, desde: await fmtWhen(since) });
+    }
     await endPause(ctx, w.id);
     await q(`UPDATE work_order_workers SET left_at = now(), left_reason = 'finalizou' WHERE work_order_id = $1 AND left_at IS NULL`, [w.id], ctx.db);
     await q(
@@ -728,6 +840,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     // maintenance on machines: was it the machine itself, a device or the trim die
     const byComponent = group((r) => r.component ?? '', (r) => (r.component ? WO_COMPONENT_LABELS[r.component as keyof typeof WO_COMPONENT_LABELS] : '')).filter((x) => x.key);
     const byPn = group((r) => r.part_number ?? '', pnLabel).filter((x) => x.key).slice(0, 15);
+    // devices (D) and trim dies (T) with most orders
+    const byTool = group((r) => r.tool_code ?? '', (r) => (r.tool_description ? `${r.tool_code} · ${r.tool_description}` : r.tool_code ?? '')).filter((x) => x.key).slice(0, 15);
     const withPn = opened.filter((r) => r.part_number).length;
     // shift in which each order was opened, in the order of the day
     const shiftGroups = group((r) => shiftOfRow(r) ?? '', (r) => shiftOfRow(r) ?? '');
@@ -796,6 +910,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       byPn,
       byShift,
       byComponent,
+      byTool,
       pnCoverage: opened.length ? withPn / opened.length : null,
       heat,
       pauses: [...pauseReasons.values()].sort((a, b) => b.hours - a.hours),
@@ -805,6 +920,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         areas: [...new Map(all.map((r) => [r.area_id, { id: r.area_id, name: r.area_name }])).values()],
         categories: [...new Map(all.map((r) => [String(r.kind ?? r.reason), { key: String(r.kind ?? r.reason), label: categoryOf(r) }])).values()],
         partNumbers: [...new Set(all.map((r) => r.part_number).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
+        tools: [...new Set(all.map((r) => r.tool_code).filter(Boolean))].sort(),
       },
     };
   });
@@ -817,18 +933,18 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const dt = (x: string | Date | null): OutCell => ({ v: x ? DateTime.fromJSDate(new Date(x)).setZone(zone).toFormat('dd/MM/yyyy HH:mm') : null });
     const h = (msv: number | null): OutCell => ({ v: msv == null ? null : Math.round((msv / 3600_000) * 100) / 100 });
     const adj = d === 'ajuste';
-    const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Local', 'Máquina / montagem', ...(adj ? [] : ['Onde foi o problema']), adj ? 'Motivo' : 'Tipo', 'Part number', ...(adj ? ['% virgem', '% moído'] : []),
+    const head = [D.short, 'Status', 'Prioridade', 'Setor', 'Local', 'Máquina / montagem', ...(adj ? [] : ['Onde foi o problema', 'Dispositivo / trim die']), adj ? 'Motivo' : 'Tipo', 'Part number', ...(adj ? ['% virgem', '% moído'] : []),
       'Máquina parada', 'Problema', 'Aberta por', adj ? 'Hora da chamada' : 'Abertura', 'Turno', adj ? 'Hora inicial' : 'Primeiro aceite', adj ? 'Hora final' : 'Finalização',
       'Finalizada por', adj ? 'Ação tomada' : 'Serviço realizado', adj ? 'Observações' : 'Material', 'Espera (h)', adj ? 'Tempo de ajuste (h)' : 'Atendimento (h)', 'Pausado (h)', 'Total (h)'];
     const sheet = {
       name: D.title,
       freezeRow: 1, autoFilterRow: 1,
-      widths: [15, 15, 11, 16, 11, 24, ...(adj ? [] : [16]), adj ? 40 : 12, 16, ...(adj ? [9, 9] : []), 10, 50, 22, 17, 11, 17, 17, 22, 50, 30, 10, 12, 10, 10],
+      widths: [15, 15, 11, 16, 11, 24, ...(adj ? [] : [16, 14]), adj ? 40 : 12, 16, ...(adj ? [9, 9] : []), 10, 50, 22, 17, 11, 17, 17, 22, 50, 30, 10, 12, 10, 10],
       rows: [
         head.map((v) => ({ v, s: 2 })),
         ...rows.map((r) => [
           { v: r.code }, { v: WO_STATUS_LABELS[r.status as WoStatus] }, { v: WO_PRIORITY_LABELS[r.priority as WoPriority] }, { v: r.area_name },
-          { v: r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : null }, { v: r.asset_ref }, ...(adj ? [] : [{ v: r.component ? WO_COMPONENT_LABELS[r.component as keyof typeof WO_COMPONENT_LABELS] : null }]), { v: categoryOf(r) }, { v: r.part_number }, ...(adj ? [{ v: r.virgin_pct }, { v: r.regrind_pct }] : []),
+          { v: r.location_type ? WO_LOCATION_LABELS[r.location_type as WoLocation] : null }, { v: r.asset_ref }, ...(adj ? [] : [{ v: r.component ? WO_COMPONENT_LABELS[r.component as keyof typeof WO_COMPONENT_LABELS] : null }, { v: r.tool_code }]), { v: categoryOf(r) }, { v: r.part_number }, ...(adj ? [{ v: r.virgin_pct }, { v: r.regrind_pct }] : []),
           { v: r.machine_stopped ? 'Sim' : 'Não' }, { v: r.description },
           { v: r.opened_by_name }, dt(r.opened_at), { v: shiftOfRow(r) }, dt(r.first_accepted_at), dt(r.finished_at), { v: r.finished_by_name }, { v: r.service_done },
           { v: r.material }, h(r.first_accepted_at ? r.times.waitMs : null), h(r.times.workMs), h(r.times.pausedMs), h(r.finished_at ? r.times.totalMs : null),

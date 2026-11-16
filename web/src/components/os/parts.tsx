@@ -88,10 +88,30 @@ export function WoHeadline({ o }: { o: WorkOrder }) {
   );
 }
 
+/**
+ * The device (D) or trim die (T) of the order, in the plant's own way of naming it, standing out for the maintainer.
+ * When the opener did not know which, it says so.
+ */
+export function WoToolTag({ o, big }: { o: Pick<WorkOrder, 'component' | 'tool_code' | 'tool_description'>; big?: boolean }) {
+  if (o.component !== 'dispositivo' && o.component !== 'trim_die') return null;
+  const name = o.component === 'dispositivo' ? 'DISPOSITIVO' : 'TRIM DIE';
+  if (!o.tool_code) {
+    return <span className={cx('inline-flex items-center rounded border border-dashed border-amber-500 bg-amber-50 px-1.5 py-0.5 font-bold text-amber-800 whitespace-nowrap', big ? 'text-sm' : 'text-xs')}>{name} NÃO INFORMADO</span>;
+  }
+  return (
+    <span className={cx('inline-flex items-center gap-1.5 rounded bg-gray-900 px-2 py-0.5 font-bold text-white whitespace-nowrap', big ? 'text-base' : 'text-xs')}
+      title={o.tool_description ?? undefined}>
+      <span className="font-semibold opacity-75">{name}</span><span className="font-mono tracking-wide">{o.tool_code}</span>
+    </span>
+  );
+}
+
 export function WoWhere({ o }: { o: WorkOrder }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 text-sm text-gray-600">
-      <span className="font-semibold text-gray-900">{placeLabel(o)}</span>
+      {/* on a machine, the device / trim die goes in its own tag, right after the machine */}
+      <span className="font-semibold text-gray-900">{o.location_type && (o.component === 'dispositivo' || o.component === 'trim_die') ? placeLabel({ ...o, component: 'maquina' }) : placeLabel(o)}</span>
+      {o.location_type && <WoToolTag o={o} />}
       <span>· {woCategory(o)}</span>
       {o.part_number && <span>· PN {o.part_number}</span>}
       <span className="inline-flex items-center gap-1">· <AreaDot color={o.area_color} />{o.area_name}</span>

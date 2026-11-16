@@ -3,6 +3,7 @@ import { FileUp, KeyRound, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { pnKey } from '@shared/partNumbers';
 import { shiftRanges } from '@shared/shifts';
+import { toolMatches } from '@shared/tools';
 import { ASSET_TYPE_LABELS, ASSET_TYPES, PRIORITIES, PRIORITY_LABELS, ORDER_ONLY_ROLES, ROLE_LABELS, ROLES } from '@shared/constants';
 import { FormError } from '../components/actions';
 import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Select, Spinner, Textarea } from '../components/ui';
@@ -11,6 +12,7 @@ import { fmtDateTime } from '../lib/format';
 import { useMeta } from '../lib/meta';
 import { can, useMe } from '../lib/session';
 import { useToast } from '../lib/toast';
+import { useWoOptions } from '../lib/workOrders';
 
 // ---------------------------------------------------------------- users
 
@@ -318,6 +320,7 @@ export function CatalogsPage() {
         )}
       </Card>
       <PartNumbersCard />
+      <ToolsCard />
       <Card title="Modelos de etapas" actions={<Button size="sm" kind="primary" onClick={saveTemplates}><Save size={14} />Salvar modelos</Button>}>
         <p className="mb-2 text-xs text-gray-500">Uma linha "# Nome do modelo" seguida de uma etapa por linha.</p>
         <Textarea rows={14} className="font-mono text-xs" value={templates} onChange={(e) => setTemplates(e.target.value)} />
@@ -419,6 +422,124 @@ function PartNumbersCard() {
         }} />}
       {importing && <PnImportModal onClose={() => setImporting(false)} />}
     </Card>
+  );
+}
+
+const TOOL_TYPE_LABEL: Record<string, string> = { dispositivo: 'Dispositivo', trim_die: 'Trim die' };
+const splitList = (s: string) => s.split(/[\n,;/]+/).map((x) => x.trim()).filter(Boolean);
+
+/** Devices (D) and trim dies (T): what the OS opening suggests after the machine is chosen. */
+function ToolsCard() {
+  const list = useQuery<any[]>({ queryKey: ['admin-tools'], queryFn: () => get('/api/admin/tools') });
+  const machines = useWoOptions('manutencao').data?.places?.maquina ?? [];
+  const [search, setSearch] = useState('');
+  const [type, setType] = useState('');
+  const [edit, setEdit] = useState<any>(null);
+  const [importing, setImporting] = useState(false);
+  const all = list.data ?? [];
+  const shown = useMemo(() => all.filter((t) => (!type || t.type === type) && toolMatches(t, search)), [all, search, type]);
+  const noPn = all.filter((t) => t.active && !t.part_numbers.length && !t.machines.length).length;
+  const LIMIT = 60;
+  return (
+    <Card title="Dispositivos e trim dies" actions={<div className="flex gap-2">
+      <Button size="sm" onClick={() => setImporting(true)}><FileUp size={14} />Importar planilha</Button>
+      <Button size="sm" onClick={() => setEdit({ active: true, part_numbers: [], machines: [] })}><Plus size={14} />Cadastrar</Button></div>}>
+      <p className="mb-2 text-xs text-gray-500">
+        Na abertura de uma OS de dispositivo ou trim die, o sistema puxa o código (D405, T129) pela máquina e pelo part number que estava rodando.
+        A ligação vem dos part numbers de cada dispositivo (planilha "Controle de Moldes e Dispositivos") e das máquinas marcadas aqui.
+        Quando o manutentor informa o código numa OS, a máquina passa a sugerir esse dispositivo também.
+      </p>
+      {list.isLoading ? <Spinner /> : list.error ? <ErrorBox error={list.error} /> : all.length === 0 ? <Empty>Nenhum dispositivo cadastrado. Importe a planilha de controle de moldes e dispositivos.</Empty> : <>
+        <div className="mb-2 flex flex-wrap items-center gap-3">
+          <Input className="max-w-xs" placeholder="Buscar D/T, produto, molde ou PN" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Select className="w-40" value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo"><option value="">Todos</option><option value="dispositivo">Dispositivos</option><option value="trim_die">Trim dies</option></Select>
+          <span className="text-xs text-gray-500">{shown.length === all.length ? `${all.length} cadastrados` : `${shown.length} de ${all.length}`}{noPn ? ` · ${noPn} sem PN nem máquina (não aparecem como sugestão)` : ''}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs uppercase text-gray-500"><tr><th className="py-1">Código</th><th>Produto</th><th>Molde</th><th className="text-right">PNs</th><th>Máquinas</th><th className="text-right">OS</th><th /></tr></thead>
+            <tbody className="divide-y">{shown.slice(0, LIMIT).map((t) => (
+              <tr key={t.code} className={cx(!t.active && 'text-gray-400')}>
+                <td className="py-1.5 font-mono font-semibold">{t.code}</td>
+                <td className="max-w-72 truncate" title={t.description ?? ''}>{t.description ?? '—'}</td>
+                <td className="max-w-32 truncate text-xs" title={t.molds ?? ''}>{t.molds ?? '—'}</td>
+                <td className="text-right tabular-nums" title={t.part_numbers.join(', ')}>{t.part_numbers.length || '—'}</td>
+                <td className="text-xs">{t.machines.join(', ') || '—'}</td>
+                <td className="text-right tabular-nums">{t.orders || '—'}</td>
+                <td className="text-right"><Button size="sm" kind="ghost" aria-label={`Editar ${t.code}`} onClick={() => setEdit({ ...t, _original: t.code })}><Pencil size={14} /></Button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        {shown.length > LIMIT && <p className="mt-2 text-xs text-gray-500">Mostrando {LIMIT} de {shown.length}. Use a busca para encontrar os outros.</p>}
+      </>}
+      {edit && <CatalogModal title={edit._original ? `${TOOL_TYPE_LABEL[edit.type]} ${edit._original}` : 'Dispositivo ou trim die'} initial={{ ...edit, pnText: (edit.part_numbers ?? []).join('\n') }} onClose={() => setEdit(null)}
+        fields={(f, set) => <>
+          <Field label="Código" required hint="D seguido do número para dispositivo (D405); T para trim die (T129).">
+            <Input className="font-mono uppercase" value={f.code ?? ''} onChange={(e) => set('code', e.target.value)} placeholder="D405" />
+          </Field>
+          <Field label="Produto / descrição"><Input value={f.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
+          <Field label="Molde(s)"><Input value={f.molds ?? ''} onChange={(e) => set('molds', e.target.value)} placeholder="M425" /></Field>
+          <Field label="Part numbers que usam" hint="Um por linha. É por eles que a OS encontra o dispositivo."><Textarea rows={4} className="font-mono text-xs" value={f.pnText} onChange={(e) => set('pnText', e.target.value)} /></Field>
+          <div>
+            <span className="mb-1 block text-sm font-medium text-gray-700">Máquinas onde roda <span className="font-normal text-gray-500">(opcional)</span></span>
+            <div className="grid max-h-40 grid-cols-4 gap-1 overflow-y-auto rounded-lg border border-gray-200 p-1.5 sm:grid-cols-6">
+              {machines.map((m) => {
+                const on = (f.machines ?? []).includes(m.code);
+                return <label key={m.code} className={cx('flex cursor-pointer items-center gap-1 rounded border px-1.5 py-1 text-xs', on ? 'border-brand-500 bg-brand-50' : 'border-gray-200')}>
+                  <input type="checkbox" className="accent-brand-600" checked={on} onChange={(e) => set('machines', e.target.checked ? [...(f.machines ?? []), m.code] : (f.machines ?? []).filter((x: string) => x !== m.code))} />{m.code}</label>;
+              })}
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.active ?? true} onChange={(e) => set('active', e.target.checked)} />Ativo (inativos não aparecem na abertura das OS)</label>
+        </>}
+        save={(f) => {
+          const body = { code: f.code ?? '', description: f.description || null, molds: f.molds || null, partNumbers: splitList(f.pnText ?? ''), machines: f.machines ?? [], active: f.active ?? true };
+          return f._original ? put(`/api/admin/tools/${f._original}`, body) : post('/api/admin/tools', body);
+        }} />}
+      {importing && <ToolImportModal onClose={() => setImporting(false)} />}
+    </Card>
+  );
+}
+
+function ToolImportModal({ onClose }: { onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<any>(null);
+  const [error, setError] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const send = async (commit: boolean) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    setBusy(true); setError(null);
+    try {
+      const r = await post(`/api/admin/tools/import?commit=${commit ? 1 : 0}`, fd);
+      if (!commit) { setPreview(r); return; }
+      toast('ok', `${r.total} dispositivos e trim dies importados (${r.novos} novos)`);
+      qc.invalidateQueries();
+      onClose();
+    } catch (e) { setError({ msg: errorMessage(e) }); setPreview(null); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open onClose={onClose} title="Importar dispositivos e trim dies" footer={<><Button onClick={onClose}>Cancelar</Button>
+      {preview ? <Button kind="primary" loading={busy} onClick={() => send(true)}>Importar {preview.total}</Button>
+        : <Button kind="primary" loading={busy} disabled={!file} onClick={() => send(false)}>Conferir planilha</Button>}</>}>
+      <FormError error={error} />
+      <div className="space-y-3 text-sm">
+        <p className="text-gray-600">Envie a planilha "Controle de Moldes e Dispositivos" (.xlsx). São lidas as abas com uma coluna de part number ("Código produto" ou "Part number") e uma de "Dispositivo" ou "Trim die". Os PNs da planilha são somados aos já cadastrados; nada é apagado.</p>
+        <input type="file" accept=".xlsx,.xlsm" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); }} />
+        {preview && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p><b>{preview.dispositivos}</b> dispositivos e <b>{preview.trimDies}</b> trim dies ({preview.vinculos} ligações com part numbers): <b>{preview.novos}</b> novos e {preview.existentes} já cadastrados.</p>
+            <p className="mt-1 text-xs text-gray-500">Abas lidas: {preview.abas.join(', ')}</p>
+            {preview.exemplos.length > 0 && <ul className="mt-2 space-y-0.5 text-xs">{preview.exemplos.map((t: any) => (
+              <li key={t.code}><span className="font-mono font-semibold">{t.code}</span>{t.description ? ` · ${t.description}` : ''}{` · ${t.part_numbers} PN`}</li>))}</ul>}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

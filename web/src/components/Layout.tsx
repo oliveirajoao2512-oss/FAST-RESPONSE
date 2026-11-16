@@ -257,7 +257,7 @@ export function UserMenu() {
             <MenuItem onClick={() => { setOpen(false); navigate('/trocar-senha'); }}><KeyRound size={16} />Alterar senha</MenuItem>
             <MenuItem onClick={() => { setOpen(false); navigate('/notificacoes'); }}><ClipboardList size={16} />Notificações</MenuItem>
             {!install.installed && <MenuItem onClick={installApp}><Download size={16} />Instalar aplicativo</MenuItem>}
-            <MenuItem onClick={() => logout().then(() => navigate('/login'))}><LogOut size={16} />Sair</MenuItem>
+            <MenuItem onClick={() => { setOpen(false); logout(); }}><LogOut size={16} />Sair</MenuItem>
           </div>
         </>
       )}

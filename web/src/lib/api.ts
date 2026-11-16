@@ -4,6 +4,41 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * This tab's login slot (see server/src/auth.ts): each tab or app window keeps its own login, so two people can use
+ * the system side by side on the same computer. Kept in sessionStorage, which belongs to the tab and survives reloads.
+ */
+const SLOT_KEY = 'fr-slot';
+/** Stored after "Sair": this tab stays on the login screen instead of taking the browser's latest login. */
+const LOGGED_OUT = '-';
+const readSlot = () => {
+  try {
+    return sessionStorage.getItem(SLOT_KEY);
+  } catch {
+    return null;
+  }
+};
+export function getSlot(): string | null {
+  const s = readSlot();
+  return s && s !== LOGGED_OUT ? s : null;
+}
+/** A tab that has no login of its own and was not logged out takes a copy of the browser's latest login. */
+export const shouldAdoptLogin = () => readSlot() === null;
+/** `null` = this tab logged out. */
+export function setSlot(slot: string | null) {
+  try {
+    sessionStorage.setItem(SLOT_KEY, slot ?? LOGGED_OUT);
+  } catch {
+    /* storage blocked: the tab falls back to the browser's default login */
+  }
+}
+/** URL for a link, image or download, carrying this tab's login (those requests cannot send headers). */
+export function withSlot(url: string): string {
+  const slot = getSlot();
+  if (!slot) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}slot=${encodeURIComponent(slot)}`;
+}
+
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
@@ -18,6 +53,8 @@ export async function api<T = any>(method: string, url: string, body?: unknown):
       credentials: 'same-origin',
       headers: {
         'x-requested-with': 'fast-response',
+        // this tab's login; '-' after "Sair", so the tab does not fall back to another window's login
+        ...(readSlot() ? { 'x-fr-slot': readSlot()! } : {}),
         ...(body !== undefined && !isForm ? { 'content-type': 'application/json' } : {}),
       },
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
@@ -33,7 +70,7 @@ export async function api<T = any>(method: string, url: string, body?: unknown):
     data = text;
   }
   if (!res.ok) {
-    if (res.status === 401 && !url.includes('/auth/login')) onUnauthorized?.();
+    if (res.status === 401 && !url.includes('/auth/login') && !url.includes('/auth/adopt')) onUnauthorized?.();
     const msg = data?.erro ?? (res.status >= 500 ? 'Erro no servidor. Tente novamente.' : `Erro ${res.status}`);
     throw new ApiError(res.status, msg, data?.codigo, data?.detalhes);
   }

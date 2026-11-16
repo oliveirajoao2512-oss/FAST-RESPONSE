@@ -2,7 +2,7 @@ import { Download, KanbanSquare, List } from 'lucide-react';
 import { FilterBar, toApi, useFilters } from '../components/Filters';
 import { IssueTable, Kanban } from '../components/issues';
 import { ErrorBox, Segmented, Spinner } from '../components/ui';
-import { qs } from '../lib/api';
+import { qs, withSlot } from '../lib/api';
 import { useIssues, usePersistentState } from '../lib/hooks';
 
 export function IssuesPage() {
@@ -15,7 +15,7 @@ export function IssuesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Pendências {q.data && <span className="text-base font-normal text-gray-500">({q.data.total})</span>}</h1>
         <div className="flex items-center gap-2">
-          <a className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm hover:bg-gray-50" href={`/api/issues/export.csv${qs(params)}`}><Download size={16} />Exportar CSV</a>
+          <a className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm hover:bg-gray-50" href={withSlot(`/api/issues/export.csv${qs(params)}`)}><Download size={16} />Exportar CSV</a>
           <ViewToggle view={view} setView={setView} />
         </div>
       </div>

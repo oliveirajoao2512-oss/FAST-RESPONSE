@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { withSlot } from './api';
 
 export type ConnState = 'online' | 'reconnecting' | 'offline';
 
@@ -40,7 +41,7 @@ export function useRealtime(enabled: boolean): ConnState {
     let attempts = 0;
     const connect = () => {
       es?.close();
-      es = new EventSource('/api/events');
+      es = new EventSource(withSlot('/api/events'));
       es.addEventListener('ready', () => {
         if (lostAt) qc.invalidateQueries();
         lostAt = 0;

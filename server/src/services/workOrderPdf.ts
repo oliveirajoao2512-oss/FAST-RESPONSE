@@ -144,6 +144,8 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
     ['Setor', o.area_name],
     [o.location_type ? WO_LOCATION_LABELS[o.location_type as WoLocation] : 'Equipamento', o.asset_ref],
     ...(o.component ? [['Onde foi o problema', WO_COMPONENT_LABELS[o.component as WoComponent]] as [string, string]] : []),
+    ...(o.component === 'dispositivo' || o.component === 'trim_die'
+      ? [[o.component === 'dispositivo' ? 'Dispositivo' : 'Trim die', o.tool_code ? `${o.tool_code}${o.tool_description ? ` · ${o.tool_description}` : ''}` : 'não informado'] as [string, string]] : []),
     [adj ? 'Motivo' : 'Tipo de manutenção', input.category],
     ['Part number', o.part_number ? `${o.part_number}${o.part_description ? ` · ${o.part_description}` : ''}` : '—'],
     ...(o.virgin_pct != null ? [['Material', `${o.virgin_pct}% virgem · ${o.regrind_pct}% moído`] as [string, string]] : []),

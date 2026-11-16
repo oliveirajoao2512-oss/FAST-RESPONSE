@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { DEFAULT_CONFIG, mergeConfig } from '../../../shared/config.js';
 import { ASSET_TYPES, ROLES } from '../../../shared/constants.js';
-import { normalizePn } from '../../../shared/maintenance.js';
+import { normalizePn, normalizeToolCode, toolTypeOf } from '../../../shared/maintenance.js';
+import { pnDigits } from '../../../shared/tools.js';
 import { shiftsProblem } from '../../../shared/shifts.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
@@ -17,6 +18,7 @@ import { withTx } from '../context.js';
 import { purgeIssue } from '../services/purge.js';
 import { optText, parse, uuid } from '../validation.js';
 import { parsePartNumbers } from '../services/partNumberImport.js';
+import { parseTools } from '../services/toolImport.js';
 import { readXlsx, XlsxError } from '../services/xlsx.js';
 
 const userBody = z.object({
@@ -249,6 +251,97 @@ export async function adminRoutes(app: FastifyInstance) {
           [p.code, p.description, p.customer, p.machine]);
       }
       await audit(ctx.db, { actorId: u.id, action: 'part_number.import', entityType: 'part_number', data: { total: summary.total, novos: summary.novos }, ip: ctx.ip });
+    });
+    return { ...summary, importado: true };
+  });
+
+  // ------------------------------------------------------------ devices (D) and trim dies (T)
+
+  app.get('/api/admin/tools', async (req) => {
+    catalog(req);
+    return q(`SELECT t.code, t.type, t.description, t.molds, t.part_numbers, t.machines, t.active,
+        (SELECT count(*)::int FROM work_orders w WHERE w.tool_code = t.code) AS orders
+      FROM tools t ORDER BY t.active DESC, t.type, t.code`);
+  });
+  const toolBody = z.object({
+    code: z.string().trim().min(1, 'obrigatório').max(12),
+    description: optText(300), molds: optText(200),
+    partNumbers: z.array(z.string().trim().max(60)).max(200).default([]),
+    machines: z.array(z.string().trim().max(60)).max(60).default([]),
+    active: z.boolean().default(true),
+  });
+  /** Creates (no original code) or edits a device / trim die. The code itself cannot change once orders use it. */
+  const saveTool = async (req: any, original: string | null) => {
+    const u = catalog(req);
+    const b = parse(toolBody, req.body);
+    const code = normalizeToolCode(b.code);
+    if (!code) throw badRequest('Código inválido: use D seguido do número para dispositivo (D405) ou T para trim die (T129).', { code: 'inválido' });
+    const pns = [...new Set(b.partNumbers.map(pnDigits).filter((p) => p.length >= 5))].sort();
+    const machines = [...new Set(b.machines.map((m) => m.trim()).filter(Boolean))];
+    try {
+      const r = await withTx(u, req.ip, async (ctx) => {
+        if (original && original !== code && (await one('SELECT 1 FROM work_orders WHERE tool_code = $1 LIMIT 1', [original], ctx.db))) {
+          throw badRequest(`O código ${original} já está em ordens de manutenção e não pode ser trocado. Desative-o e cadastre ${code}.`);
+        }
+        const row = original
+          ? await one(`UPDATE tools SET code=$2, type=$3, description=$4, molds=$5, part_numbers=$6, machines=$7, active=$8, updated_at=now() WHERE code=$1 RETURNING code`,
+            [original, code, toolTypeOf(code), b.description, b.molds, pns, machines, b.active], ctx.db)
+          : await one(`INSERT INTO tools (code, type, description, molds, part_numbers, machines, active) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING code`,
+            [code, toolTypeOf(code), b.description, b.molds, pns, machines, b.active], ctx.db);
+        if (!row) throw notFound();
+        await audit(ctx.db, { actorId: u.id, action: original ? 'tool.update' : 'tool.create', entityType: 'tool', data: { ...b, code, partNumbers: pns }, ip: ctx.ip });
+        return row;
+      });
+      return r;
+    } catch (e: any) {
+      if (e?.code === '23505') throw conflict(`O código ${code} já está cadastrado.`);
+      throw e;
+    }
+  };
+  app.post('/api/admin/tools', (req) => saveTool(req, null));
+  app.put('/api/admin/tools/:code', async (req) => saveTool(req, parse(z.object({ code: z.string().regex(/^[DT]\d{3,4}$/) }), req.params).code));
+
+  /**
+   * Imports the "Controle de Moldes e Dispositivos" spreadsheet. New devices / trim dies are added; registered ones get
+   * the part numbers of the spreadsheet added and blanks filled, so links and edits made here are kept. Without
+   * ?commit=1 only previews.
+   */
+  app.post('/api/admin/tools/import', async (req) => {
+    const u = catalog(req);
+    const { commit } = parse(z.object({ commit: z.enum(['0', '1']).default('0') }), req.query);
+    let buf: Buffer | null = null;
+    for await (const part of req.parts()) {
+      if (part.type !== 'file') continue;
+      if (!/\.(xlsx|xlsm)$/i.test(part.filename)) throw badRequest('Envie a planilha no formato Excel (.xlsx ou .xlsm).');
+      buf = await part.toBuffer();
+    }
+    if (!buf) throw badRequest('Selecione a planilha.');
+    let parsed;
+    try {
+      parsed = parseTools(readXlsx(buf));
+    } catch (e) {
+      if (e instanceof XlsxError) throw badRequest(e.message);
+      throw e;
+    }
+    if (!parsed.items.length) throw badRequest('Nenhum dispositivo ou trim die encontrado. A planilha precisa de uma coluna de part number ("Código produto" ou "Part number") e uma de "Dispositivo" ou "Trim die".');
+    const existing = new Set((await q<{ code: string }>('SELECT code FROM tools')).map((r) => r.code));
+    const fresh = parsed.items.filter((t) => !existing.has(t.code));
+    const summary = {
+      total: parsed.items.length, novos: fresh.length, existentes: parsed.items.length - fresh.length, abas: parsed.sheets,
+      dispositivos: parsed.items.filter((t) => t.type === 'dispositivo').length, trimDies: parsed.items.filter((t) => t.type === 'trim_die').length,
+      vinculos: parsed.items.reduce((a, t) => a + t.part_numbers.length, 0),
+      exemplos: fresh.slice(0, 8).map((t) => ({ code: t.code, description: t.description, part_numbers: t.part_numbers.length })),
+    };
+    if (commit !== '1') return summary;
+    await withTx(u, req.ip, async (ctx) => {
+      for (const t of parsed.items) {
+        await ctx.db.query(
+          `INSERT INTO tools (code, type, description, molds, part_numbers) VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (code) DO UPDATE SET description = coalesce(tools.description, EXCLUDED.description), molds = coalesce(tools.molds, EXCLUDED.molds),
+             part_numbers = (SELECT coalesce(array_agg(DISTINCT p ORDER BY p), '{}') FROM unnest(tools.part_numbers || EXCLUDED.part_numbers) p), updated_at = now()`,
+          [t.code, t.type, t.description, t.molds, t.part_numbers]);
+      }
+      await audit(ctx.db, { actorId: u.id, action: 'tool.import', entityType: 'tool', data: { total: summary.total, novos: summary.novos }, ip: ctx.ip });
     });
     return { ...summary, importado: true };
   });

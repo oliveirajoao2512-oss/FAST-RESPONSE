@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Camera, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, domainLocations, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_KIND_LABELS, WO_KINDS, WO_LOCATION_LABELS, type WoComponent, type WoKind, type WoLocation } from '@shared/maintenance';
+import { ADJ_MATERIAL_REASON, ADJ_REASON_CODES, ADJ_REASONS, componentTool, domainLocations, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_KIND_LABELS, WO_KINDS, WO_LOCATION_LABELS, type WoComponent, type WoKind, type WoLocation } from '@shared/maintenance';
 import { api as request, post } from '../../lib/api';
 import { useMe } from '../../lib/session';
 import { useToast } from '../../lib/toast';
@@ -9,6 +9,7 @@ import { useWoDomain, useWoList, useWoOptions } from '../../lib/workOrders';
 import { Button, cx, ErrorBox, Field, Input, Select, Textarea } from '../ui';
 import { WoStatusBadge } from './parts';
 import { pnAccepted, PnInput, usePartNumbers } from './PnInput';
+import { ToolPicker } from './ToolPicker';
 
 export async function uploadWoFiles(api: string, id: string, files: File[], purpose: 'abertura' | 'servico') {
   if (!files.length) return;
@@ -76,12 +77,15 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const sameMachine = (openList.data ?? []).filter((o) => asset && o.asset_ref.trim().toLowerCase() === asset.toLowerCase());
   const [component, setComponent] = useState<WoComponent | null>(null);
   const askComponent = !adj && location === 'maquina';
+  // device (D) or trim die (T): found from the machine / part number; undefined until chosen, null = "não sei"
+  const toolType = askComponent ? componentTool(component) : null;
+  const [toolCode, setToolCode] = useState<string | null | undefined>(undefined);
 
   const stoppedQuestion = location === 'montagem' ? 'A montagem está parada?' : 'A máquina está parada?';
   const askMaterial = adj && reason === ADJ_MATERIAL_REASON;
   const pctOk = (v: string) => v.trim() !== '' && Number(v) >= 0 && Number(v) <= 100;
   const missing = {
-    area: !areaId, location: !location, asset: !asset.trim(), component: askComponent && !component, kind: adj ? !reason : !kind, stopped: !planned && stopped === null, description: !description.trim(),
+    area: !areaId, location: !location, asset: !asset.trim(), component: askComponent && !component, tool: !!toolType && toolCode === undefined, kind: adj ? !reason : !kind, stopped: !planned && stopped === null, description: !description.trim(),
     plannedAt: planned && (!plannedAt || new Date(plannedAt).getTime() < Date.now() - 3600_000),
     plannedHours: planned && !(Number(plannedHours.replace(',', '.')) > 0),
     material: askMaterial && (!pctOk(virgin) || !pctOk(regrind)),
@@ -94,7 +98,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
     setError(null);
     try {
       const r = await post<{ id: string; code: string }>(D.api, {
-        areaId, location, assetRef: asset.trim(), description: description.trim(), ...(askComponent ? { component } : {}),
+        areaId, location, assetRef: asset.trim(), description: description.trim(), ...(askComponent ? { component } : {}), ...(toolType ? { toolCode } : {}),
         ...(planned
           ? { scheduled: true, plannedStart: new Date(plannedAt).toISOString(), plannedHours: Number(plannedHours.replace(',', '.')) }
           : { machineStopped: stopped }),
@@ -164,7 +168,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
               {places.length ? (
                 <div className="grid max-h-48 grid-cols-3 gap-1.5 overflow-y-auto rounded-lg border border-gray-200 p-1.5 sm:grid-cols-4" role="radiogroup" aria-label={WO_LOCATION_LABELS[location]}>
                   {places.map((p) => (
-                    <button key={p.code} type="button" role="radio" aria-checked={asset === p.code} title={p.description ?? undefined} onClick={() => setAsset(p.code)}
+                    <button key={p.code} type="button" role="radio" aria-checked={asset === p.code} title={p.description ?? undefined} onClick={() => { setAsset(p.code); setToolCode(undefined); }}
                       className={cx('rounded-md border px-2 py-2 text-sm font-medium', asset === p.code ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50')}>
                       {p.code}
                     </button>
@@ -179,10 +183,16 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
               <span className="mb-1 block text-sm font-medium text-gray-700">Onde está o problema na máquina {asset}? <span className="text-red-600" aria-hidden>*</span></span>
               <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Onde está o problema">
                 {WO_COMPONENTS.map((c) => (
-                  <button key={c} type="button" role="radio" aria-checked={component === c} className={choice(component === c)} onClick={() => setComponent(c)}>{WO_COMPONENT_LABELS[c]}</button>
+                  <button key={c} type="button" role="radio" aria-checked={component === c} className={choice(component === c)} onClick={() => { setComponent(c); setToolCode(undefined); }}>{WO_COMPONENT_LABELS[c]}</button>
                 ))}
               </div>
               {tried && missing.component && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha máquina, dispositivo ou trim die.</span>}
+            </div>
+          )}
+          {toolType && asset && (
+            <div>
+              <ToolPicker key={`${asset}|${toolType}`} type={toolType} asset={asset} pn={partNumber} value={toolCode} onChange={setToolCode} />
+              {tried && missing.tool && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha {toolType === 'dispositivo' ? 'o dispositivo' : 'o trim die'} ou toque em “Não sei qual”.</span>}
             </div>
           )}
           {sameMachine.length > 0 && (

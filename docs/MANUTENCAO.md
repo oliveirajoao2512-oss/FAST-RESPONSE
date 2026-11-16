@@ -41,15 +41,21 @@ Máquina parada → prioridade **crítica** e notificação na hora para manuten
 | Aberta (aguardando aceite) | abertura, ou o último manutentor devolveu | posição na fila |
 | Em atendimento | um manutentor aceitou | "Fulano está atuando" |
 | Pausada | pausar com motivo (aguardando peça, liberação da produção, terceiro, outro) | motivo da pausa |
-| Finalizada | finalizar com o serviço realizado (material e foto opcionais) | histórico de finalizadas |
+| Finalizada | finalizar com o serviço realizado (material e foto opcionais) | aba Finalizadas, mês a mês |
 
 - Vários manutentores podem atuar na mesma OS (**Entrar na OS**). Cada um tem seu horário de entrada e saída.
+- **Incluir manutentor**: quando o serviço é feito em dupla, quem está atuando (ou o gestor/líder de Manutenção) inclui o
+  colega na OS. Ele entra na hora, sem precisar aceitar, e é avisado; as horas dele contam a partir de agora ou, marcando
+  a opção, desde o início do atendimento. Ao **finalizar** também aparece "Mais alguém fez este serviço junto?": quem
+  for marcado entra com as horas desde o início do atendimento. Tudo fica no histórico e no comprovante.
 - **Passar**: o manutentor indica um colega; a OS só muda de mãos quando o colega aceita (ou ele recusa).
 - **Devolver / sair**: pede motivo. Se era o último na OS, ela volta para a fila.
 - Não há confirmação do solicitante: finalizou, fechou. Solicitante e gerente de manutenção são avisados no aceite e na
   finalização.
 - Fila ordenada por: fixadas no topo, prioridade (crítica, alta, normal, baixa) e OS mais antiga.
 - Todo passo fica no histórico da OS, que é imutável; ninguém apaga OS (exceto a exclusão de teste do administrador).
+- **Finalizadas** abre no mês atual, com ◀ ▶ e a lista dos últimos 24 meses para trocar. A busca procura em todos os meses
+  e agrupa o resultado por mês.
 
 ## Tempos (calculados, ninguém digita)
 
@@ -78,7 +84,7 @@ programada. A regra é: quanto mais rápido, melhor.
 Aba **Dashboard** dentro de cada módulo. A de OS é exclusiva do gestor e do líder de Manutenção; a de Ajustes, do
 gestor e do líder de Processos. O administrador vê as duas. O servidor recusa o acesso de qualquer outro perfil.
 
-- Filtros: período (30 dias, 3, 6 ou 12 meses, ou datas), setor que abriu, tipo/motivo, part number e máquina (clicando no gráfico).
+- Filtros: período (abre sempre em **este mês**; mês passado, 3, 6 ou 12 meses, ou datas), setor que abriu, tipo/motivo, part number, onde foi o problema, dispositivo/trim die, turno e máquina (clicando no gráfico). O Painel da planta e os Relatórios também abrem no mês atual.
 - Números: fila agora, em atendimento, abertas e finalizadas no período, espera média até o aceite (e % aceitas em até
   30 min), tempo médio de atendimento/ajuste sem pausas, horas de máquina parada.
 - Gráficos: abertas × finalizadas e tempos médios por dia, semana ou mês (conforme o período), tipos/motivos mais
@@ -163,6 +169,29 @@ Onde aparece: filtro "Turno de abertura" e tabela "por turno de abertura" (abert
 
 Na OS de máquina, depois de escolher a máquina aparece **"Onde está o problema na máquina X?"** com três opções: **Máquina**, **Dispositivo** ou **Trim die** (obrigatório, porque dispositivo e trim die fazem parte da máquina). Montagem e Ordem de Ajuste não têm essa pergunta. No Dashboard de manutenção há o filtro "Onde foi o problema" e o quadro "Onde foram os problemas" (clique para filtrar); no Painel da planta, o quadro "Máquina x dispositivo x trim die"; no Excel, a coluna "Onde foi o problema".
 
+## Dispositivo (D) e trim die (T) da OS
+
+A fábrica identifica dispositivos pelo **D** (D405) e trim dies pelo **T** (T129). Quando o problema é em dispositivo ou
+trim die, a abertura pergunta **"Qual dispositivo?"** e já traz o código:
+
+1. pelo **part number** informado (o PN que estava rodando), quando ele está ligado a algum dispositivo;
+2. senão, pela **máquina**: dispositivos marcados para a máquina em Cadastros, dispositivos dos PNs que rodam na máquina
+   (máquina padrão do PN) e dispositivos já usados em OS daquela máquina.
+
+Se só existe um candidato, ele é selecionado sozinho ("encontrado automaticamente"); com vários, aparecem para tocar; e
+dá para buscar qualquer outro por número (405, D-405), produto, molde ou PN. "Não sei qual" deixa em branco para o
+manutentor informar. Com a base cadastrada, só códigos cadastrados e do tipo certo são aceitos.
+
+Para o manutentor, o código aparece em destaque (etiqueta preta **DISPOSITIVO D405**) na fila, no detalhe, no título da
+OS, na notificação de máquina parada, no comprovante PDF e no Excel. Quem abriu e a equipe de manutenção podem
+**informar ou trocar** o código na OS; a troca fica no histórico. Indicadores: filtro "Dispositivo / trim die", quadro
+"Dispositivos e trim dies com mais OS" (clique para filtrar) e busca por código nas listas.
+
+Cadastro em **Administração → Cadastros → Dispositivos e trim dies**: código, produto, molde, part numbers e máquinas.
+**Importar planilha** lê a "Controle de Moldes e Dispositivos" (abas com coluna de part number e de dispositivo ou trim
+die; cada bloco de molde liga seus D e T a todos os PNs do bloco). A importação soma PNs e completa o que falta, sem
+apagar o que foi editado. Os dados da empresa ficam só no banco, nunca no código.
+
 ## Histórico importado
 
-As OS antigas da planilha de manutenção (outubro/2026) foram carregadas. A aba "molde" entrou como problema na própria máquina; a aba "dispositivo" entrou como problema em dispositivo, só com o código do dispositivo (a planilha não diz a máquina). Elas foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.
+As OS antigas da planilha de manutenção (outubro/2026) foram carregadas. A aba "molde" entrou como problema na própria máquina; a aba "dispositivo" entrou como problema em dispositivo, só com o código do dispositivo (a planilha não diz a máquina); esse código virou o dispositivo da OS. Elas foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.

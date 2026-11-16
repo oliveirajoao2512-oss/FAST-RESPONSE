@@ -55,6 +55,12 @@ requisições no login; troca obrigatória da senha provisória; anexos validado
 gravados fora da pasta pública e servidos com `Content-Security-Policy: sandbox`; exportação CSV protegida contra
 injeção de fórmulas.
 
+**Várias janelas, vários usuários.** Cada aba ou janela do aplicativo tem o próprio login: o token fica num cookie
+`httpOnly` por janela (`fr_s_<slot>`) e a janela informa o seu slot no cabeçalho `x-fr-slot` (ou `?slot=` em links,
+imagens e no canal de tempo real). Uma janela nova começa com uma cópia do último login do navegador (`/api/auth/adopt`);
+"Sair" encerra só a janela em que foi clicado e a deixa na tela de login, mesmo com outras janelas logadas. Assim duas
+pessoas usam o sistema lado a lado no mesmo computador.
+
 ## Modelo de dados (principais tabelas)
 
 `settings`, `areas`, `users`, `sessions`, `categories`, `assets`, `issues`, `issue_status_history`, `steps`

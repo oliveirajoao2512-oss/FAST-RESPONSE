@@ -56,9 +56,33 @@ export const domainLocations = (d: WoDomain): WoLocation[] => (d === 'ajuste' ? 
 export const WO_COMPONENTS = ['maquina', 'dispositivo', 'trim_die'] as const;
 export type WoComponent = (typeof WO_COMPONENTS)[number];
 export const WO_COMPONENT_LABELS: Record<WoComponent, string> = { maquina: 'Máquina', dispositivo: 'Dispositivo', trim_die: 'Trim die' };
-/** "Máquina 24", "Máquina 24 · trim die", "Montagem 0013.01"; old history may only have the device code ("D464 · dispositivo"). */
-export const placeLabel = (o: { location_type: WoLocation | null; asset_ref: string; component?: WoComponent | null }) =>
-  `${o.location_type ? `${WO_LOCATION_LABELS[o.location_type]} ` : ''}${o.asset_ref}${o.component && o.component !== 'maquina' ? ` · ${WO_COMPONENT_LABELS[o.component].toLowerCase()}` : ''}`;
+/**
+ * Devices ("D", e.g. D405) and trim dies ("T", e.g. T129): the plant identifies them by these codes. Written with or
+ * without the dash and the leading zeros ("D-405", "d 29"), they are stored as D405 / D029.
+ */
+export type ToolType = 'dispositivo' | 'trim_die';
+export const TOOL_PREFIX: Record<ToolType, 'D' | 'T'> = { dispositivo: 'D', trim_die: 'T' };
+export function normalizeToolCode(raw: string | null | undefined, type?: ToolType): string | null {
+  const m = /^\s*([DT])?\s*-?\s*0*(\d{1,4})\s*$/i.exec(String(raw ?? ''));
+  if (!m) return null;
+  const letter = (m[1]?.toUpperCase() ?? (type ? TOOL_PREFIX[type] : '')) as 'D' | 'T' | '';
+  if (!letter || (type && letter !== TOOL_PREFIX[type])) return null;
+  return `${letter}${m[2].padStart(3, '0')}`;
+}
+export const toolTypeOf = (code: string): ToolType => (code.startsWith('T') ? 'trim_die' : 'dispositivo');
+/** Which components carry a tool code. */
+export const componentTool = (c: WoComponent | null | undefined): ToolType | null => (c === 'dispositivo' || c === 'trim_die' ? c : null);
+
+/**
+ * "Máquina 24", "Máquina 24 · dispositivo D405", "Máquina 24 · trim die T129", "Montagem 0013.01".
+ * Old history may only have the device code ("Dispositivo D464").
+ */
+export const placeLabel = (o: { location_type: WoLocation | null; asset_ref: string; component?: WoComponent | null; tool_code?: string | null }) => {
+  if (!o.location_type && o.component === 'dispositivo') return `Dispositivo ${o.tool_code ?? o.asset_ref}`;
+  const base = `${o.location_type ? `${WO_LOCATION_LABELS[o.location_type]} ` : ''}${o.asset_ref}`;
+  if (!o.component || o.component === 'maquina') return base;
+  return `${base} · ${WO_COMPONENT_LABELS[o.component].toLowerCase()}${o.tool_code ? ` ${o.tool_code}` : ''}`;
+};
 
 /** Dashboards of a module: its area leadership, plus the plant manager (read only). */
 export const seesDomainDashboard = (a: Actor, areaId: number | null | undefined) => leadsDomain(a, areaId) || a.role === 'plant_manager';
@@ -202,7 +226,10 @@ export function woTimes(o: { opened_at: string | Date; first_accepted_at: string
 export function eventText(e: { action: string; data: Record<string, any> }): string {
   const d = e.data ?? {};
   switch (e.action) {
-    case 'abriu': return d.programada ? `abriu a manutenção programada para ${d.programada}` : `abriu a ordem${d.parada ? ' (máquina parada)' : ''}`;
+    case 'abriu': {
+      const where = d.dispositivo ? ` no dispositivo ${d.dispositivo}` : d.trim_die ? ` no trim die ${d.trim_die}` : d.onde ? ` (${d.onde})` : '';
+      return d.programada ? `abriu a manutenção programada${where} para ${d.programada}` : `abriu a ordem${where}${d.parada ? ' (máquina parada)' : ''}`;
+    }
     case 'aprovou': return `aprovou a manutenção programada para ${d.data}${d.horas ? ` (${d.horas} h)` : ''}${d.obs ? `: ${d.obs}` : ''}`;
     case 'reprovou': return `recusou a manutenção programada: ${d.motivo}`;
     case 'aceitou': return 'aceitou a ordem';
@@ -219,6 +246,8 @@ export function eventText(e: { action: string; data: Record<string, any> }): str
     case 'priorizou': return [d.prioridade && `prioridade ${d.prioridade}`, d.topo].filter(Boolean).join('; ');
     case 'indicou': return `indicou a ordem para ${d.para}`;
     case 'anexou': return `anexou ${d.finalidade === 'servico' ? 'foto do serviço' : 'foto'}`;
+    case 'incluiu': return `incluiu ${d.quem} na ordem${d.desde ? ` (trabalhando desde ${d.desde})` : ''}`;
+    case 'dispositivo': return `${d.de ? `trocou ${d.tipo ?? 'o dispositivo'} de ${d.de} para` : `informou ${d.tipo ?? 'o dispositivo'}`} ${d.para}`;
     case 'importou': return `importou do histórico antigo${d.os ? ` (OS nº ${d.os} do papel)` : ''}`;
     default: return e.action;
   }
