@@ -284,7 +284,11 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await expect(man).toHaveURL(/\/os$/);
 
   // the device of machine 17A, as registered in Cadastros (normally loaded from the spreadsheet)
-  expect((await adminApi.post('/api/admin/tools', { data: { code: 'D405', description: 'Duto ar ICS', machines: ['17A'] } })).ok()).toBe(true);
+  expect((await adminApi.post('/api/admin/tools', { data: { code: 'D405', description: 'Duto ar ICS', machines: ['17A'], partNumbers: ['10001099901'] } })).ok()).toBe(true);
+  // one product made with two devices: typing its PN offers both
+  for (const code of ['D406', 'D407']) expect((await adminApi.post('/api/admin/tools', { data: { code, description: `Fixação ${code}`, partNumbers: ['10001025301'] } })).ok()).toBe(true);
+  for (const [code, description] of [['10001099901', 'Duto ar ICS LD'], ['10001025301', 'Tanque expansão']])
+    expect((await adminApi.post('/api/admin/part-numbers', { data: { code, description } })).ok()).toBe(true);
 
   // anyone opens an order in a few taps
   await operador.getByRole('link', { name: 'Ordens de Manutenção' }).click();
@@ -296,7 +300,22 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await dlg.getByRole('radiogroup', { name: 'Onde está o problema' }).getByRole('radio', { name: 'Dispositivo' }).click();
   // the device of the machine comes by itself
   await expect(dlg.getByText('encontrado automaticamente')).toBeVisible();
-  await expect(dlg.getByText('Duto ar ICS')).toBeVisible();
+  await expect(dlg.getByText('Duto ar ICS', { exact: true })).toBeVisible();
+  // one field for D and PN: the D offers its product...
+  await dlg.getByRole('radiogroup', { name: 'Produto' }).getByRole('radio', { name: /10001099901/ }).click();
+  await expect(dlg.getByText('Produto:')).toBeVisible();
+  // ...typing a PN brings its devices (two here: the opener chooses)...
+  await dlg.getByRole('button', { name: 'Trocar', exact: true }).click();
+  await dlg.getByRole('textbox', { name: 'Buscar dispositivo ou part number' }).fill('10001025');
+  await dlg.getByRole('option', { name: /10001025301/ }).click();
+  await expect(dlg.getByText(/usa mais de um dispositivo/)).toBeVisible();
+  await expect(dlg.getByRole('radio', { name: /D406/ })).toBeVisible();
+  await expect(dlg.getByRole('radio', { name: /D407/ })).toBeVisible();
+  // ...and typing the D brings its PN (the only product of D405)
+  await dlg.getByRole('textbox', { name: 'Buscar dispositivo ou part number' }).fill('405');
+  await dlg.getByRole('option', { name: /D405/ }).click();
+  await expect(dlg.getByText('Duto ar ICS LD')).toBeVisible();
+  await expect(dlg.getByLabel('Part number')).toHaveCount(0);
   await dlg.getByRole('radio', { name: 'Mecânica' }).click();
   await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
   await dlg.getByLabel('O que está acontecendo e onde é o problema?').fill('Vazamento de óleo no cilindro do molde');
@@ -388,7 +407,7 @@ test('17. ordem de ajuste: processista atende e só Processos vê o dashboard', 
   await dlg.getByRole('radio', { name: /Ajuste devido a % incorreta de material/ }).click();
   await dlg.getByLabel('% de material virgem').fill('70');
   await dlg.getByLabel('% de moído').fill('30');
-  await dlg.getByLabel('Part number').fill('PN-4471');
+  await dlg.getByLabel('Part number').fill('10001025301');
   await dlg.getByRole('radio', { name: 'Sim, parada' }).click();
   await dlg.getByLabel('Motivo / problema da parada').fill('Frasco com parede fina');
   await operador.screenshot({ path: `${SHOTS}/oa-abrir.png` });

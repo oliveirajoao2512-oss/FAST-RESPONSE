@@ -174,13 +174,18 @@ Na OS de máquina, depois de escolher a máquina aparece **"Onde está o problem
 A fábrica identifica dispositivos pelo **D** (D405) e trim dies pelo **T** (T129). Quando o problema é em dispositivo ou
 trim die, a abertura pergunta **"Qual dispositivo?"** e já traz o código:
 
-1. pelo **part number** informado (o PN que estava rodando), quando ele está ligado a algum dispositivo;
+1. pelo **part number** informado (o produto que está na máquina), quando ele está ligado a algum dispositivo;
 2. senão, pela **máquina**: dispositivos marcados para a máquina em Cadastros, dispositivos dos PNs que rodam na máquina
    (máquina padrão do PN) e dispositivos já usados em OS daquela máquina.
 
 Se só existe um candidato, ele é selecionado sozinho ("encontrado automaticamente"); com vários, aparecem para tocar; e
 dá para buscar qualquer outro por número (405, D-405), produto, molde ou PN. "Não sei qual" deixa em branco para o
 manutentor informar. Com a base cadastrada, só códigos cadastrados e do tipo certo são aceitos.
+
+**Um campo só para D e PN.** Na OS de dispositivo ou trim die não existe campo separado de part number: o mesmo campo
+aceita os dois. Quem digita o **D** recebe o PN dele (se o dispositivo faz um produto só, ele entra sozinho; se faz
+vários, aparecem para tocar, e o PN é opcional). Quem digita o **PN** recebe o D: se o PN usa um dispositivo só, ele é
+selecionado; se usa mais de um, aparecem as opções e a pessoa escolhe. "Trocar produto" muda só o PN.
 
 Para o manutentor, o código aparece em destaque (etiqueta preta **DISPOSITIVO D405**) na fila, no detalhe, no título da
 OS, na notificação de máquina parada, no comprovante PDF e no Excel. Quem abriu e a equipe de manutenção podem

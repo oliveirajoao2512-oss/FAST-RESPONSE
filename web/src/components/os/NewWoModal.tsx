@@ -191,8 +191,9 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
           )}
           {toolType && asset && (
             <div>
-              <ToolPicker key={`${asset}|${toolType}`} type={toolType} asset={asset} pn={partNumber} value={toolCode} onChange={setToolCode} />
+              <ToolPicker key={`${asset}|${toolType}`} type={toolType} asset={asset} pn={partNumber} onPn={setPartNumber} pnError={tried && missing.partNumber} value={toolCode} onChange={setToolCode} />
               {tried && missing.tool && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha {toolType === 'dispositivo' ? 'o dispositivo' : 'o trim die'} ou toque em “Não sei qual”.</span>}
+              {tried && missing.partNumber && <span className="mt-1 block text-xs text-red-600" role="alert">O part number não está na base: escolha um da lista ou deixe em branco.</span>}
             </div>
           )}
           {sameMachine.length > 0 && (
@@ -238,11 +239,13 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
               </Field>
             </div>
           )}
-          <div>
-            <span className="mb-1 block text-sm font-medium text-gray-700">Part number <span className="font-normal text-gray-500">(o produto que estava rodando)</span></span>
-            <PnInput value={partNumber} onChange={setPartNumber} machine={location === 'maquina' ? asset : null} error={tried && missing.partNumber} />
-            {tried && missing.partNumber && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha um PN da lista ou deixe em branco.</span>}
-          </div>
+          {!(toolType && asset) && (
+            <div>
+              <span className="mb-1 block text-sm font-medium text-gray-700">Part number <span className="font-normal text-gray-500">(o produto que está na máquina)</span></span>
+              <PnInput value={partNumber} onChange={setPartNumber} machine={location === 'maquina' ? asset : null} error={tried && missing.partNumber} />
+              {tried && missing.partNumber && <span className="mt-1 block text-xs text-red-600" role="alert">Escolha um PN da lista ou deixe em branco.</span>}
+            </div>
+          )}
           {planned ? (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Data e hora" required error={tried && missing.plannedAt ? (plannedAt ? 'Essa data já passou.' : 'Informe a data.') : undefined}>
