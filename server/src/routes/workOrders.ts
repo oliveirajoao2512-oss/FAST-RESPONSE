@@ -4,7 +4,7 @@ import { fileTypeFromBuffer } from 'file-type';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
-  ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, LOGISTICS_AREA_SLUG, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
+  ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, SCHEDULE_APPROVER_AREA_SLUG, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
   WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
@@ -32,14 +32,14 @@ export async function domainAreaId(d: WoDomain): Promise<number | null> {
   if (!cachedAreaId.has(d)) cachedAreaId.set(d, (await one<{ id: number }>('SELECT id FROM areas WHERE slug = $1', [WO_DOMAIN[d].areaSlug]))?.id ?? null);
   return cachedAreaId.get(d)!;
 }
-let cachedLogistics: number | null | undefined;
-/** Area whose gestores and líderes analyse planned maintenance. */
-async function logisticsAreaId(): Promise<number | null> {
-  if (cachedLogistics === undefined) cachedLogistics = (await one<{ id: number }>('SELECT id FROM areas WHERE slug = $1', [LOGISTICS_AREA_SLUG]))?.id ?? null;
-  return cachedLogistics;
+let cachedApprover: number | null | undefined;
+/** Area whose gestores approve planned maintenance (Manutenção). */
+async function approverAreaId(): Promise<number | null> {
+  if (cachedApprover === undefined) cachedApprover = (await one<{ id: number }>('SELECT id FROM areas WHERE slug = $1', [SCHEDULE_APPROVER_AREA_SLUG]))?.id ?? null;
+  return cachedApprover;
 }
-async function logisticsLeaders(db: Db) {
-  return (await q<{ id: string }>(`SELECT id FROM users WHERE active AND role IN ('gestor','lider') AND area_id = $1`, [await logisticsAreaId()], db)).map((r) => r.id);
+async function scheduleApprovers(db: Db) {
+  return (await q<{ id: string }>(`SELECT id FROM users WHERE active AND role = 'gestor' AND area_id = $1`, [await approverAreaId()], db)).map((r) => r.id);
 }
 
 /** Machines and assembly cells registered in Cadastros, in the plant's order. */
@@ -113,7 +113,7 @@ function guardLeader(d: WoDomain, u: SessionUser, areaId: number | null) {
 const assertOpen = (w: any) => {
   const S = w.domain === 'ajuste' ? 'OA' : 'OS';
   if (w.status === 'finalizada') throw unprocessable(`Esta ${S} já foi finalizada.`);
-  if (w.status === 'recusada') throw unprocessable(`Esta ${S} programada foi recusada pela Logística.`);
+  if (w.status === 'recusada') throw unprocessable(`Esta ${S} programada foi recusada pelo gestor de Manutenção.`);
 };
 
 const pct = z.number().min(0).max(100).nullable().optional();
@@ -260,7 +260,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     ]);
     return {
       areas, team, teamAreaId: areaId, canWork: worksDomain(d, u, areaId), canLead: leadsDomain(u, areaId),
-      canSchedule: d === 'manutencao', canAnalyze: d === 'manutencao' && analyzesSchedule(u, await logisticsAreaId()),
+      canSchedule: d === 'manutencao', canAnalyze: d === 'manutencao' && analyzesSchedule(u, await approverAreaId()),
       canSeeDashboard: seesDomainDashboard(u, areaId), places: await placeLists(domainLocations(d)),
       // part numbers already used in any order, most recent first, to suggest while typing
       partNumbers: (await q<{ pn: string }>(
@@ -428,8 +428,8 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       await audit(ctx.db, { actorId: u.id, action: `${D.short.toLowerCase()}.create`, entityType: 'work_order', entityId: w.id, data: { codigo: w.code, maquina: b.assetRef }, ip: ctx.ip });
       if (planned) {
         await notify(ctx.db, ctx.events, {
-          userIds: await logisticsLeaders(ctx.db), type: 'os_programada', exceptUserId: u.id, workOrderId: w.id,
-          title: `${w.code}: manutenção programada aguardando análise da Logística`,
+          userIds: await scheduleApprovers(ctx.db), type: 'os_programada', exceptUserId: u.id, workOrderId: w.id,
+          title: `${w.code}: manutenção programada aguardando sua aprovação`,
           body: `${b.assetRef} · ${await fmtWhen(b.plannedStart!)} · ${b.plannedHours} h parada. Pedida por ${u.name}.`,
         });
       }
@@ -524,7 +524,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
   act('aceitar', async (ctx, w, _b, areaId) => {
     guardWorker(d, ctx.actor, areaId);
     assertOpen(w);
-    if (w.status === 'em_analise') throw unprocessable('Esta manutenção programada ainda aguarda a análise da Logística.');
+    if (w.status === 'em_analise') throw unprocessable('Esta manutenção programada ainda aguarda a aprovação do gestor de Manutenção.');
     const waiting = WO_WAITING_STATUSES.includes(w.status);
     const me = ctx.actor.id;
     const workers = await activeWorkers(ctx, w.id);
@@ -634,7 +634,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (!type) throw unprocessable(`Esta ${D.short} não é de dispositivo nem de trim die.`);
     const allowed = w.opened_by === ctx.actor.id || worksDomain(d, ctx.actor, areaId);
     if (!allowed) throw forbidden(`Só quem abriu a ${D.short} ou a equipe de ${D.team} pode alterar o ${type === 'dispositivo' ? 'dispositivo' : 'trim die'}.`);
-    if (w.status === 'recusada') throw unprocessable(`Esta ${D.short} programada foi recusada pela Logística.`);
+    if (w.status === 'recusada') throw unprocessable(`Esta ${D.short} programada foi recusada pelo gestor de Manutenção.`);
     const code = await resolveTool(b.toolCode, w.component, ctx.db);
     if (code === w.tool_code) return;
     await q('UPDATE work_orders SET tool_code = $2 WHERE id = $1', [w.id, code], ctx.db);
@@ -690,10 +690,10 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     });
   });
 
-  /** Logistics leadership approves the planned maintenance (on the asked date or another one) or refuses it. */
+  /** The gestor of Manutenção approves the planned maintenance (on the asked date or another one) or refuses it. */
   act('analisar', async (ctx, w, body, areaId) => {
-    if (!analyzesSchedule(ctx.actor, await logisticsAreaId())) throw forbidden('Somente o gestor e o líder de Logística analisam a manutenção programada.');
-    if (w.status !== 'em_analise') throw unprocessable('Esta OS não está aguardando análise da Logística.');
+    if (!analyzesSchedule(ctx.actor, await approverAreaId())) throw forbidden('Somente o gestor de Manutenção aprova a manutenção programada.');
+    if (w.status !== 'em_analise') throw unprocessable('Esta OS não está aguardando aprovação.');
     const b = parse(z.discriminatedUnion('decisao', [
       z.object({ decisao: z.literal('aprovar'), plannedStart: z.string().datetime({ offset: true }), plannedHours: z.number().positive().max(720), obs: optText(500) }),
       z.object({ decisao: z.literal('recusar'), motivo: z.string().trim().min(1, 'informe o motivo').max(500) }),
@@ -708,7 +708,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       await notify(ctx.db, ctx.events, {
         userIds: [w.opened_by, ...team], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
         title: `${w.code}: manutenção programada aprovada para ${when}`,
-        body: `${w.asset_ref} · ${b.plannedHours} h parada.${moved ? ' A Logística mudou a data pedida.' : ''}${b.obs ? ` ${b.obs}` : ''}`,
+        body: `${w.asset_ref} · ${b.plannedHours} h parada.${moved ? ' O gestor de Manutenção mudou a data pedida.' : ''}${b.obs ? ` ${b.obs}` : ''}`,
       });
     } else {
       await q(`UPDATE work_orders SET status = 'recusada', analyzed_by = $2, analyzed_at = now(), analysis_note = $3, pinned = false, suggested_to = NULL WHERE id = $1`,
@@ -716,7 +716,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       await event(ctx, w.id, 'reprovou', { motivo: b.motivo });
       await notify(ctx.db, ctx.events, {
         userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
-        title: `${w.code}: manutenção programada recusada pela Logística`, body: b.motivo,
+        title: `${w.code}: manutenção programada recusada pelo gestor de Manutenção`, body: b.motivo,
       });
     }
     await audit(ctx.db, { actorId: ctx.actor.id, action: `os.schedule_${b.decisao}`, entityType: 'work_order', entityId: w.id, data: { codigo: w.code }, ip: ctx.ip });
@@ -969,7 +969,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
 /** Test hook: the domain area ids are cached per process. */
 export function resetMaintenanceAreaCache() {
   cachedAreaId.clear();
-  cachedLogistics = undefined;
+  cachedApprover = undefined;
 }
 
 // ------------------------------------------------------------ plant panel (Power BI style), administrator and plant manager

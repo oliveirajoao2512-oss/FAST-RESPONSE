@@ -183,7 +183,7 @@ function Queue({ q, canWork, canAnalyze, onOpen, meId, searching }: { q: ReturnT
         <Chip tone="blue" n={counts.em_atendimento} label="em atendimento" />
         <Chip tone="amber" n={counts.pausada} label="pausadas" />
         {counts.programada > 0 && <Chip tone="indigo" n={counts.programada} label="programadas" />}
-        {counts.em_analise > 0 && <Chip tone="violet" n={counts.em_analise} label="em análise na Logística" />}
+        {counts.em_analise > 0 && <Chip tone="violet" n={counts.em_analise} label="aguardando o gestor de Manutenção" />}
         {counts.critica > 0 && <Chip tone="red" n={counts.critica} label="críticas" />}
       </div>
       {canAnalyze && analysis.length > 0 && <Group title="Manutenções programadas para você analisar">{analysis.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} highlight />)}</Group>}
@@ -192,7 +192,7 @@ function Queue({ q, canWork, canAnalyze, onOpen, meId, searching }: { q: ReturnT
       {mine.length > 0 && <Group title="Você está atuando">{mine.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} />)}</Group>}
       {rest.length > 0 && <Group title={mine.length || forMe.length || (canAnalyze && analysis.length) ? 'Fila' : undefined}>{rest.map((o) => <WoCard key={o.id} o={o} meId={meId} position={position.get(o.id)} canWork={canWork} onOpen={() => onOpen(o.id)} />)}</Group>}
       {planned.length > 0 && <Group title="Manutenções programadas">{planned.map((o) => <WoCard key={o.id} o={o} meId={meId} canWork={canWork} onOpen={() => onOpen(o.id)} />)}</Group>}
-      {!canAnalyze && analysis.length > 0 && <Group title="Aguardando análise da Logística">{analysis.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} />)}</Group>}
+      {!canAnalyze && analysis.length > 0 && <Group title="Aguardando o gestor de Manutenção">{analysis.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} />)}</Group>}
     </div>
   );
 }

@@ -153,7 +153,7 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
       ? ['Aberta em', `${DateTime.fromJSDate(new Date(o.opened_at)).setZone(zone).toFormat('dd/MM/yyyy')} · histórico importado${o.legacy_number ? `, OS nº ${o.legacy_number}` : ''}`]
       : [adj ? 'Hora da chamada' : 'Aberta em', dt(o.opened_at)],
     o.scheduled ? ['Manutenção programada', `pedida para ${dt(o.requested_start)} · ${o.planned_hours} h de parada`] : ['Máquina parada', o.machine_stopped ? 'Sim' : 'Não'],
-    ...(o.scheduled ? [['Análise da Logística', o.analyzed_at
+    ...(o.scheduled ? [['Aprovação do gestor de Manutenção', o.analyzed_at
       ? `${o.status === 'recusada' ? 'Recusada' : `Aprovada para ${dt(o.planned_start)}`} por ${o.analyzed_by_name} em ${dt(o.analyzed_at)}${o.analysis_note ? ` · ${o.analysis_note}` : ''}`
       : 'Aguardando'] as [string, string]] : []),
   ]);

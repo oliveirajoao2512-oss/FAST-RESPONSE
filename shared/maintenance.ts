@@ -129,27 +129,28 @@ export const WO_KIND_LABELS: Record<WoKind, string> = {
 export const WO_STATUSES = ['em_analise', 'programada', 'aberta', 'em_atendimento', 'pausada', 'finalizada', 'recusada'] as const;
 export type WoStatus = (typeof WO_STATUSES)[number];
 export const WO_STATUS_LABELS: Record<WoStatus, string> = {
-  em_analise: 'Em análise na Logística',
+  em_analise: 'Aguardando o gestor de Manutenção',
   programada: 'Programada',
   aberta: 'Aberta',
   em_atendimento: 'Em atendimento',
   pausada: 'Pausada',
   finalizada: 'Finalizada',
-  recusada: 'Recusada pela Logística',
+  recusada: 'Recusada pelo gestor de Manutenção',
 };
 export const WO_OPEN_STATUSES: WoStatus[] = ['aberta', 'em_atendimento', 'pausada'];
-/** Statuses that end the order: finished by the team, or a planned maintenance refused by Logistics. */
+/** Statuses that end the order: finished by the team, or a planned maintenance refused by the gestor of Manutenção. */
 export const WO_CLOSED_STATUSES: WoStatus[] = ['finalizada', 'recusada'];
-/** Orders that can be accepted by the team (planned ones once Logistics approved them). */
+/** Orders that can be accepted by the team (planned ones once the gestor of Manutenção approved them). */
 export const WO_WAITING_STATUSES: WoStatus[] = ['aberta', 'programada'];
 
 /**
- * Planned maintenance: opened with a date and how long the equipment will be stopped. The Logistics leadership
- * (gestor or líder of the Logística area) approves it, on the asked date or another one, or refuses it with a reason.
+ * Planned maintenance: opened with a date and how long the equipment will be stopped. The gestor of the Manutenção
+ * area approves it, on the asked date or another one, or refuses it with a reason.
  */
-export const LOGISTICS_AREA_SLUG = 'logistica';
-export const analyzesSchedule = (a: Actor, logisticsAreaId: number | null | undefined) =>
-  a.role === 'admin' || ((a.role === 'gestor' || a.role === 'lider') && a.areaId != null && a.areaId === logisticsAreaId);
+export const SCHEDULE_APPROVER_AREA_SLUG = 'manutencao';
+export const SCHEDULE_APPROVER = 'gestor de Manutenção';
+export const analyzesSchedule = (a: Actor, approverAreaId: number | null | undefined) =>
+  a.role === 'admin' || (a.role === 'gestor' && a.areaId != null && a.areaId === approverAreaId);
 /** When the order starts counting: the approved date for planned maintenance, otherwise the opening. */
 export const woStart = (o: { opened_at: string | Date; scheduled?: boolean; planned_start?: string | Date | null }) =>
   o.scheduled && o.planned_start && new Date(o.planned_start) > new Date(o.opened_at) ? o.planned_start : o.opened_at;

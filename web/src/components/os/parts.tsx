@@ -41,7 +41,7 @@ export function StoppedTag() {
 export function WoSituation({ o, position, meId }: { o: WorkOrder; position?: number; meId: string }) {
   const pause = o.pauses.find((p) => !p.to);
   if (o.status === 'em_analise') {
-    return <span className="text-violet-800">Aguardando análise da Logística · pedida para {fmtShort(o.requested_start)} · {o.planned_hours} h de parada</span>;
+    return <span className="text-violet-800">Aguardando o gestor de Manutenção · pedida para {fmtShort(o.requested_start)} · {o.planned_hours} h de parada</span>;
   }
   if (o.status === 'programada') {
     const due = o.planned_start && new Date(o.planned_start).getTime() <= Date.now();
@@ -53,7 +53,7 @@ export function WoSituation({ o, position, meId }: { o: WorkOrder; position?: nu
     );
   }
   if (o.status === 'recusada') {
-    return <span className="text-gray-700">Recusada pela Logística{o.analyzed_by_name ? ` (${o.analyzed_by_name})` : ''}: {o.analysis_note}</span>;
+    return <span className="text-gray-700">Recusada pelo gestor de Manutenção{o.analyzed_by_name ? ` (${o.analyzed_by_name})` : ''}: {o.analysis_note}</span>;
   }
   if (o.status === 'finalizada') {
     return <span className="text-emerald-800">Finalizada por {o.finished_by_name} em {fmtShort(o.finished_at)} · total {duration(o.times.totalMs)}</span>;

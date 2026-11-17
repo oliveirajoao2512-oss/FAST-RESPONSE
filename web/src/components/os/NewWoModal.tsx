@@ -59,7 +59,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [virgin, setVirgin] = useState('');
   const [regrind, setRegrind] = useState('');
   const [stopped, setStopped] = useState<boolean | null>(null);
-  // planned maintenance: a date and how long the equipment stops, analysed by Logistics first
+  // planned maintenance: a date and how long the equipment stops, approved by the gestor of Manutenção first
   const [planned, setPlanned] = useState(false);
   const [plannedAt, setPlannedAt] = useState('');
   const [plannedHours, setPlannedHours] = useState('');
@@ -113,7 +113,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
         toast('error', `A ${D.short} foi aberta, mas a foto não foi enviada. Abra a ${D.short} e tente anexar de novo.`);
       }
       toast('ok', planned
-        ? `${r.code} enviada para a análise da Logística. Você será avisado quando ela aprovar a data.`
+        ? `${r.code} enviada para o gestor de Manutenção. Você será avisado quando ele aprovar a data.`
         : `${r.code} aberta${stopped ? ` como crítica: a equipe de ${D.team} foi avisada` : ''}. O comprovante em PDF já está disponível.`);
       await qc.invalidateQueries({ queryKey: ['os'] });
       onCreated(r.id);
@@ -141,7 +141,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
                 <button type="button" role="radio" aria-checked={!planned} className={choice(!planned)} onClick={() => setPlanned(false)}>Corretiva (agora)</button>
                 <button type="button" role="radio" aria-checked={planned} className={choice(planned)} onClick={() => setPlanned(true)}><CalendarClock size={16} className="mr-1 inline" />Programada</button>
               </div>
-              {planned && <span className="mt-1 block text-xs text-gray-600">A Logística analisa a data e aprova, muda ou recusa. Aprovada, a OS entra na fila da manutenção para o dia marcado.</span>}
+              {planned && <span className="mt-1 block text-xs text-gray-600">O gestor de Manutenção analisa a data e aprova, muda ou recusa. Aprovada, a OS entra na fila da manutenção para o dia marcado.</span>}
             </div>
           )}
           <Field label="Setor" required error={tried && missing.area ? 'Escolha o setor.' : undefined}>
@@ -275,7 +275,7 @@ export function NewWoModal({ onClose, onCreated }: { onClose: () => void; onCrea
         </div>
         <div className="flex justify-end gap-2 border-t px-5 py-3">
           <Button onClick={onClose}>Cancelar</Button>
-          <Button kind="primary" onClick={submit} loading={busy}>{planned ? 'Enviar para a Logística' : `Abrir ${D.short}`}</Button>
+          <Button kind="primary" onClick={submit} loading={busy}>{planned ? 'Enviar para aprovação' : `Abrir ${D.short}`}</Button>
         </div>
       </div>
     </div>

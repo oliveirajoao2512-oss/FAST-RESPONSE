@@ -56,7 +56,7 @@ export function Layout() {
   const overdueBy = (id: number) => counts.data?.byArea.find((a: any) => a.id === id)?.overdue ?? 0;
   const workOrders = useWoList('abertas', {}, true, 'manutencao');
   const osOptions = useWoOptions('manutencao');
-  // líderes and gestores of Logística also count the planned maintenance waiting for their analysis
+  // gestores of Manutenção also count the planned maintenance waiting for their analysis
   const waitingOs = workOrders.data?.filter((o) => o.status === 'aberta' || (osOptions.data?.canAnalyze && o.status === 'em_analise')).length ?? 0;
   const adjustments = useWoList('abertas', {}, true, 'ajuste');
   const waitingOa = adjustments.data?.filter((o) => o.status === 'aberta').length ?? 0;

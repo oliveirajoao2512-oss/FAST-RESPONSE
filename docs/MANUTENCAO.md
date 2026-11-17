@@ -149,13 +149,14 @@ mesma conferência. Enquanto a base estiver vazia, o PN continua livre.
 ## Manutenção programada
 
 Ao abrir uma OS, escolha **Programada** no topo do formulário e informe a data e a hora, quantas horas a máquina vai ficar
-parada e o que será feito. A OS fica **Em análise na Logística**: o gestor e o líder da área Logística são avisados e veem
-a OS no topo da fila (o número no menu inclui as que aguardam a análise deles). Eles podem:
+parada e o que será feito. A OS fica **Aguardando o gestor de Manutenção**: o gestor da área Manutenção (perfil Gestor) é avisado e vê
+a OS no topo da fila (o número no menu inclui as que aguardam a aprovação dele). Líderes e outras áreas não aprovam;
+o administrador também pode. Até 17/11/2026 quem aprovava era a Logística. O gestor pode:
 
 - **Aprovar**, na data pedida ou em outra, ajustando as horas e deixando uma observação. A OS passa a **Programada**, a equipe
   de manutenção e quem pediu são avisados, e ela aparece em "Manutenções programadas" na fila, por data. A equipe aceita
   ("Iniciar a manutenção") e o fluxo segue igual ao da corretiva. A espera conta a partir da data aprovada.
-- **Recusar**, com o motivo. A OS sai da fila, aparece em Finalizadas como "Recusada pela Logística" e quem pediu é avisado.
+- **Recusar**, com o motivo. A OS sai da fila, aparece em Finalizadas como "Recusada pelo gestor de Manutenção" e quem pediu é avisado.
 
 OS em análise ou recusadas não entram nos indicadores. O comprovante em PDF mostra a data pedida, a análise e a data aprovada.
 

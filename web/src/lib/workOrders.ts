@@ -48,7 +48,7 @@ export interface WorkOrder {
   pauses: { from: string; to: string | null; reason: string }[];
   files: number;
   times: WoTimes;
-  /** planned maintenance, analysed by Logistics before reaching the queue */
+  /** planned maintenance, approved by the gestor of Manutenção before reaching the queue */
   scheduled: boolean;
   requested_start: string | null;
   planned_start: string | null;

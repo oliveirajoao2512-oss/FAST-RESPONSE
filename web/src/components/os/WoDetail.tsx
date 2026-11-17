@@ -151,7 +151,7 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
               <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
                 <div><dt className="text-xs text-gray-500">Data pedida</dt><dd>{fmtDateTime(o.requested_start)}</dd></div>
                 <div><dt className="text-xs text-gray-500">Horas de parada</dt><dd>{o.planned_hours} h</dd></div>
-                {o.analyzed_at && <div className="sm:col-span-2"><dt className="text-xs text-gray-500">Análise da Logística</dt><dd>
+                {o.analyzed_at && <div className="sm:col-span-2"><dt className="text-xs text-gray-500">Aprovação do gestor de Manutenção</dt><dd>
                   {o.status === 'recusada' ? <b className="text-red-700">Recusada</b> : <>Aprovada para <b>{fmtDateTime(o.planned_start)}</b></>}
                   {' '}por {o.analyzed_by_name} em {fmtShort(o.analyzed_at)}{o.analysis_note ? ` · ${o.analysis_note}` : ''}
                 </dd></div>}
@@ -219,7 +219,7 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
   );
 }
 
-/** Logistics leadership: approve the planned maintenance (the date can be changed) or refuse it with a reason. */
+/** Gestor of Manutenção: approve the planned maintenance (the date can be changed) or refuse it with a reason. */
 function ScheduleAnalysis({ o, run, busy }: { o: WorkOrderDetail; run: (a: string, b?: unknown, ok?: string) => Promise<boolean>; busy: string | null }) {
   const local = (x: string | null) => {
     if (!x) return '';
@@ -234,7 +234,7 @@ function ScheduleAnalysis({ o, run, busy }: { o: WorkOrderDetail; run: (a: strin
   const h = Number(hours.replace(',', '.'));
   return (
     <div className="space-y-3 rounded-xl border border-violet-300 bg-violet-50 p-3">
-      <p className="text-sm font-semibold text-violet-900">Análise da Logística</p>
+      <p className="text-sm font-semibold text-violet-900">Aprovação da manutenção programada</p>
       {!refusing ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
