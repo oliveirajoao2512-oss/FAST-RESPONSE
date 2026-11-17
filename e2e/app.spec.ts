@@ -332,6 +332,14 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await expect(man.getByText('MÁQUINA PARADA')).toBeVisible();
   await expect(man.getByText('D405', { exact: true }).first()).toBeVisible();
   await man.screenshot({ path: `${SHOTS}/os-fila-celular.png`, fullPage: true });
+  // notifications on the phone: invited on the page, and in the menu
+  await expect(man.getByRole('button', { name: 'Ativar avisos' })).toBeVisible();
+  await man.getByRole('button', { name: 'Menu do usuário' }).click();
+  await man.getByRole('button', { name: 'Avisos no celular' }).click();
+  await expect(man.getByRole('button', { name: 'Ativar avisos neste aparelho' })).toBeVisible();
+  await man.getByRole('dialog', { name: 'Avisos no celular' }).getByRole('button', { name: 'Fechar' }).last().click();
+  await man.getByRole('button', { name: 'Agora não' }).click();
+  await expect(man.getByRole('button', { name: 'Ativar avisos' })).toHaveCount(0);
   await man.getByRole('button', { name: 'Aceitar', exact: true }).click();
 
   // the requester sees who is working, without reloading

@@ -197,6 +197,36 @@ Cadastro em **Administração → Cadastros → Dispositivos e trim dies**: cód
 die; cada bloco de molde liga seus D e T a todos os PNs do bloco). A importação soma PNs e completa o que falta, sem
 apagar o que foi editado. Os dados da empresa ficam só no banco, nunca no código.
 
+## Avisos no celular e cobrança por tempo
+
+**Avisos no celular (notificação push).** Cada pessoa ativa uma vez por aparelho: no aviso "Receba as ordens e
+cobranças na hora" que aparece no topo da página, ou no menu do usuário → **Avisos no celular**. Ao ativar chega uma
+notificação de teste. Depois disso o aparelho toca mesmo com o app fechado: OS/OA nova para a equipe, cobranças,
+pendências atribuídas, atrasos. Máquina parada e cobranças ficam na tela até a pessoa tocar. Tocar abre a ordem.
+
+- Android (Chrome) e computador (Chrome, Edge, Firefox): funciona direto no navegador ou no app instalado.
+- iPhone/iPad: só com o app instalado na tela inicial (Safari → Compartilhar → Adicionar à Tela de Início), iOS 16.4 ou
+  mais novo. Depois abra pelo ícone e ative.
+- Aparelho compartilhado (tablet da linha): o aparelho recebe os avisos de quem está logado. **Sair** desliga os avisos
+  daquela pessoa; quem entrar depois passa a receber os dele sem precisar ativar de novo. Com duas janelas de usuários
+  diferentes no mesmo navegador, vale o último que entrou.
+- Bloqueou sem querer: no cadeado ao lado do endereço → Notificações → Permitir. O menu "Avisos no celular" explica.
+- Não usa WhatsApp nem conta externa: o próprio navegador (Google, Apple, Mozilla) entrega, sem custo. As chaves do
+  servidor são criadas sozinhas e ficam no banco (ou vêm de `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`).
+
+**Quem é avisado ao abrir.** Máquina parada: técnicos e líderes da área (Manutenção para OS, Processos para OA), como
+urgente. Máquina rodando: os mesmos, como aviso normal (pode desligar em Configurações).
+
+**Cobrança enquanto ninguém aceita** (Gestão → Configurações → "Avisos das ordens de manutenção e de ajuste"):
+
+| | Cobra a equipe e os líderes | Avisa gestores da área e Plant Manager |
+|---|---|---|
+| Máquina parada | 10 min | 30 min |
+| Máquina rodando | 60 min | 240 min (4 h) |
+
+Cada etapa avisa uma vez por ordem; 0 desliga a etapa. Quem abriu não é cobrado. Ordens já aceitas, programadas ou do
+histórico importado não são cobradas. A cobrança fica registrada na auditoria (`os.cobranca`/`oa.cobranca`).
+
 ## Histórico importado
 
 As OS antigas da planilha de manutenção (outubro/2026) foram carregadas. A aba "molde" entrou como problema na própria máquina; a aba "dispositivo" entrou como problema em dispositivo, só com o código do dispositivo (a planilha não diz a máquina); esse código virou o dispositivo da OS. Elas foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.

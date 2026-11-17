@@ -118,6 +118,8 @@ export const NOTIFICATION_TYPES = [
   'os_indicada',
   'os_devolvida',
   'os_programada',
+  'os_nova',
+  'os_cobranca',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

@@ -5,6 +5,8 @@ import { sendEmail, emailEnabled } from '../mailer.js';
 import { areaLeaders, managers, notify } from '../notify.js';
 import { publish, type RealtimeEvent } from '../realtime.js';
 import { getConfig } from '../settings.js';
+import { deliverPush } from '../push.js';
+import { runOrderAlerts } from './orderAlerts.js';
 import { fmt } from './issues.js';
 
 const ACTIVE = `('aberta','aguardando_responsavel','planejada','em_andamento','bloqueada')`;
@@ -87,7 +89,7 @@ export async function deliverEmails(limit = 50) {
   const rows = await tx(async (db) =>
     q<any>(
       `UPDATE notification_deliveries d SET attempts = attempts + 1
-        WHERE d.id IN (SELECT id FROM notification_deliveries WHERE status = 'pendente' AND attempts < 5 ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED)
+        WHERE d.id IN (SELECT id FROM notification_deliveries WHERE channel = 'email' AND status = 'pendente' AND attempts < 5 ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED)
         RETURNING d.id, d.notification_id, d.attempts`, [limit], db));
   let sent = 0;
   let failed = 0;
@@ -114,6 +116,8 @@ export function startJobs(log: { error: (o: unknown, m: string) => void }) {
   const tick = async () => {
     try {
       await runDeadlineJobs();
+      await runOrderAlerts();
+      await deliverPush();
       await deliverEmails();
     } catch (e) {
       log.error(e, 'falha no processamento automático de prazos');

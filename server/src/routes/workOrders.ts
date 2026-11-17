@@ -28,7 +28,7 @@ const PHOTO_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic
 
 const cachedAreaId = new Map<WoDomain, number | null>();
 /** Area whose gestores and líderes run the domain's queue (Manutenção, Processos). */
-async function domainAreaId(d: WoDomain): Promise<number | null> {
+export async function domainAreaId(d: WoDomain): Promise<number | null> {
   if (!cachedAreaId.has(d)) cachedAreaId.set(d, (await one<{ id: number }>('SELECT id FROM areas WHERE slug = $1', [WO_DOMAIN[d].areaSlug]))?.id ?? null);
   return cachedAreaId.get(d)!;
 }
@@ -50,7 +50,7 @@ async function placeLists(types: WoLocation[]) {
 }
 
 /** Technicians and leadership of the domain (who can receive an order). */
-async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
+export async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
   return q<{ id: string; name: string; role: string }>(
     `SELECT id, name, role FROM users WHERE active AND (role = $2 OR (role IN ('gestor','lider') AND area_id = $1)) ORDER BY role = $2 DESC, name`,
     [areaId, WO_DOMAIN[d].workerRole], db);
@@ -438,6 +438,12 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         await notify(ctx.db, ctx.events, {
           userIds: team, type: 'os_aberta', exceptUserId: u.id, workOrderId: w.id,
           title: `${w.code}: máquina parada — ${b.assetRef}${tool ? ` · ${tool}` : ''}`, body: `${category} · aberta por ${u.name}. ${b.description.slice(0, 160)}`,
+        });
+      } else if (!planned && (await getConfig()).orders.notifyTeamOnEveryOpen) {
+        const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
+        await notify(ctx.db, ctx.events, {
+          userIds: team, type: 'os_nova', exceptUserId: u.id, workOrderId: w.id,
+          title: `${w.code}: nova ${D.short} — ${b.assetRef}${tool ? ` · ${tool}` : ''}`, body: `${category} · aberta por ${u.name}. ${b.description.slice(0, 160)}`,
         });
       }
       return w;

@@ -35,6 +35,19 @@ export interface AppConfig {
     managerAfterOverdueHours: number;
     notifyManagersOnCriticalSafety: boolean;
   };
+  /** Maintenance (OS) and adjustment (OA) orders: who is warned, and the reminders while nobody accepts. */
+  orders: {
+    /** Warn the team (technicians and leaders of the area) of every new order; orders with the machine stopped always warn. */
+    notifyTeamOnEveryOpen: boolean;
+    /** Machine stopped and nobody accepted: remind the team and the leaders after N minutes (0 = off). */
+    stoppedRemindMinutes: number;
+    /** Machine stopped and still nobody accepted: warn the gestores of the area and the plant managers after N minutes (0 = off). */
+    stoppedManagerMinutes: number;
+    /** Machine running and nobody accepted: remind the team and the leaders after N minutes (0 = off). */
+    runningRemindMinutes: number;
+    /** Machine running and still nobody accepted: warn the gestores and the plant managers after N minutes (0 = off). */
+    runningManagerMinutes: number;
+  };
   complexity: {
     /** Number of mandatory steps from which the issue is "moderada". */
     moderateMinSteps: number;
@@ -86,6 +99,13 @@ export const DEFAULT_CONFIG: AppConfig = {
     notifyLeadersOnOverdue: true,
     managerAfterOverdueHours: 24,
     notifyManagersOnCriticalSafety: true,
+  },
+  orders: {
+    notifyTeamOnEveryOpen: true,
+    stoppedRemindMinutes: 10,
+    stoppedManagerMinutes: 30,
+    runningRemindMinutes: 60,
+    runningManagerMinutes: 240,
   },
   complexity: { moderateMinSteps: 2, complexMinSteps: 5 },
   recurrence: { windowDays: 90 },

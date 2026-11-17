@@ -391,5 +391,11 @@ function validateConfig(c: ReturnType<typeof mergeConfig>) {
   if (c.deadline.holidays.some((h) => !/^\d{4}-\d{2}-\d{2}$/.test(h))) throw badRequest('Feriados devem estar no formato AAAA-MM-DD.');
   const shifts = shiftsProblem(c.shifts);
   if (shifts) throw badRequest(shifts);
+  const o = c.orders;
+  for (const v of [o.stoppedRemindMinutes, o.stoppedManagerMinutes, o.runningRemindMinutes, o.runningManagerMinutes]) {
+    if (!Number.isInteger(v) || v < 0 || v > 7 * 24 * 60) throw badRequest('Tempos de cobrança das ordens: minutos inteiros de 0 a 10080 (0 desliga).');
+  }
+  if (o.stoppedRemindMinutes && o.stoppedManagerMinutes && o.stoppedManagerMinutes <= o.stoppedRemindMinutes) throw badRequest('Máquina parada: o aviso aos gestores deve vir depois da cobrança à equipe.');
+  if (o.runningRemindMinutes && o.runningManagerMinutes && o.runningManagerMinutes <= o.runningRemindMinutes) throw badRequest('Máquina rodando: o aviso aos gestores deve vir depois da cobrança à equipe.');
   c.shifts = c.shifts.map((s) => ({ name: s.name.trim(), start: s.start }));
 }

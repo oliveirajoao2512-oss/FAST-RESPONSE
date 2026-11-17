@@ -88,6 +88,7 @@ server {
 | `JOBS_ENABLED` | true | Processos automáticos: atraso, aviso de vencimento, escalonamento, envio de e-mails. |
 | `JOB_INTERVAL_SECONDS` | 60 | Intervalo desses processos. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | — | E-mail corporativo. Sem `SMTP_HOST`, só há notificações dentro do sistema. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | criadas sozinhas e guardadas no banco | Chaves dos avisos no celular (push). Só defina para usar um par próprio; trocar o par obriga todos a ativar os avisos de novo. O servidor precisa de saída HTTPS para os serviços de push (fcm.googleapis.com, web.push.apple.com, updates.push.services.mozilla.com). |
 
 Rodar mais de uma instância da aplicação é suportado: os processos automáticos usam *advisory locks* do PostgreSQL
 (só uma instância executa por vez) e o tempo real é distribuído via `LISTEN/NOTIFY`. Os anexos, nesse caso, precisam

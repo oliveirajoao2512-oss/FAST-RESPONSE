@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  Bell, Download, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, Search, Settings,
+  Bell, BellRing, Download, ClipboardList, Factory, Gauge, KeyRound, LayoutList, LogOut, Menu, Plus, Search, Settings,
   Siren, WifiOff, X, BarChart3, ClipboardCheck, Wrench, Eye, SlidersHorizontal,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -10,7 +10,8 @@ import { WO_DOMAIN, type WoDomain } from '@shared/maintenance';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
-import { isIos, useInstall } from '../lib/install';
+import { useInstall } from '../lib/install';
+import { InstallHelp, PushBanner, PushModal } from './Push';
 import { startPreview, stopPreview } from '../lib/preview';
 import { useQualityAccess } from '../lib/quality';
 import { useRealtime } from '../lib/realtime';
@@ -119,6 +120,7 @@ export function Layout() {
           </div>
         )}
         <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
+          <PushBanner />
           <SectionTabs areaOverdue={overdueBy} />
           <Outlet />
         </main>
@@ -212,7 +214,7 @@ export function NotificationsBell() {
               {list.data?.map((n: any) => (
                 <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.work_order_id) navigate(`${n.work_order_domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}
                   className={cx('block w-full border-b px-3 py-2 text-left text-sm hover:bg-gray-50', !n.read_at && 'bg-brand-50')}>
-                  <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento', 'os_aberta'].includes(n.type) && 'text-red-700')}>{n.title}</div>
+                  <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento', 'os_aberta', 'os_cobranca'].includes(n.type) && 'text-red-700')}>{n.title}</div>
                   {n.body && <div className="line-clamp-2 text-gray-600">{n.body}</div>}
                   <div className="text-xs text-gray-400">{fmtShort(n.created_at)}</div>
                 </button>
@@ -231,6 +233,7 @@ export function UserMenu() {
   const [open, setOpen] = useState(false);
   const [howTo, setHowTo] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
   const install = useInstall();
   const navigate = useNavigate();
   if (!me) return null;
@@ -256,34 +259,16 @@ export function UserMenu() {
             {me.preview && <MenuItem onClick={() => stopPreview()}><Eye size={16} />Sair da visualização</MenuItem>}
             <MenuItem onClick={() => { setOpen(false); navigate('/trocar-senha'); }}><KeyRound size={16} />Alterar senha</MenuItem>
             <MenuItem onClick={() => { setOpen(false); navigate('/notificacoes'); }}><ClipboardList size={16} />Notificações</MenuItem>
+            {!me.preview && <MenuItem onClick={() => { setOpen(false); setPushOpen(true); }}><BellRing size={16} />Avisos no celular</MenuItem>}
             {!install.installed && <MenuItem onClick={installApp}><Download size={16} />Instalar aplicativo</MenuItem>}
             <MenuItem onClick={() => { setOpen(false); logout(); }}><LogOut size={16} />Sair</MenuItem>
           </div>
         </>
       )}
       {howTo && <InstallHelp onClose={() => setHowTo(false)} />}
+      {pushOpen && <PushModal onClose={() => setPushOpen(false)} />}
       {previewing && <PreviewModal onClose={() => setPreviewing(false)} />}
     </div>
-  );
-}
-
-function InstallHelp({ onClose }: { onClose: () => void }) {
-  return (
-    <Modal open onClose={onClose} title="Instalar o Fast Response" footer={<Button kind="primary" onClick={onClose}>Entendi</Button>}>
-      <p className="mb-3 text-sm text-gray-600">Instalado, o sistema abre direto por um ícone na tela inicial ou na área de trabalho, em janela própria, sem barra de endereço.</p>
-      {isIos() ? (
-        <ol className="list-decimal space-y-1 pl-5 text-sm">
-          <li>Abra este endereço no <strong>Safari</strong>.</li>
-          <li>Toque em <strong>Compartilhar</strong> (quadrado com seta para cima).</li>
-          <li>Escolha <strong>Adicionar à Tela de Início</strong> e confirme.</li>
-        </ol>
-      ) : (
-        <ol className="list-decimal space-y-1 pl-5 text-sm">
-          <li><strong>Android (Chrome):</strong> menu ⋮ → <strong>Instalar app</strong> ou <strong>Adicionar à tela inicial</strong>.</li>
-          <li><strong>Computador (Chrome ou Edge):</strong> clique no ícone de instalar no fim da barra de endereço, ou menu ⋮ → <strong>Transmitir, salvar e compartilhar → Instalar página como app</strong>.</li>
-        </ol>
-      )}
-    </Modal>
   );
 }
 
@@ -313,6 +298,7 @@ export function MaintainerLayout({ domain }: { domain: WoDomain }) {
         </div>
       )}
       <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
+        <PushBanner />
         <Outlet />
       </main>
     </div>

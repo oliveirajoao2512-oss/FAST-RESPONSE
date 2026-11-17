@@ -1,6 +1,7 @@
 import type { NotificationType } from '../../shared/constants.js';
 import { q, type Db } from './db.js';
 import { emailEnabled } from './mailer.js';
+import { kickPush } from './push.js';
 import type { RealtimeEvent } from './realtime.js';
 
 export interface NotifyInput {
@@ -16,7 +17,7 @@ export interface NotifyInput {
   exceptUserId?: string | null;
 }
 
-/** Persists in-app notifications (and queues e-mail when SMTP is configured). */
+/** Persists in-app notifications, queues the phone/tablet push and, when SMTP is configured, the e-mail. */
 export async function notify(db: Db, events: RealtimeEvent[], n: NotifyInput) {
   const ids = [...new Set(n.userIds.filter((u): u is string => Boolean(u) && u !== n.exceptUserId))];
   if (ids.length === 0) return;
@@ -36,6 +37,17 @@ export async function notify(db: Db, events: RealtimeEvent[], n: NotifyInput) {
       [rows.map((r) => r.id)],
       db,
     );
+  }
+  if (rows.length) {
+    // phones and tablets the users registered for notifications
+    const queued = await q(
+      `INSERT INTO notification_deliveries (notification_id, channel, status)
+       SELECT n.id, 'push', 'pendente' FROM notifications n
+        WHERE n.id = ANY($1::bigint[]) AND EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id = n.user_id) RETURNING id`,
+      [rows.map((r) => r.id)],
+      db,
+    );
+    if (queued.length) kickPush();
   }
   for (const r of rows) events.push({ type: 'notification', userId: r.user_id });
 }

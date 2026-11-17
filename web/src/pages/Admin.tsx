@@ -240,6 +240,14 @@ export function SettingsPage() {
         {n('complexity.complexMinSteps', 'Etapas obrigatórias para "complexa"')}
         {n('recurrence.windowDays', 'Janela de reincidência (dias)', 'Mesmo ativo + mesma categoria concluída dentro da janela')}
       </Section>
+      <Section title="Avisos das ordens de manutenção e de ajuste">
+        <p className="text-sm text-gray-600 sm:col-span-2">Enquanto ninguém aceita a ordem, o sistema cobra sozinho: primeiro a equipe e os líderes da Manutenção (OS) ou de Processos (OA) de novo, depois os gestores da área e o Plant Manager. Os avisos chegam no sininho e no celular de quem ativou os avisos. Use 0 para desligar uma etapa.</p>
+        <div className="sm:col-span-2">{b('orders.notifyTeamOnEveryOpen', 'Avisar a equipe de toda ordem nova (máquina parada sempre avisa)')}</div>
+        {n('orders.stoppedRemindMinutes', 'Máquina parada: cobrar a equipe e os líderes após (minutos)')}
+        {n('orders.stoppedManagerMinutes', 'Máquina parada: avisar gestores e Plant Manager após (minutos)')}
+        {n('orders.runningRemindMinutes', 'Máquina rodando: cobrar a equipe e os líderes após (minutos)')}
+        {n('orders.runningManagerMinutes', 'Máquina rodando: avisar gestores e Plant Manager após (minutos)')}
+      </Section>
       <Section title="Escalonamento e alertas">
         <div className="space-y-2 sm:col-span-2">
           {b('escalation.notifyLeadersOnOverdue', 'Avisar líderes da área quando uma pendência atrasar')}

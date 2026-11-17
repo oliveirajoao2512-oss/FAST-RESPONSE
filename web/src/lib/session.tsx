@@ -5,6 +5,7 @@ import { can, type Actor } from '@shared/permissions';
 import { get, post, setSlot, setUnauthorizedHandler, shouldAdoptLogin } from './api';
 import { setTimezone } from './format';
 import { stopPreview } from './preview';
+import { disablePush, syncPush } from './push';
 
 export interface Me extends Actor {
   name: string;
@@ -53,6 +54,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(() => qc.setQueryData(['me'], null));
   }, [qc]);
+  // a device that already allows notifications follows the person logged in
+  const userId = q.data?.user?.id as string | undefined;
+  const previewing = !!q.data?.user?.preview;
+  useEffect(() => {
+    if (userId && !previewing) void syncPush();
+  }, [userId, previewing]);
   const value: SessionValue = {
     me: q.data?.user ?? null,
     loading: q.isLoading,
@@ -61,6 +68,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // back to the login screen with nothing left in memory: a full reload, so no screen keeps the previous user's data
     logout: async () => {
       stopPreview(false);
+      // this device stops receiving the notifications of whoever is leaving
+      await disablePush().catch(() => {});
       await post('/api/auth/logout').catch(() => {});
       setSlot(null);
       location.replace('/');

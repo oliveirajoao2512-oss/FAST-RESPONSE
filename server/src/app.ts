@@ -16,16 +16,17 @@ import { issueRoutes } from './routes/issues.js';
 import { metaRoutes } from './routes/meta.js';
 import { qualityRoutes } from './routes/quality.js';
 import { qualityActionRoutes } from './routes/qualityActions.js';
+import { pushRoutes } from './routes/push.js';
 import { workOrderRoutes } from './routes/workOrders.js';
 
 /** API routes each single-module profile may call: maintainers the maintenance orders, process technicians the adjustment orders. */
 const ORDER_ONLY: Partial<Record<Role, { routes: RegExp; message: string }>> = {
   manutentor: {
-    routes: /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/,
+    routes: /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|push\/|health(\?|$))/,
     message: 'Seu acesso é somente às Ordens de Manutenção.',
   },
   tecnico_processo: {
-    routes: /^\/api\/(auth\/|oa(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|health(\?|$))/,
+    routes: /^\/api\/(auth\/|oa(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|push\/|health(\?|$))/,
     message: 'Seu acesso é somente às Ordens de Ajuste.',
   },
 };
@@ -106,6 +107,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(qualityRoutes);
   await app.register(qualityActionRoutes);
   await app.register(workOrderRoutes);
+  await app.register(pushRoutes);
 
   app.all('/api/*', async (_req, reply) => reply.code(404).send({ erro: 'Rota não encontrada.', codigo: 'nao_encontrado' }));
 
