@@ -375,7 +375,16 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await operador.getByRole('tab', { name: 'Finalizadas' }).click();
   await expect(operador.getByText('Troca do retentor do cilindro')).toBeVisible();
   await expect(operador.getByRole('combobox', { name: 'Mês' })).toBeVisible();
+  await expect(operador.getByRole('heading', { name: /^Hoje · / })).toBeVisible();
   await operador.screenshot({ path: `${SHOTS}/os-finalizadas.png` });
+  // the same month in a calendar: today shows its orders
+  await operador.getByRole('tab', { name: 'Calendário' }).click();
+  const todayCell = operador.getByRole('gridcell', { name: /OS finalizada/ });
+  await expect(todayCell).toHaveCount(1);
+  await expect(todayCell).toHaveAttribute('aria-selected', 'true');
+  await expect(operador.getByText('Troca do retentor do cilindro')).toBeVisible();
+  await operador.screenshot({ path: `${SHOTS}/os-finalizadas-calendario.png`, fullPage: true });
+  await operador.getByRole('tab', { name: 'Lista' }).click();
 
   // "Sair" goes back to the login screen
   await operador.getByRole('button', { name: 'Menu do usuário' }).click();

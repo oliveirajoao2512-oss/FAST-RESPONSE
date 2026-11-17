@@ -55,7 +55,9 @@ Máquina parada → prioridade **crítica** e notificação na hora para manuten
 - Fila ordenada por: fixadas no topo, prioridade (crítica, alta, normal, baixa) e OS mais antiga.
 - Todo passo fica no histórico da OS, que é imutável; ninguém apaga OS (exceto a exclusão de teste do administrador).
 - **Finalizadas** abre no mês atual, com ◀ ▶ e a lista dos últimos 24 meses para trocar. A busca procura em todos os meses
-  e agrupa o resultado por mês.
+  e agrupa o resultado por mês. Dentro do mês há duas formas de ver, e o app lembra a escolhida: **Lista**, separada por
+  dia ("Hoje", "Ontem", "Sexta, 13/11"), e **Calendário**, com o mês em grade mostrando quantas ordens foram finalizadas
+  em cada dia e quantas eram de máquina parada. Tocar no dia mostra as ordens dele (abre no último dia com ordens).
 
 ## Tempos (calculados, ninguém digita)
 

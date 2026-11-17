@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, Camera, Check, ChevronLeft, ChevronRight, Plus, Search, Wrench } from 'lucide-react';
+import { ArrowRightLeft, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, List, Plus, Search, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { errorMessage, post } from '../lib/api';
@@ -61,7 +61,10 @@ function Page() {
   const current = tab === 'dashboard' && !seeDashboard ? 'fila' : tab;
   const open = useWoList('abertas', { q: term });
   // finished orders, month by month (current month first); a search looks in every month
-  const [month, setMonth] = useState(thisMonth);
+  const [month, setMonthRaw] = useState(thisMonth);
+  const [finView, setFinView] = usePersistentState<'lista' | 'calendario'>(`fr-${D.short.toLowerCase()}-finview`, 'lista');
+  const [day, setDay] = useState<string | null>(null);
+  const setMonth = (m: string) => { setMonthRaw(m); setDay(null); };
   const range = monthRange(month);
   const done = useWoList('finalizadas', term ? { q: term } : { from: range.from, to: range.to }, current === 'finalizadas');
   const canAnalyze = !!opts.data?.canAnalyze;
@@ -93,7 +96,13 @@ function Page() {
           {term ? (
             <p className="text-sm text-gray-600">Buscando “{term}” em todos os meses{done.data ? ` · ${done.data.length} ${done.data.length === 1 ? 'resultado' : 'resultados'}` : ''}.</p>
           ) : (
-            <MonthNav month={month} onChange={setMonth} count={done.data?.length} />
+            <div className="flex flex-wrap items-center gap-3">
+              <MonthNav month={month} onChange={setMonth} count={done.data?.length} />
+              <div className="ml-auto"><Segmented value={finView} onChange={setFinView} options={[
+                { value: 'lista', label: <span className="flex items-center gap-1.5"><List size={15} />Lista</span> },
+                { value: 'calendario', label: <span className="flex items-center gap-1.5"><CalendarDays size={15} />Calendário</span> },
+              ]} /></div>
+            </div>
           )}
           {done.isLoading ? <Spinner /> : done.error ? <ErrorBox error={done.error} onRetry={() => done.refetch()} /> : !done.data?.length ? (
             <Empty>{term ? `Nenhuma ${D.short} finalizada com essa busca.` : `Nenhuma ${D.short} finalizada em ${monthLabel(month).toLowerCase()}.`}</Empty>
@@ -104,8 +113,15 @@ function Page() {
                 <ul className="space-y-2">{list.map((o) => <WoCard key={o.id} o={o} meId={me.id} onOpen={() => setOpen(o.id)} />)}</ul>
               </section>
             ))
+          ) : finView === 'calendario' ? (
+            <FinishedCalendar month={month} list={done.data} day={day} onDay={setDay} meId={me.id} onOpen={setOpen} />
           ) : (
-            <ul className="space-y-2">{done.data.map((o) => <WoCard key={o.id} o={o} meId={me.id} onOpen={() => setOpen(o.id)} />)}</ul>
+            groupByDay(done.data).map(([d, list]) => (
+              <section key={d}>
+                <h2 className="mb-2 mt-1 flex items-baseline gap-2 text-sm font-semibold text-gray-700">{dayLabel(d)}<span className="font-normal text-gray-500">{list.length}</span></h2>
+                <ul className="space-y-2">{list.map((o) => <WoCard key={o.id} o={o} meId={me.id} onOpen={() => setOpen(o.id)} />)}</ul>
+              </section>
+            ))
           )}
         </div>
       )}
@@ -132,6 +148,87 @@ function groupByMonth(list: WorkOrder[]): [string, WorkOrder[]][] {
   const m = new Map<string, WorkOrder[]>();
   for (const o of list) m.set(finishedMonth(o), [...(m.get(finishedMonth(o)) ?? []), o]);
   return [...m.entries()].sort(([a], [b]) => b.localeCompare(a));
+}
+
+// ------------------------------------------------------------ days of the "Finalizadas" tab: list by day and calendar
+
+const finishedDay = (o: WorkOrder) => { const d = new Date(o.finished_at ?? o.analyzed_at ?? o.opened_at); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const todayKey = () => finishedDay({ finished_at: new Date().toISOString() } as WorkOrder);
+function groupByDay(list: WorkOrder[]): [string, WorkOrder[]][] {
+  const m = new Map<string, WorkOrder[]>();
+  for (const o of list) { const k = finishedDay(o); m.set(k, [...(m.get(k) ?? []), o]); }
+  return [...m.entries()].sort(([a], [b]) => b.localeCompare(a));
+}
+/** "Hoje · terça, 17/11", "Ontem · segunda, 16/11", "Sexta, 13/11" */
+const dayLabel = (k: string) => {
+  const [y, mo, d] = k.split('-').map(Number);
+  const date = new Date(y, mo - 1, d);
+  const t = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  const now = new Date();
+  const diff = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - date.getTime()) / 86_400_000);
+  return diff === 0 ? `Hoje · ${t}` : diff === 1 ? `Ontem · ${t}` : t[0].toUpperCase() + t.slice(1);
+};
+const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+/** Month grid: how many orders were finished each day (and how many with the machine stopped); a day shows its orders. */
+function FinishedCalendar({ month, list, day, onDay, meId, onOpen }: {
+  month: string; list: WorkOrder[]; day: string | null; onDay: (d: string | null) => void; meId: string; onOpen: (id: string) => void;
+}) {
+  const { short: S } = useWoDomain();
+  const byDay = useMemo(() => new Map(groupByDay(list)), [list]);
+  const [y, mo] = month.split('-').map(Number);
+  const first = new Date(y, mo - 1, 1).getDay();
+  const days = new Date(y, mo, 0).getDate();
+  const today = todayKey();
+  const max = Math.max(1, ...[...byDay.values()].map((l) => l.length));
+  const cells: (string | null)[] = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => `${month}-${pad(i + 1)}`)];
+  while (cells.length % 7) cells.push(null);
+  // with no day chosen, the latest day with orders is shown
+  const shown = day ?? groupByDay(list)[0]?.[0] ?? null;
+  const items = shown ? byDay.get(shown) ?? [] : [];
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="grid grid-cols-7 border-b border-gray-200 bg-gray-50 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          {WEEKDAYS.map((w) => <div key={w} className="py-1.5">{w}</div>)}
+        </div>
+        <div className="grid grid-cols-7" role="grid" aria-label={`Ordens finalizadas por dia em ${monthLabel(month).toLowerCase()}`}>
+          {cells.map((k, i) => {
+            if (!k) return <div key={i} className="min-h-14 border-b border-r border-gray-100 bg-gray-50/60 sm:min-h-20" />;
+            const l = byDay.get(k) ?? [];
+            const stopped = l.filter((o) => o.machine_stopped).length;
+            const future = k > today;
+            const sel = k === shown;
+            const n = Number(k.slice(8));
+            return (
+              <button key={k} type="button" role="gridcell" aria-selected={sel} disabled={future || !l.length}
+                aria-label={`${n}: ${l.length ? `${l.length} ${l.length === 1 ? `${S} finalizada` : `${S} finalizadas`}${stopped ? `, ${stopped} com máquina parada` : ''}` : 'nenhuma'}`}
+                onClick={() => onDay(k)}
+                className={cx('relative flex min-h-14 flex-col items-start border-b border-r border-gray-100 p-1 text-left sm:min-h-20 sm:p-1.5',
+                  sel ? 'bg-brand-600 text-white' : l.length ? 'hover:bg-brand-50' : 'text-gray-400',
+                  future && 'bg-gray-50/60')}>
+                <span className={cx('text-xs font-semibold', k === today && !sel && 'rounded-full bg-gray-900 px-1.5 text-white')}>{n}</span>
+                {l.length > 0 && (
+                  <span className="mt-auto flex w-full flex-col gap-0.5">
+                    <span className={cx('text-sm font-bold leading-none sm:text-base', !sel && 'text-gray-900')}>{l.length}<span className={cx('ml-0.5 hidden text-[11px] font-normal sm:inline', sel ? 'text-white/80' : 'text-gray-500')}>{S}</span></span>
+                    {/* bar shows the day's volume against the busiest day of the month */}
+                    <span className={cx('h-1 rounded-full', sel ? 'bg-white/70' : 'bg-brand-400')} style={{ width: `${Math.max(15, (l.length / max) * 100)}%` }} />
+                    {stopped > 0 && <span className={cx('truncate text-[10px] font-medium leading-tight', sel ? 'text-white' : 'text-red-700')}>{stopped} parada{stopped > 1 ? 's' : ''}</span>}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {shown ? (
+        <section>
+          <h2 className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-gray-700">{dayLabel(shown)}<span className="font-normal text-gray-500">{items.length} {items.length === 1 ? `${S} finalizada` : `${S} finalizadas`}</span></h2>
+          <ul className="space-y-2">{items.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} />)}</ul>
+        </section>
+      ) : null}
+    </div>
+  );
 }
 
 function MonthNav({ month, onChange, count }: { month: string; onChange: (m: string) => void; count?: number }) {
