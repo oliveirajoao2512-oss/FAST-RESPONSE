@@ -253,8 +253,9 @@ navegador para não apagar a tela. Mostra:
   sozinha quando não cabe;
 - as manutenções programadas para o dia e as pendências abertas por área (atrasadas e de segurança em destaque).
 
-Qualquer usuário logado abre a tela (tudo nela já é visível a todos); manutentor e processista continuam só nos seus
-módulos. Para a TV, o ideal é um usuário próprio (ex.: "TV Produção", perfil colaborador). API: `GET /api/tela`.
+Só gestores, líderes, plant manager e administrador abrem a tela (decisão de 18/11/2026), e para eles ela é a primeira
+tela ao entrar no app (uma vez por login em cada janela; o X "Voltar ao sistema" leva ao Painel geral). No celular ela
+se reorganiza em uma coluna. Para a TV, use um usuário próprio com perfil líder ou gestor. API: `GET /api/tela`.
 
 ## Histórico importado
 

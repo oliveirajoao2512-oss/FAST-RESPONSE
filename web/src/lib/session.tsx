@@ -72,6 +72,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await disablePush().catch(() => {});
       await post('/api/auth/logout').catch(() => {});
       setSlot(null);
+      try { sessionStorage.removeItem('fr-landed'); } catch { /* ignore */ }
       location.replace('/');
     },
   };

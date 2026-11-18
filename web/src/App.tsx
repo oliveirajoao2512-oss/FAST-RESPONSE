@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { WO_DOMAIN } from '@shared/maintenance';
 import { Layout, MaintainerLayout } from './components/Layout';
 import { Spinner } from './components/ui';
@@ -25,9 +25,20 @@ const PlantPanelPage = lazy(() => import('./pages/PlantPanel').then((m) => ({ de
 const StatusBoardPage = lazy(() => import('./pages/StatusBoard').then((m) => ({ default: m.StatusBoardPage })));
 const adjPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="ajuste" /></Suspense>;
 
+// leadership lands on the factory status screen once per login in each window; reloading or going back stays in the app
+const LANDED = 'fr-landed';
+function firstLanding(userId: string) {
+  try {
+    if (sessionStorage.getItem(LANDED) === userId) return false;
+    sessionStorage.setItem(LANDED, userId);
+  } catch { /* storage blocked: still show it */ }
+  return true;
+}
+
 export function App() {
   const { me, loading } = useSession();
   const quality = useQualityAccess(me);
+  const { pathname } = useLocation();
   if (loading) return <Spinner label="Carregando Fast Response…" />;
   if (!me) {
     return (
@@ -52,9 +63,11 @@ export function App() {
       </Routes>
     );
   }
+  const board = can.viewStatusBoard(me);
+  if (board && pathname === '/' && firstLanding(me.id)) return <Navigate to="/tela" replace />;
   return (
     <Routes>
-      <Route path="tela" element={<Suspense fallback={<Spinner />}><StatusBoardPage /></Suspense>} />
+      {board && <Route path="tela" element={<Suspense fallback={<Spinner />}><StatusBoardPage /></Suspense>} />}
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
         <Route path="fast-response" element={<FastResponsePage />} />

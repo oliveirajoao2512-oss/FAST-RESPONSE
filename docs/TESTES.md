@@ -2,7 +2,7 @@
 
 ## 1. Automatizados
 
-### Servidor (unitários + integração) — 162 testes
+### Servidor (unitários + integração) — 163 testes
 
 ```bash
 createdb fastresponse_test          # uma vez; o nome precisa conter "test" (o banco é recriado a cada execução)

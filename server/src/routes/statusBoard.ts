@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { DateTime } from 'luxon';
 import { OPEN_STATUSES } from '../../../shared/constants.js';
 import { placeLabel, woCategory, type WoLocation } from '../../../shared/maintenance.js';
+import { can } from '../../../shared/permissions.js';
 import { requireUser } from '../auth.js';
+import { forbidden } from '../errors.js';
 import { q } from '../db.js';
 import { getConfig } from '../settings.js';
 import { placeLists } from './workOrders.js';
@@ -10,13 +12,13 @@ import { placeLists } from './workOrders.js';
 const ACTIVE = `('aberta','em_atendimento','pausada')`;
 
 /**
- * "Status da fábrica": a read-only screen for a TV on the shop floor. Everything here is already visible to every
- * user (all orders and pendências), so any logged user may open it; maintainers and process technicians are kept
- * to their order module by the API allowlist.
+ * "Status da fábrica": a read-only screen for a TV on the shop floor, for gestores, líderes, plant managers and
+ * administrators (João's rule, 18/11/2026); it is their first screen when they log in.
  */
 export async function statusBoardRoutes(app: FastifyInstance) {
   app.get('/api/tela', async (req) => {
-    requireUser(req);
+    const u = requireUser(req);
+    if (!can.viewStatusBoard(u)) throw forbidden('A tela de status da fábrica é dos gestores, líderes e plant manager.');
     const { timezone: zone } = await getConfig();
     const now = DateTime.now().setZone(zone);
     const dayStart = now.startOf('day').toJSDate();

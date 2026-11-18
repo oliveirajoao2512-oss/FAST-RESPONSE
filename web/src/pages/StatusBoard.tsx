@@ -82,21 +82,21 @@ export function StatusBoardPage() {
   const date = new Date(now);
 
   return (
-    <div ref={root} className="flex h-screen flex-col overflow-hidden bg-[#0b1220] text-slate-100 [font-size:clamp(12px,0.95vw,22px)]">
+    <div ref={root} className="flex min-h-screen flex-col bg-[#0b1220] text-slate-100 [font-size:clamp(13px,0.95vw,22px)] lg:h-screen lg:overflow-hidden">
       {/* header */}
-      <header className="flex items-center gap-4 border-b border-white/10 bg-[#0f1a30] px-6 py-3">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/10 bg-[#0f1a30] px-4 py-3 lg:px-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500 text-lg font-black text-white">FR</div>
-        <div className="min-w-0">
+        <div className="min-w-[9em] flex-1">
           <h1 className="text-[1.6em] font-bold leading-tight tracking-tight">Status da fábrica</h1>
-          <p className="text-[0.85em] text-slate-400">Fast Response · ordens de manutenção, ajustes e pendências ao vivo</p>
+          <p className="hidden text-[0.85em] text-slate-400 sm:block">Fast Response · ordens de manutenção, ajustes e pendências ao vivo</p>
         </div>
-        <div className="ml-auto flex items-center gap-5">
+        <div className="ml-auto flex items-center gap-3 lg:gap-5">
           <span className={`flex items-center gap-2 text-[0.85em] ${stale ? 'text-amber-300' : 'text-emerald-300'}`}>
             <span className={`h-2.5 w-2.5 rounded-full ${stale ? 'animate-pulse bg-amber-400' : 'bg-emerald-400'}`} />
             {stale ? 'Reconectando…' : 'Ao vivo'}
           </span>
           <div className="text-right leading-tight">
-            <div className="text-[2.2em] font-bold tabular-nums">{date.toLocaleTimeString('pt-BR', { timeZone: tz() })}</div>
+            <div className="text-[1.6em] font-bold tabular-nums lg:text-[2.2em]">{date.toLocaleTimeString('pt-BR', { timeZone: tz() })}</div>
             <div className="text-[0.85em] text-slate-400 first-letter:uppercase">{date.toLocaleDateString('pt-BR', { timeZone: tz(), weekday: 'long', day: '2-digit', month: 'long' })}</div>
           </div>
           <button
@@ -113,7 +113,7 @@ export function StatusBoardPage() {
       ) : (
         <>
           {/* KPIs */}
-          <section className="grid grid-cols-6 gap-3 px-6 pt-4">
+          <section className="grid grid-cols-2 gap-3 px-4 pt-4 sm:grid-cols-3 lg:grid-cols-6 lg:px-6">
             <Kpi tone={data.today.stoppedNow ? 'red' : 'green'} label="Máquinas paradas agora" value={data.today.stoppedNow} />
             <Kpi tone={data.today.waiting ? 'amber' : 'plain'} label="Aguardando aceite" value={data.today.waiting} />
             <Kpi tone="blue" label="Em atendimento" value={data.today.working} sub={data.today.paused ? `${data.today.paused} pausada(s)` : undefined} />
@@ -123,17 +123,17 @@ export function StatusBoardPage() {
             <Kpi tone={data.today.downtimeH > 0 ? 'amber' : 'plain'} label="Máquina parada hoje" value={hours(data.today.downtimeH)} />
           </section>
 
-          <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] gap-4 px-6 py-4">
+          <main className="grid flex-1 gap-4 px-4 py-4 lg:min-h-0 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] lg:px-6">
             {/* machines */}
-            <section className="flex min-h-0 flex-col gap-3 overflow-hidden">
+            <section className="flex flex-col gap-3 lg:min-h-0 lg:overflow-hidden">
               <PlaceGrid title="Máquinas" places={data.places.filter((p) => p.type === 'maquina')} now={now} />
               <PlaceGrid title="Montagens" places={data.places.filter((p) => p.type === 'montagem')} now={now} />
               <Legend />
             </section>
 
             {/* queue */}
-            <section className="flex min-h-0 flex-col gap-3">
-              <Panel title="Ordens em aberto agora" count={data.queue.length} className="min-h-0 flex-1">
+            <section className="flex flex-col gap-3 lg:min-h-0">
+              <Panel title="Ordens em aberto agora" count={data.queue.length} className="min-h-[12em] lg:min-h-0 lg:flex-1">
                 {data.queue.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-emerald-300">
                     <CheckCircle2 className="h-12 w-12" />
@@ -160,7 +160,7 @@ export function StatusBoardPage() {
           </main>
 
           {/* pendências */}
-          <footer className="flex items-center gap-4 border-t border-white/10 bg-[#0f1a30] px-6 py-3">
+          <footer className="flex flex-wrap items-center gap-4 border-t border-white/10 bg-[#0f1a30] px-4 py-3 lg:px-6">
             <div className="shrink-0">
               <div className="text-[0.75em] uppercase tracking-wider text-slate-400">Pendências</div>
               <div className="text-[1.1em] font-bold">
@@ -169,9 +169,9 @@ export function StatusBoardPage() {
                 {data.issues.safety > 0 && <span className="text-amber-300"> · {data.issues.safety} de segurança</span>}
               </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-wrap gap-2 overflow-hidden" style={{ maxHeight: '4.6em' }}>
+            <div className="flex w-full min-w-0 flex-wrap gap-2 lg:w-auto lg:flex-1 lg:max-h-[4.6em] lg:overflow-hidden">
               {data.issues.areas.map((a) => (
-                <span key={a.name} className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[0.85em] ${a.overdue ? 'border-red-500/50 bg-red-500/10' : 'border-white/10 bg-white/5'}`}>
+                <span key={a.name} className={`flex items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1 text-[0.85em] ${a.overdue ? 'border-red-500/50 bg-red-500/10' : 'border-white/10 bg-white/5'}`}>
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: a.color ?? '#94a3b8' }} />
                   <span className="font-semibold">{a.name}</span>
                   <span className="tabular-nums text-slate-300">{a.open}</span>
@@ -254,7 +254,7 @@ function PlaceGrid({ title, places, now }: { title: string; places: Place[]; now
 
 function Legend() {
   return (
-    <div className="flex gap-5 px-1 text-[0.8em] text-slate-400">
+    <div className="flex flex-wrap gap-x-5 gap-y-1 px-1 text-[0.8em] text-slate-400">
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-red-600" />Máquina parada com ordem aberta</span>
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded border-2 border-amber-400" />Ordem aberta, máquina rodando</span>
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded border-2 border-emerald-600/60" />Sem ordem aberta</span>
@@ -280,7 +280,7 @@ function Queue({ items, now }: { items: QueueItem[]; now: number }) {
           const waiting = o.status === 'aberta';
           return (
             <li key={o.id} className={`rounded-lg border-l-4 bg-white/5 px-3 py-2 ${o.stopped ? 'border-red-500' : waiting ? 'border-amber-400' : 'border-sky-400'}`}>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-2">
                 <span className="text-[1.05em] font-bold">{o.place}</span>
                 {o.stopped && <span className="rounded bg-red-600 px-1.5 text-[0.7em] font-bold uppercase">parada</span>}
                 <span className="text-[0.8em] text-slate-400">{o.code}</span>

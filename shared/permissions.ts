@@ -60,6 +60,8 @@ export const can = {
   purgeRecords: (a: Actor) => a.role === 'admin',
   /** Plant indicators panel (Power BI style): administrator and plant manager only. */
   viewPlantPanel: (a: Actor) => a.role === 'admin' || a.role === 'plant_manager',
+  /** "Status da fábrica" TV screen: leadership only (and it is their first screen when they log in). */
+  viewStatusBoard: (a: Actor) => ['admin', 'gestor', 'lider', 'plant_manager'].includes(a.role),
   /** Quality module (Resposta Rápida): administrators, and leaders/managers of the Quality area. */
   manageQuality: (a: Actor, qualityAreaId: number | null | undefined) =>
     a.role === 'admin' || ((a.role === 'gestor' || a.role === 'lider') && a.areaId != null && a.areaId === qualityAreaId),

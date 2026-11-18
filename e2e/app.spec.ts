@@ -33,11 +33,20 @@ async function closeIssue(page: Page) {
   await expect(page.getByRole('dialog', { name: 'Pendência' })).toHaveCount(0);
 }
 
+/** Gestores, líderes, plant manager and admin land on the factory status screen; "Voltar ao sistema" goes to the dashboard. */
+async function toDashboard(page: Page) {
+  const board = page.getByRole('heading', { name: 'Status da fábrica' });
+  const dash = page.getByRole('heading', { name: 'Painel geral' });
+  await expect(board.or(dash)).toBeVisible();
+  if (await board.isVisible()) await page.getByTitle('Voltar ao sistema').click();
+  await expect(dash).toBeVisible();
+}
+
 async function newUserPage(browser: Browser, email: string, viewport = { width: 1366, height: 860 }) {
   const ctx = await browser.newContext({ viewport, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
   const page = await ctx.newPage();
   await login(page, email);
-  await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  await toDashboard(page);
   return page;
 }
 
@@ -48,7 +57,10 @@ test('1. primeiro acesso do administrador exige troca de senha', async ({ page, 
   await page.getByLabel('Nova senha', { exact: true }).fill(ADMIN.newPassword);
   await page.getByLabel('Confirme a nova senha').fill(ADMIN.newPassword);
   await page.getByRole('button', { name: 'Salvar senha' }).click();
-  await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  // leadership starts on the factory status screen
+  await expect(page.getByRole('heading', { name: 'Status da fábrica' })).toBeVisible();
+  await expect(page.getByText('Máquinas paradas agora')).toBeVisible();
+  await toDashboard(page);
 
   // set up the team through the admin API (same rules as the Users screen)
   adminApi = await playwright.request.newContext({ baseURL: page.url().replace(/\/$/, ''), extraHTTPHeaders: H });
@@ -488,7 +500,7 @@ test('16. administrador visualiza como outro perfil (somente leitura)', async ({
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 860 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
   const page = await ctx.newPage();
   await login(page, ADMIN.login, ADMIN.newPassword);
-  await expect(page.getByRole('heading', { name: 'Painel geral' })).toBeVisible();
+  await toDashboard(page);
   await page.getByRole('button', { name: 'Menu do usuário' }).click();
   await page.getByRole('button', { name: 'Visualizar como…' }).click();
   const dlg = page.getByRole('dialog', { name: 'Visualizar como outro perfil' });
