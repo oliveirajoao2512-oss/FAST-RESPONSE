@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, List, Plus, Search, Wrench } from 'lucide-react';
+import { ArrowRightLeft, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, List, Lock, Plus, Search, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { errorMessage, post } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { usePersistentState } from '../lib/hooks';
@@ -90,7 +90,7 @@ function Page() {
         )}
       </div>
 
-      {current === 'fila' && <Queue q={open} canWork={!!opts.data?.canWork} canAnalyze={canAnalyze} onOpen={setOpen} meId={me.id} searching={!!term} />}
+      {current === 'fila' && <Queue q={open} canWork={!!opts.data?.canWork} canAnalyze={canAnalyze} onOpen={setOpen} meId={me.id} searching={!!term} onAt={opts.data?.busy?.[me.id]} />}
       {current === 'finalizadas' && (
         <div className="space-y-3">
           {term ? (
@@ -143,7 +143,7 @@ function monthRange(m: string) {
 }
 const shiftMonth = (m: string, by: number) => { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + by, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
 const monthLabel = (m: string) => { const [y, mo] = m.split('-').map(Number); const t = new Date(y, mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); return t[0].toUpperCase() + t.slice(1); };
-const finishedMonth = (o: WorkOrder) => { const d = new Date(o.finished_at ?? o.analyzed_at ?? o.opened_at); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const finishedMonth = (o: WorkOrder) => { const d = new Date(o.finished_at ?? o.analyzed_at ?? o.cancelled_at ?? o.opened_at); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
 function groupByMonth(list: WorkOrder[]): [string, WorkOrder[]][] {
   const m = new Map<string, WorkOrder[]>();
   for (const o of list) m.set(finishedMonth(o), [...(m.get(finishedMonth(o)) ?? []), o]);
@@ -152,7 +152,7 @@ function groupByMonth(list: WorkOrder[]): [string, WorkOrder[]][] {
 
 // ------------------------------------------------------------ days of the "Finalizadas" tab: list by day and calendar
 
-const finishedDay = (o: WorkOrder) => { const d = new Date(o.finished_at ?? o.analyzed_at ?? o.opened_at); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const finishedDay = (o: WorkOrder) => { const d = new Date(o.finished_at ?? o.analyzed_at ?? o.cancelled_at ?? o.opened_at); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const todayKey = () => finishedDay({ finished_at: new Date().toISOString() } as WorkOrder);
 function groupByDay(list: WorkOrder[]): [string, WorkOrder[]][] {
   const m = new Map<string, WorkOrder[]>();
@@ -250,8 +250,9 @@ function MonthNav({ month, onChange, count }: { month: string; onChange: (m: str
   );
 }
 
-function Queue({ q, canWork, canAnalyze, onOpen, meId, searching }: { q: ReturnType<typeof useWoList>; canWork: boolean; canAnalyze: boolean; onOpen: (id: string) => void; meId: string; searching: boolean }) {
+function Queue({ q, canWork, canAnalyze, onOpen, meId, searching, onAt }: { q: ReturnType<typeof useWoList>; canWork: boolean; canAnalyze: boolean; onOpen: (id: string) => void; meId: string; searching: boolean; onAt?: { code: string; id: string; domain: WoDomain } }) {
   const { short: S } = useWoDomain();
+  const navigate = useNavigate();
   const list = q.data ?? [];
   const { mine, forMe, rest, analysis, planned } = useMemo(() => {
     const byDate = (a: WorkOrder, b: WorkOrder) => new Date(a.planned_start ?? a.opened_at).getTime() - new Date(b.planned_start ?? b.opened_at).getTime();
@@ -283,12 +284,20 @@ function Queue({ q, canWork, canAnalyze, onOpen, meId, searching }: { q: ReturnT
         {counts.em_analise > 0 && <Chip tone="violet" n={counts.em_analise} label="aguardando o gestor de Manutenção" />}
         {counts.critica > 0 && <Chip tone="red" n={counts.critica} label="críticas" />}
       </div>
+      {canWork && onAt && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status">
+          <Lock size={16} className="shrink-0" />
+          <span className="min-w-[12rem] flex-1">Você está atuando na <b>{onAt.code}</b>. Uma ordem por vez: finalize, devolva ou saia dela para aceitar outra.</span>
+          {/* the order is shown right below when it is of this module; an order of the other module gets a link */}
+          {!list.some((o) => o.id === onAt.id) && <Button size="sm" onClick={() => navigate(`${onAt.domain === 'ajuste' ? '/ajustes' : '/os'}?id=${onAt.id}`)}>Abrir {onAt.code}</Button>}
+        </div>
+      )}
       {canAnalyze && analysis.length > 0 && <Group title="Manutenções programadas para você analisar">{analysis.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} highlight />)}</Group>}
       {!list.length && <Empty>{searching ? `Nenhuma ${S} aberta com essa busca.` : `Nenhuma ${S} aberta. Tudo em dia.`}</Empty>}
-      {forMe.length > 0 && <Group title="Para você">{forMe.map((o) => <WoCard key={o.id} o={o} meId={meId} position={position.get(o.id)} canWork={canWork} onOpen={() => onOpen(o.id)} highlight />)}</Group>}
+      {forMe.length > 0 && <Group title="Para você">{forMe.map((o) => <WoCard key={o.id} o={o} meId={meId} position={position.get(o.id)} canWork={canWork && !onAt} onOpen={() => onOpen(o.id)} highlight />)}</Group>}
       {mine.length > 0 && <Group title="Você está atuando">{mine.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} />)}</Group>}
-      {rest.length > 0 && <Group title={mine.length || forMe.length || (canAnalyze && analysis.length) ? 'Fila' : undefined}>{rest.map((o) => <WoCard key={o.id} o={o} meId={meId} position={position.get(o.id)} canWork={canWork} onOpen={() => onOpen(o.id)} />)}</Group>}
-      {planned.length > 0 && <Group title="Manutenções programadas">{planned.map((o) => <WoCard key={o.id} o={o} meId={meId} canWork={canWork} onOpen={() => onOpen(o.id)} />)}</Group>}
+      {rest.length > 0 && <Group title={mine.length || forMe.length || (canAnalyze && analysis.length) ? 'Fila' : undefined}>{rest.map((o) => <WoCard key={o.id} o={o} meId={meId} position={position.get(o.id)} canWork={canWork && !onAt} onOpen={() => onOpen(o.id)} />)}</Group>}
+      {planned.length > 0 && <Group title="Manutenções programadas">{planned.map((o) => <WoCard key={o.id} o={o} meId={meId} canWork={canWork && !onAt} onOpen={() => onOpen(o.id)} />)}</Group>}
       {!canAnalyze && analysis.length > 0 && <Group title="Aguardando o gestor de Manutenção">{analysis.map((o) => <WoCard key={o.id} o={o} meId={meId} onOpen={() => onOpen(o.id)} />)}</Group>}
     </div>
   );

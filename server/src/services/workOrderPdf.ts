@@ -156,6 +156,7 @@ export async function workOrderPdf(input: PdfInput): Promise<Buffer> {
     ...(o.scheduled ? [['Aprovação do gestor de Manutenção', o.analyzed_at
       ? `${o.status === 'recusada' ? 'Recusada' : `Aprovada para ${dt(o.planned_start)}`} por ${o.analyzed_by_name} em ${dt(o.analyzed_at)}${o.analysis_note ? ` · ${o.analysis_note}` : ''}`
       : 'Aguardando'] as [string, string]] : []),
+    ...(o.status === 'cancelada' ? [['Cancelada', `por ${o.cancelled_by_name} em ${dt(o.cancelled_at)} · ${o.cancel_reason}`] as [string, string]] : []),
   ]);
   need(30);
   text(adj ? 'Motivo / problema da parada' : 'O que está acontecendo', M, y - 9, 8, font, MUTED);

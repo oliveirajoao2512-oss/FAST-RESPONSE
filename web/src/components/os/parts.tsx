@@ -18,6 +18,7 @@ const STATUS_STYLE: Record<WoStatus, string> = {
   em_analise: 'bg-violet-50 text-violet-800 ring-violet-300',
   programada: 'bg-indigo-50 text-indigo-800 ring-indigo-300',
   recusada: 'bg-gray-100 text-gray-600 ring-gray-300',
+  cancelada: 'bg-gray-100 text-gray-500 ring-gray-300 line-through decoration-gray-400',
   aberta: 'bg-slate-100 text-slate-700 ring-slate-300',
   em_atendimento: 'bg-blue-50 text-blue-700 ring-blue-200',
   pausada: 'bg-amber-50 text-amber-800 ring-amber-300',
@@ -54,6 +55,9 @@ export function WoSituation({ o, position, meId }: { o: WorkOrder; position?: nu
   }
   if (o.status === 'recusada') {
     return <span className="text-gray-700">Recusada pelo gestor de Manutenção{o.analyzed_by_name ? ` (${o.analyzed_by_name})` : ''}: {o.analysis_note}</span>;
+  }
+  if (o.status === 'cancelada') {
+    return <span className="text-gray-700">Cancelada por {o.cancelled_by_name} em {fmtShort(o.cancelled_at)}: {o.cancel_reason}</span>;
   }
   if (o.status === 'finalizada') {
     return <span className="text-emerald-800">Finalizada por {o.finished_by_name} em {fmtShort(o.finished_at)} · total {duration(o.times.totalMs)}</span>;

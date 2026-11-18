@@ -56,6 +56,10 @@ export interface WorkOrder {
   analyzed_at: string | null;
   analyzed_by_name: string | null;
   analysis_note: string | null;
+  /** cancelled by the opener (or leadership): opened by mistake */
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  cancelled_by_name: string | null;
   /** loaded from the old spreadsheet history: only the day is known */
   imported: boolean;
   legacy_number: string | null;
@@ -85,6 +89,8 @@ export interface WoOptions {
   canLead: boolean;
   canSchedule?: boolean;
   canAnalyze?: boolean;
+  /** one order at a time: who is on an open order (OS or OA), and which */
+  busy?: Record<string, { code: string; id: string; domain: WoDomain }>;
 }
 
 // every key starts with 'os' so one realtime event refreshes both modules

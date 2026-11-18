@@ -4,7 +4,7 @@ import { fileTypeFromBuffer } from 'file-type';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
-  ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, SCHEDULE_APPROVER_AREA_SLUG, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
+  ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, SCHEDULE_APPROVER_AREA_SLUG, WO_BUSY_STATUSES, WO_CANCELABLE_STATUSES, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
   WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
@@ -59,7 +59,7 @@ export async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
 const LIST_COLS = `w.id, w.domain, w.number, w.code, w.opened_by, w.area_id, w.asset_ref, w.location_type, w.kind, w.reason, w.part_number, w.virgin_pct::float AS virgin_pct, w.regrind_pct::float AS regrind_pct, w.machine_stopped, w.description, w.priority, w.pinned,
   w.status, w.suggested_to, w.transfer_from, w.transfer_to, w.service_done, w.material, w.opened_at, w.first_accepted_at, w.finished_at,
   w.finished_by, w.updated_at, w.version, w.imported, w.legacy_number, w.component, w.tool_code, tl.description AS tool_description,
-  w.scheduled, w.requested_start, w.planned_start, w.planned_hours::float AS planned_hours, w.analyzed_at, w.analysis_note, an.name AS analyzed_by_name,
+  w.scheduled, w.requested_start, w.planned_start, w.planned_hours::float AS planned_hours, w.analyzed_at, w.analysis_note, an.name AS analyzed_by_name, w.cancelled_at, w.cancel_reason, cb.name AS cancelled_by_name,
   pn.description AS part_description,
   ob.name AS opened_by_name, a.name AS area_name, a.color AS area_color, sg.name AS suggested_name, tf.name AS transfer_from_name,
   tt.name AS transfer_to_name, fb.name AS finished_by_name,
@@ -72,7 +72,7 @@ const LIST_FROM = `work_orders w JOIN users ob ON ob.id = w.opened_by JOIN areas
   LEFT JOIN part_numbers pn ON pn.code = w.part_number LEFT JOIN tools tl ON tl.code = w.tool_code
   LEFT JOIN users sg ON sg.id = w.suggested_to LEFT JOIN users tf ON tf.id = w.transfer_from
   LEFT JOIN users tt ON tt.id = w.transfer_to LEFT JOIN users fb ON fb.id = w.finished_by
-  LEFT JOIN users an ON an.id = w.analyzed_by`;
+  LEFT JOIN users an ON an.id = w.analyzed_by LEFT JOIN users cb ON cb.id = w.cancelled_by`;
 const QUEUE_ORDER = `w.pinned DESC, CASE w.priority WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, w.opened_at`;
 
 const withTimes = (r: any) => {
@@ -88,6 +88,23 @@ async function loadForUpdate(ctx: Ctx, d: WoDomain, id: string) {
 }
 const activeWorkers = async (ctx: Ctx, id: string) =>
   (await q<{ user_id: string }>('SELECT user_id FROM work_order_workers WHERE work_order_id = $1 AND left_at IS NULL', [id], ctx.db)).map((r) => r.user_id);
+
+/**
+ * One order at a time: the open order (OS or OA, in service or paused) a person is already on, other than `exceptId`.
+ * Takes a per-person lock so two accepts by the same person at the same moment cannot both pass.
+ */
+async function busyWith(ctx: Ctx, userId: string, exceptId: string) {
+  await ctx.db.query('SELECT pg_advisory_xact_lock(727005, hashtext($1))', [userId]);
+  return one<{ code: string }>(
+    `SELECT w.code FROM work_order_workers x JOIN work_orders w ON w.id = x.work_order_id
+      WHERE x.user_id = $1 AND x.left_at IS NULL AND w.id <> $2 AND w.status = ANY($3) ORDER BY x.joined_at LIMIT 1`,
+    [userId, exceptId, WO_BUSY_STATUSES], ctx.db);
+}
+const BUSY_HINT = 'Finalize, devolva ou saia dela antes de pegar outra.';
+async function assertFree(ctx: Ctx, userId: string, exceptId: string, name?: string) {
+  const b = await busyWith(ctx, userId, exceptId);
+  if (b) throw unprocessable(name ? `${name} já está atuando na ${b.code}. Uma ordem por vez.` : `Você já está atuando na ${b.code}. ${BUSY_HINT}`);
+}
 
 async function event(ctx: Ctx, id: string, action: string, data: Record<string, unknown> = {}) {
   await q('INSERT INTO work_order_events (work_order_id, actor_id, action, data) VALUES ($1,$2,$3,$4)', [id, ctx.actor.id, action, JSON.stringify(data)], ctx.db);
@@ -114,6 +131,7 @@ const assertOpen = (w: any) => {
   const S = w.domain === 'ajuste' ? 'OA' : 'OS';
   if (w.status === 'finalizada') throw unprocessable(`Esta ${S} já foi finalizada.`);
   if (w.status === 'recusada') throw unprocessable(`Esta ${S} programada foi recusada pelo gestor de Manutenção.`);
+  if (w.status === 'cancelada') throw unprocessable(`Esta ${S} foi cancelada.`);
 };
 
 const pct = z.number().min(0).max(100).nullable().optional();
@@ -260,6 +278,11 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     ]);
     return {
       areas, team, teamAreaId: areaId, canWork: worksDomain(d, u, areaId), canLead: leadsDomain(u, areaId),
+      // one order at a time: who is already on an open order (OS or OA), and which
+      busy: Object.fromEntries((await q<{ user_id: string; code: string; id: string; domain: WoDomain }>(
+        `SELECT DISTINCT ON (x.user_id) x.user_id, w.code, w.id, w.domain FROM work_order_workers x JOIN work_orders w ON w.id = x.work_order_id
+          WHERE x.left_at IS NULL AND w.status = ANY($1) ORDER BY x.user_id, x.joined_at`, [WO_BUSY_STATUSES]))
+        .map((r) => [r.user_id, { code: r.code, id: r.id, domain: r.domain }])),
       canSchedule: d === 'manutencao', canAnalyze: d === 'manutencao' && analyzesSchedule(u, await approverAreaId()),
       canSeeDashboard: seesDomainDashboard(u, areaId), places: await placeLists(domainLocations(d)),
       // part numbers already used in any order, most recent first, to suggest while typing
@@ -314,11 +337,11 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const from = qs.from ? DateTime.fromISO(qs.from, { zone }).startOf('day').toJSDate() : null;
     const to = qs.to ? DateTime.fromISO(qs.to, { zone }).endOf('day').toJSDate() : null;
     const rows = await q(
-      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status IN ('finalizada', 'recusada') AND ${search}
-          AND ($3::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at) >= $3) AND ($4::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at) <= $4)
+      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.status IN ('finalizada', 'recusada', 'cancelada') AND ${search}
+          AND ($3::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at, w.cancelled_at) >= $3) AND ($4::timestamptz IS NULL OR COALESCE(w.finished_at, w.analyzed_at, w.cancelled_at) <= $4)
           AND ($5::text IS NULL OR upper(trim(w.asset_ref)) = upper($5))
           AND ($6::text IS NULL OR w.part_number = $6)
-        ORDER BY COALESCE(w.finished_at, w.analyzed_at) DESC LIMIT 1500`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
+        ORDER BY COALESCE(w.finished_at, w.analyzed_at, w.cancelled_at) DESC LIMIT 1500`, [term, d, from, to, qs.asset || null, normalizePn(qs.pn)]);
     return rows.map(withTimes);
   });
 
@@ -529,6 +552,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const me = ctx.actor.id;
     const workers = await activeWorkers(ctx, w.id);
     if (workers.includes(me)) throw unprocessable(`Você já está atuando nesta ${D.short}.`);
+    await assertFree(ctx, me, w.id);
     await q('INSERT INTO work_order_workers (work_order_id, user_id) VALUES ($1,$2)', [w.id, me], ctx.db);
     if (w.transfer_to === me) {
       await q(`UPDATE work_order_workers SET left_at = now(), left_reason = 'passou' WHERE work_order_id = $1 AND user_id = $2 AND left_at IS NULL`, [w.id, w.transfer_from], ctx.db);
@@ -582,6 +606,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (userId === me || workers.includes(userId)) throw badRequest(`Escolha alguém que ainda não está na ${D.short}.`);
     const target = await one<any>('SELECT id, name, role, area_id, active FROM users WHERE id = $1', [userId], ctx.db);
     if (!isTeamMember(target, areaId)) throw badRequest(`Escolha um ${D.worker} ativo.`);
+    await assertFree(ctx, userId, w.id, target.name);
     await q('UPDATE work_orders SET transfer_from = $2, transfer_to = $3 WHERE id = $1', [w.id, me, userId], ctx.db);
     await event(ctx, w.id, 'passou', { para: target.name });
     await notify(ctx.db, ctx.events, {
@@ -616,6 +641,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (workers.includes(b.userId)) throw badRequest(`Essa pessoa já está atuando nesta ${D.short}.`);
     const t = await one<any>('SELECT id, name, role, area_id, active FROM users WHERE id = $1', [b.userId], ctx.db);
     if (!isTeamMember(t, areaId)) throw badRequest(`Escolha um ${D.worker} ativo.`);
+    await assertFree(ctx, t.id, w.id, t.name);
     const since = b.desdeInicio ? (w.first_accepted_at ?? new Date()) : new Date();
     await q('INSERT INTO work_order_workers (work_order_id, user_id, joined_at) VALUES ($1,$2,$3)', [w.id, b.userId, since], ctx.db);
     if (w.transfer_to === b.userId) await q('UPDATE work_orders SET transfer_from = NULL, transfer_to = NULL WHERE id = $1', [w.id], ctx.db);
@@ -671,6 +697,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
       if (workers.includes(id)) continue;
       const t = await one<any>('SELECT id, name, role, area_id, active FROM users WHERE id = $1', [id], ctx.db);
       if (!isTeamMember(t, areaId)) throw badRequest(`Escolha ${D.worker}es ativos como ajudantes.`);
+      await assertFree(ctx, t.id, w.id, t.name);
       const since = (await one<{ at: Date }>(
         'SELECT min(joined_at) AS at FROM work_order_workers WHERE work_order_id = $1 AND left_at IS NULL', [w.id], ctx.db))?.at ?? w.first_accepted_at ?? new Date();
       await q('INSERT INTO work_order_workers (work_order_id, user_id, joined_at) VALUES ($1,$2,$3)', [w.id, id, since], ctx.db);
@@ -687,6 +714,30 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     await notify(ctx.db, ctx.events, {
       userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_finalizada', exceptUserId: ctx.actor.id, workOrderId: w.id,
       title: `${w.code} finalizada — ${w.asset_ref}`, body: b.servico.slice(0, 200),
+    });
+  });
+
+  /**
+   * Cancels an order opened by mistake (not a finish): whoever opened it, the leadership of the area or the administrator,
+   * with the reason, while nobody is working on it. It leaves the queue, shows in Finalizadas as cancelled and stays out
+   * of the indicators.
+   */
+  act('cancelar', async (ctx, w, body, areaId) => {
+    const { motivo } = parse(reason, body);
+    if (w.opened_by !== ctx.actor.id && !leadsDomain(ctx.actor, areaId)) throw forbidden(`Só quem abriu a ${D.short} (ou a liderança de ${D.team}) pode cancelar.`);
+    assertOpen(w);
+    if (!WO_CANCELABLE_STATUSES.includes(w.status)) {
+      throw unprocessable(`Esta ${D.short} já está em atendimento: peça para quem está atuando devolver para a fila e então cancele.`);
+    }
+    await q(`UPDATE work_orders SET status = 'cancelada', cancelled_at = now(), cancelled_by = $2, cancel_reason = $3,
+              pinned = false, suggested_to = NULL, transfer_from = NULL, transfer_to = NULL WHERE id = $1`, [w.id, ctx.actor.id, motivo], ctx.db);
+    await event(ctx, w.id, 'cancelou', { motivo });
+    await audit(ctx.db, { actorId: ctx.actor.id, action: `${D.short.toLowerCase()}.cancel`, entityType: 'work_order', entityId: w.id, data: { codigo: w.code, motivo }, ip: ctx.ip });
+    // whoever was warned about it learns it no longer needs anyone
+    const notified = (await q<{ user_id: string }>(`SELECT DISTINCT user_id FROM notifications WHERE work_order_id = $1`, [w.id], ctx.db)).map((r) => r.user_id);
+    await notify(ctx.db, ctx.events, {
+      userIds: [...notified, w.opened_by], type: 'os_cancelada', exceptUserId: ctx.actor.id, workOrderId: w.id,
+      title: `${w.code} cancelada — ${w.asset_ref}`, body: `${ctx.actor.name}: ${motivo}`,
     });
   });
 
@@ -783,7 +834,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (!seesDomainDashboard(u, await domainAreaId(d))) throw forbidden(`O painel de ${D.title} é exclusivo dos gestores e líderes de ${D.team}.`);
   };
   const reportRows = async (from: Date, to: Date) => {
-    const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.status NOT IN ('em_analise', 'recusada')
+    const rows = await q(`SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.status NOT IN ('em_analise', 'recusada', 'cancelada')
         AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`, [from, to, d]);
     return rows.map(withTimes);
   };
@@ -1003,7 +1054,7 @@ function plantPanelRoutes(app: FastifyInstance) {
       (!qs.pn || r.part_number === normalizePn(qs.pn));
 
     const rows = (await q(
-      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.status NOT IN ('em_analise', 'recusada')
+      `SELECT ${LIST_COLS} FROM ${LIST_FROM} WHERE w.domain = $3 AND w.status NOT IN ('em_analise', 'recusada', 'cancelada')
           AND w.opened_at <= $2 AND (w.finished_at IS NULL OR w.finished_at >= $1) ORDER BY w.opened_at`,
       [yStart.toJSDate(), yEnd.toJSDate(), d])).map(withTimes).filter(match);
     const ids = new Set(rows.map((r) => r.id));
@@ -1085,7 +1136,7 @@ function plantPanelRoutes(app: FastifyInstance) {
 
     const openNow = rows.filter((r) => r.status !== 'finalizada' && r.status !== 'programada');
     const lastStop = (await one<{ at: Date | null }>(
-      `SELECT max(opened_at) AS at FROM work_orders WHERE domain = $1 AND machine_stopped AND ($2::text IS NULL OR location_type = $2)
+      `SELECT max(opened_at) AS at FROM work_orders WHERE domain = $1 AND machine_stopped AND status <> 'cancelada' AND ($2::text IS NULL OR location_type = $2)
           AND ($3::text IS NULL OR upper(trim(asset_ref)) = upper($3))`, [d, qs.location ?? null, qs.asset || null]))?.at ?? null;
     const years = (await q<{ y: number }>(`SELECT DISTINCT extract(year FROM opened_at AT TIME ZONE $1)::int AS y FROM work_orders ORDER BY 1`, [zone])).map((r) => r.y);
 

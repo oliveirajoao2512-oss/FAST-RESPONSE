@@ -346,6 +346,34 @@ test('15. ordem de manutenção: abrir, aceitar, acompanhar e finalizar', async 
   await expect(detail.getByText('Joao Manutentor está atuando')).toBeVisible({ timeout: 10_000 });
   await operador.screenshot({ path: `${SHOTS}/os-detalhe-solicitante.png` });
 
+  // one order at a time: a second order cannot be accepted by whoever is already on one
+  await detail.getByRole('button', { name: 'Fechar' }).first().click();
+  await operador.getByRole('button', { name: 'Abrir OS' }).click();
+  const dlg2 = operador.getByRole('dialog', { name: 'Abrir ordem de manutenção' });
+  await dlg2.getByLabel('Setor').selectOption({ label: 'Produção' });
+  await dlg2.getByRole('radiogroup', { name: 'Onde é?' }).getByRole('radio', { name: 'Máquina', exact: true }).click();
+  await dlg2.getByRole('radio', { name: '17A', exact: true }).click();
+  await dlg2.getByRole('radiogroup', { name: 'Onde está o problema' }).getByRole('radio', { name: 'Máquina' }).click();
+  await dlg2.getByRole('radio', { name: 'Elétrica' }).click();
+  await dlg2.getByRole('radio', { name: 'Não', exact: true }).click();
+  await dlg2.getByLabel('O que está acontecendo e onde é o problema?').fill('Aberta por engano na máquina errada');
+  await dlg2.getByRole('button', { name: 'Abrir OS' }).click();
+  const detail2 = operador.getByRole('dialog', { name: /OS-\d{4}-\d{5} · 17A/ });
+  await expect(man.getByText('Aberta por engano na máquina errada')).toBeVisible({ timeout: 10_000 });
+  await expect(man.getByText(/Você está atuando na OS-\d{4}-\d{5}\. Uma ordem por vez/)).toBeVisible();
+  await expect(man.getByRole('button', { name: 'Aceitar', exact: true })).toHaveCount(0);
+  await man.screenshot({ path: `${SHOTS}/os-uma-por-vez.png`, fullPage: true });
+  // the opener cancels the order opened by mistake
+  await detail2.getByRole('button', { name: 'Cancelar OS' }).click();
+  const cancel = operador.getByRole('dialog', { name: 'Cancelar a OS' });
+  await cancel.getByLabel('Motivo').fill('Abri na máquina errada');
+  await cancel.getByRole('button', { name: 'Cancelar a OS' }).click();
+  await expect(detail2.getByText(/OS cancelada/)).toBeVisible();
+  await expect(man.getByText('Aberta por engano na máquina errada')).toHaveCount(0, { timeout: 10_000 });
+  await detail2.getByRole('button', { name: 'Fechar' }).first().click();
+  await operador.getByRole('tab', { name: 'Fila' }).click();
+  await operador.getByText('Vazamento de óleo no cilindro do molde').click();
+
   // pause and finish on the phone
   await man.getByText('Vazamento de óleo no cilindro do molde').click();
   const md = man.getByRole('dialog', { name: /OS-\d{4}-\d{5} · 17A/ });

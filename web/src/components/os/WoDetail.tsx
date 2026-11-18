@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, CalendarCheck, CalendarX, Check, CheckCircle2, FileDown, LogOut, Pause, Pencil, Pin, PinOff, Play, Trash2, UserPlus, Wrench, X } from 'lucide-react';
+import { ArrowRightLeft, CalendarCheck, CalendarX, Check, CheckCircle2, FileDown, Lock, LogOut, Pause, Pencil, Pin, PinOff, Play, Trash2, UserPlus, Wrench, X, XCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { componentTool, WO_PRIORITIES, WO_PRIORITY_LABELS } from '@shared/maintenance';
+import { componentTool, WO_CANCELABLE_STATUSES, WO_PRIORITIES, WO_PRIORITY_LABELS } from '@shared/maintenance';
 import { errorMessage, post, withSlot } from '../../lib/api';
 import { duration, fmtDateTime, fmtShort } from '../../lib/format';
 import { useMe } from '../../lib/session';
@@ -12,7 +12,7 @@ import { PhotoPicker, uploadWoFiles } from './NewWoModal';
 import { WoHeadline, WoSituation, WoToolTag, WoWhere } from './parts';
 import { ToolPicker } from './ToolPicker';
 
-type Prompt = 'pausar' | 'devolver' | 'passar' | 'incluir' | 'dispositivo' | 'finalizar' | 'excluir' | null;
+type Prompt = 'pausar' | 'devolver' | 'passar' | 'incluir' | 'dispositivo' | 'finalizar' | 'excluir' | 'cancelar' | null;
 
 /** Re-renders every 30 s so the running times stay current. */
 function useTick(on: boolean) {
@@ -30,18 +30,25 @@ export function WoDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const opts = useWoOptions();
   const q = useWoDetail(id);
   const o = q.data;
-  useTick(!!o && o.status !== 'finalizada' && o.status !== 'recusada');
+  useTick(!!o && o.status !== 'finalizada' && o.status !== 'recusada' && o.status !== 'cancelada');
   return (
     <Modal open wide onClose={onClose} title={o ? `${o.code} · ${o.asset_ref}${o.tool_code && o.location_type ? ` · ${o.tool_code}` : ''}` : D.d === 'ajuste' ? 'Ordem de ajuste' : 'Ordem de manutenção'}>
       {q.isLoading ? <Spinner /> : q.error ? <ErrorBox error={q.error} onRetry={() => q.refetch()} /> : o && (
-        <Body o={o} meId={me.id} isAdmin={me.role === 'admin'} canWork={!!opts.data?.canWork} canLead={!!opts.data?.canLead} canAnalyze={!!opts.data?.canAnalyze} team={opts.data?.team ?? []} onClose={onClose} />
+        <Body o={o} meId={me.id} isAdmin={me.role === 'admin'} canWork={!!opts.data?.canWork} canLead={!!opts.data?.canLead} canAnalyze={!!opts.data?.canAnalyze} onClose={onClose}
+          // one order at a time: colleagues already on another open order cannot be added, passed to or marked as helpers
+          team={(opts.data?.team ?? []).map((t) => { const b = opts.data?.busy?.[t.id]; return { ...t, busyAt: b && b.id !== o.id ? b.code : undefined }; })}
+          myBusy={(() => { const b = opts.data?.busy?.[me.id]; return b && b.id !== o.id ? b : undefined; })()} />
       )}
     </Modal>
   );
 }
 
-function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }: {
-  o: WorkOrderDetail; meId: string; isAdmin: boolean; canWork: boolean; canLead: boolean; canAnalyze: boolean; team: { id: string; name: string; role: string }[]; onClose: () => void;
+type TeamMember = { id: string; name: string; role?: string; busyAt?: string };
+const teamLabel = (t: TeamMember) => `${t.name}${t.busyAt ? ` (atuando na ${t.busyAt})` : ''}`;
+
+function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, myBusy, onClose }: {
+  o: WorkOrderDetail; meId: string; isAdmin: boolean; canWork: boolean; canLead: boolean; canAnalyze: boolean; team: TeamMember[];
+  myBusy?: { code: string; id: string; domain: string }; onClose: () => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -53,12 +60,14 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
   const finished = o.status === 'finalizada';
   const working = o.workers.some((w) => w.id === meId);
   const handOverToMe = o.transfer_to === meId;
-  const live = !finished && o.status !== 'recusada';
+  const live = !finished && o.status !== 'recusada' && o.status !== 'cancelada';
+  // opened by mistake: whoever opened it (or the leadership) cancels it while nobody is working on it
+  const canCancel = WO_CANCELABLE_STATUSES.includes(o.status) && (o.opened_by === meId || canLead || isAdmin);
   const inAnalysis = o.status === 'em_analise';
   const toolType = componentTool(o.component);
-  const canEditTool = !!toolType && o.status !== 'recusada' && (o.opened_by === meId || canWork);
+  const canEditTool = !!toolType && o.status !== 'recusada' && o.status !== 'cancelada' && (o.opened_by === meId || canWork);
   const others = team.filter((t) => !o.workers.some((w) => w.id === t.id));
-  const canInclude = (o.status === 'em_atendimento' || o.status === 'pausada') && (working || canLead) && others.length > 0;
+  const canInclude = (o.status === 'em_atendimento' || o.status === 'pausada') && (working || canLead) && others.some((t) => !t.busyAt);
 
   const run = async (action: string, body: unknown = {}, ok?: string) => {
     setBusy(action);
@@ -97,7 +106,8 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
       {handOverToMe && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <ArrowRightLeft size={16} /><span className="flex-1"><b>{o.transfer_from_name}</b> quer passar esta {S} para você.</span>
-          <Button size="sm" kind="success" loading={busy === 'aceitar'} onClick={() => run('aceitar', {}, `Você assumiu a ${S}.`)}><Check size={16} />Aceitar</Button>
+          {myBusy ? <span className="w-full text-xs">Você está atuando na {myBusy.code}: finalize, devolva ou saia dela para assumir esta.</span>
+            : <Button size="sm" kind="success" loading={busy === 'aceitar'} onClick={() => run('aceitar', {}, `Você assumiu a ${S}.`)}><Check size={16} />Aceitar</Button>}
           <Button size="sm" loading={busy === 'recusar'} onClick={() => run('recusar', {}, 'Passagem recusada.')}>Recusar</Button>
         </div>
       )}
@@ -113,7 +123,12 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
       {/* main actions: large, for use on tablets and phones */}
       {live && !inAnalysis && (canWork || working) && (
         <div className="flex flex-wrap gap-2">
-          {canWork && !working && !handOverToMe && (
+          {canWork && !working && !handOverToMe && myBusy && (
+            <p className="flex w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status">
+              <Lock size={16} className="shrink-0" />Você está atuando na <b>{myBusy.code}</b>. Uma ordem por vez: finalize, devolva ou saia dela para aceitar esta.
+            </p>
+          )}
+          {canWork && !working && !handOverToMe && !myBusy && (
             <Button kind="primary" className="min-h-11 flex-1 sm:flex-none" loading={busy === 'aceitar'} onClick={() => run('aceitar', {}, o.status === 'aberta' ? `${S} aceita. Quem abriu já está vendo que você está atuando.` : `Você entrou na ${S}.`)}>
               <Wrench size={18} />{acceptLabel}
             </Button>
@@ -134,6 +149,17 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
       )}
 
       {live && !inAnalysis && canLead && <QueueControls o={o} team={team} run={run} busy={busy} />}
+      {canCancel && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+          <span>Abriu por engano?</span>
+          <Button size="sm" kind="ghost" className="text-red-700" onClick={() => setPrompt('cancelar')}><XCircle size={15} />Cancelar {S}</Button>
+        </div>
+      )}
+      {o.status === 'cancelada' && (
+        <div className="rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700" role="status">
+          <b>{S} cancelada</b> por {o.cancelled_by_name} em {fmtDateTime(o.cancelled_at)}. Motivo: {o.cancel_reason}. Não conta nos indicadores.
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_16rem]">
         <div className="space-y-4">
@@ -207,6 +233,10 @@ function Body({ o, meId, isAdmin, canWork, canLead, canAnalyze, team, onClose }:
           hint={o.workers.length > 1 ? `Os outros ${D.workers} continuam na ${S}.` : `A ${S} volta para a fila e outro ${D.worker} pode aceitar.`}
           onConfirm={async (motivo) => (await run('devolver', { motivo }, o.workers.length > 1 ? `Você saiu da ${S}.` : `${S} devolvida para a fila.`)) && setPrompt(null)} />
       )}
+      {prompt === 'cancelar' && <ReasonModal title={`Cancelar a ${S}`} busy={busy === 'cancelar'} onClose={() => setPrompt(null)}
+        confirmLabel={`Cancelar a ${S}`} closeLabel="Voltar" placeholder="Ex.: abri na máquina errada, era a 17B"
+        hint={`Use quando a ${S} foi aberta por engano (máquina errada, em duplicidade, problema já resolvido). Ela sai da fila, fica em Finalizadas como cancelada e não conta nos indicadores. Para um serviço feito, use Finalizar.`}
+        onConfirm={async (motivo) => (await run('cancelar', { motivo }, `${S} cancelada. Quem tinha sido avisado já sabe.`)) && setPrompt(null)} />}
       {prompt === 'passar' && <PassModal team={team.filter((t) => !o.workers.some((w) => w.id === t.id))} busy={busy === 'passar'} onClose={() => setPrompt(null)}
         onConfirm={async (userId) => (await run('passar', { userId }, `Pedido enviado. A ${S} muda de mãos quando o colega aceitar.`)) && setPrompt(null)} />}
       {prompt === 'incluir' && <IncludeModal o={o} team={others} busy={busy === 'incluir'} onClose={() => setPrompt(null)}
@@ -290,7 +320,7 @@ function QueueControls({ o, team, run, busy }: { o: WorkOrderDetail; team: { id:
         <label className="text-xs text-gray-600">Indicar para
           <Select value={o.suggested_to ?? ''} disabled={busy === 'indicar'} onChange={(e) => run('indicar', { userId: e.target.value || null }, e.target.value ? 'Aviso enviado.' : 'Indicação removida.')} className="mt-0.5 w-48">
             <option value="">Ninguém</option>
-            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {team.map((t: TeamMember) => <option key={t.id} value={t.id} disabled={!!t.busyAt}>{teamLabel(t)}</option>)}
           </Select>
         </label>
       )}
@@ -357,16 +387,18 @@ function PauseModal({ onClose, onConfirm, busy }: { onClose: () => void; onConfi
   );
 }
 
-function ReasonModal({ title, hint, busy, onClose, onConfirm }: { title: string; hint: string; busy: boolean; onClose: () => void; onConfirm: (m: string) => void }) {
+function ReasonModal({ title, hint, busy, onClose, onConfirm, confirmLabel = 'Confirmar', closeLabel = 'Cancelar', placeholder = 'Ex.: precisa de eletricista' }: {
+  title: string; hint: string; busy: boolean; onClose: () => void; onConfirm: (m: string) => void; confirmLabel?: string; closeLabel?: string; placeholder?: string;
+}) {
   const [text, setText] = useState('');
   return (
-    <Modal open onClose={onClose} title={title} footer={<><Button onClick={onClose}>Cancelar</Button><Button kind="primary" loading={busy} disabled={!text.trim()} onClick={() => onConfirm(text.trim())}>Confirmar</Button></>}>
-      <Field label="Motivo" required hint={hint}><Textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={300} placeholder="Ex.: precisa de eletricista" /></Field>
+    <Modal open onClose={onClose} title={title} footer={<><Button onClick={onClose}>{closeLabel}</Button><Button kind="primary" loading={busy} disabled={!text.trim()} onClick={() => onConfirm(text.trim())}>{confirmLabel}</Button></>}>
+      <Field label="Motivo" required hint={hint}><Textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={300} placeholder={placeholder} /></Field>
     </Modal>
   );
 }
 
-function PassModal({ team, busy, onClose, onConfirm }: { team: { id: string; name: string }[]; busy: boolean; onClose: () => void; onConfirm: (id: string) => void }) {
+function PassModal({ team, busy, onClose, onConfirm }: { team: TeamMember[]; busy: boolean; onClose: () => void; onConfirm: (id: string) => void }) {
   const { short: S } = useWoDomain();
   const [to, setTo] = useState('');
   return (
@@ -374,7 +406,7 @@ function PassModal({ team, busy, onClose, onConfirm }: { team: { id: string; nam
       <Field label="Para quem?" required hint={`A ${S} só muda de mãos quando o colega aceitar. Até lá, continua com você.`}>
         <Select value={to} onChange={(e) => setTo(e.target.value)}>
           <option value="">Selecione…</option>
-          {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          {team.map((t: TeamMember) => <option key={t.id} value={t.id} disabled={!!t.busyAt}>{teamLabel(t)}</option>)}
         </Select>
       </Field>
     </Modal>
@@ -382,7 +414,7 @@ function PassModal({ team, busy, onClose, onConfirm }: { team: { id: string; nam
 }
 
 /** Someone else is doing the job too: they join the order and their hours count. */
-function IncludeModal({ o, team, busy, onClose, onConfirm }: { o: WorkOrderDetail; team: { id: string; name: string }[]; busy: boolean; onClose: () => void; onConfirm: (id: string, desdeInicio: boolean) => void }) {
+function IncludeModal({ o, team, busy, onClose, onConfirm }: { o: WorkOrderDetail; team: TeamMember[]; busy: boolean; onClose: () => void; onConfirm: (id: string, desdeInicio: boolean) => void }) {
   const D = useWoDomain();
   const [who, setWho] = useState('');
   const [fromStart, setFromStart] = useState(false);
@@ -393,7 +425,7 @@ function IncludeModal({ o, team, busy, onClose, onConfirm }: { o: WorkOrderDetai
         <Field label="Quem está trabalhando junto?" required hint={`A pessoa entra na ${D.short} na hora, sem precisar aceitar, e é avisada.`}>
           <Select value={who} onChange={(e) => setWho(e.target.value)}>
             <option value="">Selecione…</option>
-            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {team.map((t: TeamMember) => <option key={t.id} value={t.id} disabled={!!t.busyAt}>{teamLabel(t)}</option>)}
           </Select>
         </Field>
         {o.first_accepted_at && (
@@ -423,7 +455,7 @@ function ToolModal({ o, type, busy, onClose, onConfirm }: { o: WorkOrderDetail; 
   );
 }
 
-function FinishModal({ o, team, onClose, onDone }: { o: WorkOrderDetail; team: { id: string; name: string }[]; onClose: () => void; onDone: () => void }) {
+function FinishModal({ o, team, onClose, onDone }: { o: WorkOrderDetail; team: TeamMember[]; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const D = useWoDomain();
@@ -467,8 +499,8 @@ function FinishModal({ o, team, onClose, onDone }: { o: WorkOrderDetail; team: {
             {askHelpers && (
               <div className="mt-2 grid gap-1 sm:grid-cols-2">
                 {team.map((t) => (
-                  <label key={t.id} className={cx('flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-sm', helpers.includes(t.id) ? 'border-brand-500 bg-brand-50' : 'border-gray-200')}>
-                    <input type="checkbox" className="accent-brand-600" checked={helpers.includes(t.id)} onChange={(e) => setHelpers(e.target.checked ? [...helpers, t.id] : helpers.filter((x) => x !== t.id))} />{t.name}
+                  <label key={t.id} className={cx('flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm', t.busyAt ? 'cursor-not-allowed border-gray-100 text-gray-400' : 'cursor-pointer', helpers.includes(t.id) ? 'border-brand-500 bg-brand-50' : 'border-gray-200')}>
+                    <input type="checkbox" className="accent-brand-600" disabled={!!t.busyAt} checked={helpers.includes(t.id)} onChange={(e) => setHelpers(e.target.checked ? [...helpers, t.id] : helpers.filter((x) => x !== t.id))} />{teamLabel(t)}
                   </label>
                 ))}
                 <p className="text-xs text-gray-500 sm:col-span-2">Quem você marcar ganha as horas desde o início deste atendimento e aparece no comprovante.</p>

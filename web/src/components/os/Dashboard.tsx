@@ -365,7 +365,8 @@ function History({ range, asset, pn, areaId, category, shift, component, tool, o
   const [text, setText] = useState('');
   const cfg = useMeta()?.config;
   const list = useWoList('finalizadas', { ...range, asset: asset || undefined, pn: pn || undefined, q: text.trim() || undefined });
-  const rows = useMemo(() => (list.data ?? []).filter((o) =>
+  // cancelled orders (opened by mistake) are not part of the history of the indicators
+  const rows = useMemo(() => (list.data ?? []).filter((o) => o.status !== 'cancelada' &&
     (!areaId || String(o.area_id) === areaId) && (!category || String(o.kind ?? o.reason) === category) &&
     (!component || o.component === component) && (!tool || o.tool_code === tool) &&
     (!shift || (!o.imported && shiftOf(o.opened_at, cfg?.shifts ?? [], cfg?.timezone ?? 'America/Sao_Paulo') === shift))), [list.data, areaId, category, shift, component, tool, cfg]);

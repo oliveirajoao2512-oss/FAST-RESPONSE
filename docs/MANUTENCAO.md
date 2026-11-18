@@ -42,12 +42,21 @@ Máquina parada → prioridade **crítica** e notificação na hora para manuten
 | Em atendimento | um manutentor aceitou | "Fulano está atuando" |
 | Pausada | pausar com motivo (aguardando peça, liberação da produção, terceiro, outro) | motivo da pausa |
 | Finalizada | finalizar com o serviço realizado (material e foto opcionais) | aba Finalizadas, mês a mês |
+| Cancelada | quem abriu (ou a liderança) cancelou por abertura errada, com motivo | aba Finalizadas, riscada; fora dos indicadores |
 
 - Vários manutentores podem atuar na mesma OS (**Entrar na OS**). Cada um tem seu horário de entrada e saída.
 - **Incluir manutentor**: quando o serviço é feito em dupla, quem está atuando (ou o gestor/líder de Manutenção) inclui o
   colega na OS. Ele entra na hora, sem precisar aceitar, e é avisado; as horas dele contam a partir de agora ou, marcando
   a opção, desde o início do atendimento. Ao **finalizar** também aparece "Mais alguém fez este serviço junto?": quem
   for marcado entra com as horas desde o início do atendimento. Tudo fica no histórico e no comprovante.
+- **Uma ordem por vez**: quem está atuando numa OS ou OA (em atendimento ou pausada) não aceita, não entra e não assume
+  outra. Também não pode ser incluído, receber uma passagem nem ser marcado como ajudante em outra ordem. Para pegar
+  outra, finalize, devolva ou saia da atual. A fila mostra "Você está atuando na OS-…" e esconde o botão Aceitar; nas
+  listas de colegas, quem está ocupado aparece como "(atuando na OS-…)" e não pode ser escolhido.
+- **Cancelar (abertura errada)**: não é finalizar. Quem abriu a ordem, o gestor/líder da área ou o administrador cancela,
+  com motivo, enquanto ninguém está atuando (aguardando aceite, programada ou aguardando aprovação). Se alguém já aceitou,
+  ele precisa devolver para a fila antes. A ordem sai da fila, aparece em Finalizadas como cancelada (com quem, quando e
+  por quê, também no comprovante), não conta nos indicadores, e quem tinha sido avisado recebe o aviso do cancelamento.
 - **Passar**: o manutentor indica um colega; a OS só muda de mãos quando o colega aceita (ou ele recusa).
 - **Devolver / sair**: pede motivo. Se era o último na OS, ela volta para a fila.
 - Não há confirmação do solicitante: finalizou, fechou. Solicitante e gerente de manutenção são avisados no aceite e na

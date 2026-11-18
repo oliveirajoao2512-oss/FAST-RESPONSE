@@ -126,7 +126,7 @@ export const WO_KIND_LABELS: Record<WoKind, string> = {
   outros: 'Outros',
 };
 
-export const WO_STATUSES = ['em_analise', 'programada', 'aberta', 'em_atendimento', 'pausada', 'finalizada', 'recusada'] as const;
+export const WO_STATUSES = ['em_analise', 'programada', 'aberta', 'em_atendimento', 'pausada', 'finalizada', 'recusada', 'cancelada'] as const;
 export type WoStatus = (typeof WO_STATUSES)[number];
 export const WO_STATUS_LABELS: Record<WoStatus, string> = {
   em_analise: 'Aguardando o gestor de Manutenção',
@@ -136,10 +136,15 @@ export const WO_STATUS_LABELS: Record<WoStatus, string> = {
   pausada: 'Pausada',
   finalizada: 'Finalizada',
   recusada: 'Recusada pelo gestor de Manutenção',
+  cancelada: 'Cancelada',
 };
 export const WO_OPEN_STATUSES: WoStatus[] = ['aberta', 'em_atendimento', 'pausada'];
-/** Statuses that end the order: finished by the team, or a planned maintenance refused by the gestor of Manutenção. */
-export const WO_CLOSED_STATUSES: WoStatus[] = ['finalizada', 'recusada'];
+/** Statuses that end the order: finished by the team, a planned maintenance refused by the gestor of Manutenção, or cancelled (opened by mistake). */
+export const WO_CLOSED_STATUSES: WoStatus[] = ['finalizada', 'recusada', 'cancelada'];
+/** Statuses in which a person on the order is busy with it: they cannot take another order at the same time. */
+export const WO_BUSY_STATUSES: WoStatus[] = ['em_atendimento', 'pausada'];
+/** Statuses an opener can cancel (nobody is working on the order yet). */
+export const WO_CANCELABLE_STATUSES: WoStatus[] = ['em_analise', 'programada', 'aberta'];
 /** Orders that can be accepted by the team (planned ones once the gestor of Manutenção approved them). */
 export const WO_WAITING_STATUSES: WoStatus[] = ['aberta', 'programada'];
 
@@ -244,6 +249,7 @@ export function eventText(e: { action: string; data: Record<string, any> }): str
     case 'pausou': return `pausou: ${d.motivo}`;
     case 'retomou': return 'retomou o atendimento';
     case 'finalizou': return 'finalizou a ordem';
+    case 'cancelou': return `cancelou a ordem: ${d.motivo}`;
     case 'priorizou': return [d.prioridade && `prioridade ${d.prioridade}`, d.topo].filter(Boolean).join('; ');
     case 'indicou': return `indicou a ordem para ${d.para}`;
     case 'anexou': return `anexou ${d.finalidade === 'servico' ? 'foto do serviço' : 'foto'}`;
