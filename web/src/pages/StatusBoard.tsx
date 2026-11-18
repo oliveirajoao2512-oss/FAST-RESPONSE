@@ -236,7 +236,7 @@ function PlaceGrid({ title, places, now }: { title: string; places: Place[]; now
               <div className={`truncate font-bold leading-tight ${p.code.length > 8 ? 'text-[0.8em]' : 'text-[1.05em]'}`}>{p.code}</div>
               {o ? (
                 <div className="text-[0.75em] leading-tight">
-                  <div className="truncate font-semibold">{p.state === 'parada' ? `PARADA ${since(p.since, now)}` : `${WO_DOMAIN[o.domain].short} aberta`}</div>
+                  <div className="truncate font-semibold">{p.state === 'parada' ? `PARADA ${since(p.since, now).replace(" h ", "h").replace(" min", "min").replace(" d ", "d")}` : `${WO_DOMAIN[o.domain].short} aberta`}</div>
                   <div className="truncate opacity-90">
                     {o.status === 'aberta' ? 'sem aceite' : o.status === 'pausada' ? 'pausada' : o.workers.join(', ') || 'em atendimento'}
                   </div>
@@ -262,20 +262,42 @@ function Legend() {
   );
 }
 
-const MAX_ROWS = 7;
+/**
+ * The list scrolls (mouse wheel, touch, scroll bar). On a TV nobody scrolls, so while nobody touches it the list moves
+ * one screen down by itself every 10 s and goes back to the top at the end.
+ */
 function Queue({ items, now }: { items: QueueItem[]; now: number }) {
-  // more than fits: the list turns pages by itself
-  const pages = Math.max(1, Math.ceil(items.length / MAX_ROWS));
-  const [page, setPage] = useState(0);
+  const list = useRef<HTMLUListElement>(null);
+  const touched = useRef(0);
+  const [more, setMore] = useState(false);
   useEffect(() => {
-    if (pages < 2) return setPage(0);
-    const t = window.setInterval(() => setPage((p) => (p + 1) % pages), 10_000);
-    return () => clearInterval(t);
-  }, [pages]);
-  const shown = items.slice((page % pages) * MAX_ROWS, (page % pages) * MAX_ROWS + MAX_ROWS);
+    const el = list.current;
+    if (!el) return;
+    const check = () => setMore(el.scrollHeight > el.clientHeight + 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    const mark = () => { touched.current = Date.now(); };
+    el.addEventListener('wheel', mark, { passive: true });
+    el.addEventListener('touchstart', mark, { passive: true });
+    el.addEventListener('pointerdown', mark);
+    el.addEventListener('keydown', mark);
+    const t = window.setInterval(() => {
+      if (Date.now() - touched.current < 30_000 || el.scrollHeight <= el.clientHeight + 2) return;
+      const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+      el.scrollTo({ top: atEnd ? 0 : el.scrollTop + el.clientHeight - 24, behavior: 'smooth' });
+    }, 10_000);
+    return () => {
+      ro.disconnect(); clearInterval(t);
+      el.removeEventListener('wheel', mark); el.removeEventListener('touchstart', mark);
+      el.removeEventListener('pointerdown', mark); el.removeEventListener('keydown', mark);
+    };
+  }, []);
+  useEffect(() => { const el = list.current; if (el) setMore(el.scrollHeight > el.clientHeight + 2); }, [items.length]);
+  const shown = items;
   return (
     <div className="flex h-full flex-col">
-      <ul className="flex-1 space-y-2">
+      <ul ref={list} tabIndex={0} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 outline-none [scrollbar-color:rgba(255,255,255,.25)_transparent] [scrollbar-width:thin]">
         {shown.map((o) => {
           const waiting = o.status === 'aberta';
           return (
@@ -303,11 +325,7 @@ function Queue({ items, now }: { items: QueueItem[]; now: number }) {
           );
         })}
       </ul>
-      {pages > 1 && (
-        <div className="mt-1 flex justify-center gap-1.5">
-          {Array.from({ length: pages }, (_, i) => <span key={i} className={`h-1.5 w-6 rounded-full ${i === page % pages ? 'bg-slate-200' : 'bg-white/15'}`} />)}
-        </div>
-      )}
+      {more && <div className="mt-1 text-center text-[0.75em] text-slate-500">role a lista para ver todas · na TV ela desce sozinha</div>}
     </div>
   );
 }
