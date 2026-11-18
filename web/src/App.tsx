@@ -22,6 +22,7 @@ const QualityPage = lazy(() => import('./pages/Quality').then((m) => ({ default:
 const WorkOrdersPage = lazy(() => import('./pages/WorkOrders').then((m) => ({ default: m.WorkOrdersPage })));
 const osPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="manutencao" /></Suspense>;
 const PlantPanelPage = lazy(() => import('./pages/PlantPanel').then((m) => ({ default: m.PlantPanelPage })));
+const StatusBoardPage = lazy(() => import('./pages/StatusBoard').then((m) => ({ default: m.StatusBoardPage })));
 const adjPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="ajuste" /></Suspense>;
 
 export function App() {
@@ -53,6 +54,7 @@ export function App() {
   }
   return (
     <Routes>
+      <Route path="tela" element={<Suspense fallback={<Spinner />}><StatusBoardPage /></Suspense>} />
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
         <Route path="fast-response" element={<FastResponsePage />} />

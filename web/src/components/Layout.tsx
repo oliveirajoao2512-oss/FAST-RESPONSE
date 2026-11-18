@@ -384,6 +384,7 @@ function useNavGroups() {
       ...(can.viewPlantPanel(me) ? [{ to: '/painel-planta', label: 'Painel da planta' }] : []),
       ...(can.viewReports(me) ? [{ to: '/relatorios', label: 'Relatórios' }] : []),
       { to: '/ranking', label: 'Ranking mensal' },
+      { to: '/tela', label: 'Status da fábrica (TV)' },
     ],
   };
   const admin: NavGroup = {

@@ -17,6 +17,7 @@ import { metaRoutes } from './routes/meta.js';
 import { qualityRoutes } from './routes/quality.js';
 import { qualityActionRoutes } from './routes/qualityActions.js';
 import { pushRoutes } from './routes/push.js';
+import { statusBoardRoutes } from './routes/statusBoard.js';
 import { workOrderRoutes } from './routes/workOrders.js';
 
 /** API routes each single-module profile may call: maintainers the maintenance orders, process technicians the adjustment orders. */
@@ -108,6 +109,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(qualityActionRoutes);
   await app.register(workOrderRoutes);
   await app.register(pushRoutes);
+  await app.register(statusBoardRoutes);
 
   app.all('/api/*', async (_req, reply) => reply.code(404).send({ erro: 'Rota não encontrada.', codigo: 'nao_encontrado' }));
 

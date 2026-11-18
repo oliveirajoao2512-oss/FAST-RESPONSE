@@ -43,7 +43,7 @@ async function scheduleApprovers(db: Db) {
 }
 
 /** Machines and assembly cells registered in Cadastros, in the plant's order. */
-async function placeLists(types: WoLocation[]) {
+export async function placeLists(types: WoLocation[]) {
   const rows = await q<{ type: WoLocation; code: string; description: string | null }>(
     `SELECT type, code, description FROM assets WHERE active AND type = ANY($1) ORDER BY sort, code`, [types]);
   return Object.fromEntries(types.map((t) => [t, rows.filter((r) => r.type === t).map(({ code, description }) => ({ code, description }))])) as Record<WoLocation, { code: string; description: string | null }[]>;

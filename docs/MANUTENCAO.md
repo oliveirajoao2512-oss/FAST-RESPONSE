@@ -239,6 +239,23 @@ urgente. Máquina rodando: os mesmos, como aviso normal (pode desligar em Config
 Cada etapa avisa uma vez por ordem; 0 desliga a etapa. Quem abriu não é cobrado. Ordens já aceitas, programadas ou do
 histórico importado não são cobradas. A cobrança fica registrada na auditoria (`os.cobranca`/`oa.cobranca`).
 
+## Status da fábrica (tela de TV)
+
+Endereço `/tela` (menu Indicadores → "Status da fábrica (TV)"). Tela só de leitura, feita para uma TV no chão de fábrica:
+botão de tela cheia, relógio, atualização ao vivo (eventos do servidor e mais uma consulta a cada 30 s) e pede ao
+navegador para não apagar a tela. Mostra:
+
+- os números do dia: máquinas paradas agora, ordens aguardando aceite, em atendimento (e pausadas), abertas hoje,
+  finalizadas hoje com o tempo médio de aceite, e o tempo de máquina parada no dia;
+- cada máquina e montagem do cadastro: vermelha quando há ordem aberta com a máquina parada (com o tempo parado),
+  amarela quando há ordem aberta com a máquina rodando, verde sem ordem aberta;
+- a fila de ordens abertas (OS e OA), paradas primeiro, com quem está atendendo ou o motivo da pausa; passa de página
+  sozinha quando não cabe;
+- as manutenções programadas para o dia e as pendências abertas por área (atrasadas e de segurança em destaque).
+
+Qualquer usuário logado abre a tela (tudo nela já é visível a todos); manutentor e processista continuam só nos seus
+módulos. Para a TV, o ideal é um usuário próprio (ex.: "TV Produção", perfil colaborador). API: `GET /api/tela`.
+
 ## Histórico importado
 
 As OS antigas da planilha de manutenção (outubro/2026) foram carregadas. A aba "molde" entrou como problema na própria máquina; a aba "dispositivo" entrou como problema em dispositivo, só com o código do dispositivo (a planilha não diz a máquina); esse código virou o dispositivo da OS. Elas foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.
