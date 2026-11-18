@@ -61,6 +61,10 @@ test('1. primeiro acesso do administrador exige troca de senha', async ({ page, 
   await expect(page.getByRole('heading', { name: 'Status da fábrica' })).toBeVisible();
   await expect(page.getByText('Máquinas paradas agora')).toBeVisible();
   await toDashboard(page);
+  // and the dashboard has a button back to it
+  await page.getByRole('link', { name: 'Status da fábrica' }).click();
+  await expect(page.getByRole('heading', { name: 'Status da fábrica' })).toBeVisible();
+  await toDashboard(page);
 
   // set up the team through the admin API (same rules as the Users screen)
   adminApi = await playwright.request.newContext({ baseURL: page.url().replace(/\/$/, ''), extraHTTPHeaders: H });

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertOctagon, Award, Ban, CalendarCheck, CheckCircle2, Clock, Hourglass, ListTodo, ShieldAlert, Timer, UserX } from 'lucide-react';
+import { AlertOctagon, Award, Ban, CalendarCheck, CheckCircle2, Clock, Hourglass, ListTodo, MonitorPlay, ShieldAlert, Timer, UserX } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Evolution } from '../components/Evolution';
@@ -10,10 +10,12 @@ import { get, qs } from '../lib/api';
 import { hours, num } from '../lib/format';
 import { useIssues } from '../lib/hooks';
 import { useMeta } from '../lib/meta';
+import { can, useSession } from '../lib/session';
 import { PRIORITIES, PRIORITY_LABELS, STATUSES, STATUS_LABELS } from '@shared/constants';
 
 export function DashboardPage() {
   const meta = useMeta();
+  const { me } = useSession();
   const f = useFilters();
   const v = f.values;
   const params = { areaId: v.areaId, assigneeId: v.assigneeId, priority: v.priority, status: v.status, openedFrom: v.openedFrom, openedTo: v.openedTo, dueFrom: v.dueFrom, dueTo: v.dueTo };
@@ -30,6 +32,11 @@ export function DashboardPage() {
           <h1 className="text-2xl font-bold text-gray-900">Painel geral</h1>
           <p className="text-sm text-gray-500">Clique em um indicador para ver a lista correspondente.</p>
         </div>
+        {me && can.viewStatusBoard(me) && (
+          <Link to="/tela" className="inline-flex items-center gap-2 rounded-lg bg-[#0f1a30] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1b2a4a]">
+            <MonitorPlay className="h-4 w-4 text-orange-400" />Status da fábrica
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-2 rounded-xl border border-gray-200 bg-white p-3 sm:grid-cols-3 lg:grid-cols-6">
