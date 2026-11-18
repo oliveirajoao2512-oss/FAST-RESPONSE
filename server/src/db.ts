@@ -10,7 +10,13 @@ pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
 
 export type Db = pg.Pool | pg.PoolClient;
 
-export let pool = new pg.Pool({ connectionString: env.databaseUrl, max: 20 });
+// Kept small: the Supabase session pooler allows few clients, and during a deploy the old and the new instance are
+// connected at the same time (a full pooler made a deploy fail on 18/11/2026). Idle connections are released quickly.
+export let pool = new pg.Pool({
+  connectionString: env.databaseUrl,
+  max: Number(process.env.DB_POOL_MAX) || 6,
+  idleTimeoutMillis: 10_000,
+});
 
 export function setPool(p: pg.Pool) {
   pool = p;
