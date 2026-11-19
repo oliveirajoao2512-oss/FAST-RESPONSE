@@ -7,10 +7,10 @@ import { Button, Modal } from './ui';
 
 const DISMISS_KEY = 'fr-push-later';
 const dismissedRecently = () => {
-  try { return Date.now() - Number(localStorage.getItem(DISMISS_KEY) ?? 0) < 3 * 24 * 3600_000; } catch { return false; }
+  try { return Date.now() - Number(localStorage.getItem(DISMISS_KEY) ?? 0) < 24 * 3600_000; } catch { return false; }
 };
 
-/** Invitation shown above the pages until notifications are on in this device (or "Agora não", for 3 days). */
+/** Invitation shown above the pages until notifications are on in this device (or "Agora não", for a day). */
 export function PushBanner() {
   const push = usePush();
   const [howTo, setHowTo] = useState(false);

@@ -43,7 +43,9 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/users', async (req) => {
     admin(req);
     return q(`SELECT u.id, u.name, u.email, u.registration, u.role, u.area_id, a.name AS area_name, u.active, u.must_change_password,
-                     u.last_login_at, u.created_at, (u.locked_until > now()) AS locked
+                     u.last_login_at, u.created_at, (u.locked_until > now()) AS locked,
+                     (SELECT count(*) FROM push_subscriptions s WHERE s.user_id = u.id)::int AS push_devices,
+                     (SELECT max(s.last_ok_at) FROM push_subscriptions s WHERE s.user_id = u.id) AS push_last_ok
                 FROM users u LEFT JOIN areas a ON a.id = u.area_id ORDER BY u.active DESC, u.name`);
   });
 

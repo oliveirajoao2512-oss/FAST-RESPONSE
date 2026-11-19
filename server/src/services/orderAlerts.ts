@@ -3,7 +3,7 @@ import { audit } from '../audit.js';
 import { q, tx, type Db } from '../db.js';
 import { notify } from '../notify.js';
 import { publish, type RealtimeEvent } from '../realtime.js';
-import { domainAreaId, domainTeam } from '../routes/workOrders.js';
+import { domainAreaId, domainAudience } from '../routes/workOrders.js';
 import { getConfig } from '../settings.js';
 
 /** "45 min", "2 h", "1 h 30 min" */
@@ -51,7 +51,7 @@ export async function runOrderAlerts(now = new Date()) {
       const D = WO_DOMAIN[d];
       const waited = waitText((now.getTime() - new Date(w.opened_at).getTime()) / 60000);
       const where = placeLabel(w);
-      const team = (await domainTeam(d, db, await domainAreaId(d))).map((t) => t.id);
+      const team = await domainAudience(d, db, await domainAreaId(d));
       const to = level === 2 ? [...team, ...(await leadership(d, db))] : team;
       await notify(db, events, {
         userIds: to, type: 'os_cobranca', workOrderId: w.id, dedupeKey: `cobranca:${level}:${w.id}`,

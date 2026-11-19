@@ -49,6 +49,21 @@ export async function placeLists(types: WoLocation[]) {
   return Object.fromEntries(types.map((t) => [t, rows.filter((r) => r.type === t).map(({ code, description }) => ({ code, description }))])) as Record<WoLocation, { code: string; description: string | null }[]>;
 }
 
+/**
+ * Who is warned about the domain's orders on the phone: its technicians (manutentores / processistas, from any area) and
+ * everybody of the area that runs it (Manutenção / Processos), except the other module's technicians.
+ */
+export async function domainAudience(d: WoDomain, db: Db, areaId: number | null) {
+  const other = WO_DOMAIN[d === 'manutencao' ? 'ajuste' : 'manutencao'].workerRole;
+  return (await q<{ id: string }>(
+    `SELECT id FROM users WHERE active AND (role = $2 OR (area_id = $1 AND role <> $3))`, [areaId, WO_DOMAIN[d].workerRole, other], db)).map((r) => r.id);
+}
+
+/** Gestores and líderes of the area that runs the domain. */
+async function domainLeaders(db: Db, areaId: number | null) {
+  return (await q<{ id: string }>(`SELECT id FROM users WHERE active AND role IN ('gestor','lider') AND area_id = $1`, [areaId], db)).map((r) => r.id);
+}
+
 /** Technicians and leadership of the domain (who can receive an order). */
 export async function domainTeam(d: WoDomain, db: Db, areaId: number | null) {
   return q<{ id: string; name: string; role: string }>(
@@ -117,10 +132,6 @@ async function endPause(ctx: Ctx, id: string) {
 }
 
 /** Gerente (gestor) of the domain's area: kept informed of acceptance and finish. */
-async function areaManagers(db: Db, areaId: number | null) {
-  return (await q<{ id: string }>(`SELECT id FROM users WHERE active AND role = 'gestor' AND area_id = $1`, [areaId], db)).map((r) => r.id);
-}
-
 function guardWorker(d: WoDomain, u: SessionUser, areaId: number | null) {
   if (!worksDomain(d, u, areaId)) throw forbidden(`Somente a equipe de ${WO_DOMAIN[d].team} atua nas ${WO_DOMAIN[d].short}.`);
 }
@@ -457,13 +468,13 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         });
       }
       if (priority === 'critica') {
-        const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
+        const team = await domainAudience(d, ctx.db, areaId);
         await notify(ctx.db, ctx.events, {
           userIds: team, type: 'os_aberta', exceptUserId: u.id, workOrderId: w.id,
           title: `${w.code}: máquina parada — ${b.assetRef}${tool ? ` · ${tool}` : ''}`, body: `${category} · aberta por ${u.name}. ${b.description.slice(0, 160)}`,
         });
       } else if (!planned && (await getConfig()).orders.notifyTeamOnEveryOpen) {
-        const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
+        const team = await domainAudience(d, ctx.db, areaId);
         await notify(ctx.db, ctx.events, {
           userIds: team, type: 'os_nova', exceptUserId: u.id, workOrderId: w.id,
           title: `${w.code}: nova ${D.short} — ${b.assetRef}${tool ? ` · ${tool}` : ''}`, body: `${category} · aberta por ${u.name}. ${b.description.slice(0, 160)}`,
@@ -566,7 +577,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     if (waiting) {
       await q(`UPDATE work_orders SET status = 'em_atendimento', first_accepted_at = COALESCE(first_accepted_at, now()), suggested_to = NULL WHERE id = $1`, [w.id], ctx.db);
       await notify(ctx.db, ctx.events, {
-        userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_aceita', exceptUserId: me, workOrderId: w.id,
+        userIds: [w.opened_by, ...(await domainLeaders(ctx.db, areaId))], type: 'os_aceita', exceptUserId: me, workOrderId: w.id,
         title: `${w.code}: ${ctx.actor.name} está atuando`, body: w.asset_ref,
       });
     } else if (w.suggested_to === me) {
@@ -712,7 +723,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     await event(ctx, w.id, 'finalizou', { servico: b.servico, material: b.material });
     await audit(ctx.db, { actorId: ctx.actor.id, action: `${D.short.toLowerCase()}.finish`, entityType: 'work_order', entityId: w.id, data: { codigo: w.code }, ip: ctx.ip });
     await notify(ctx.db, ctx.events, {
-      userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_finalizada', exceptUserId: ctx.actor.id, workOrderId: w.id,
+      userIds: [w.opened_by, ...(await domainLeaders(ctx.db, areaId))], type: 'os_finalizada', exceptUserId: ctx.actor.id, workOrderId: w.id,
       title: `${w.code} finalizada — ${w.asset_ref}`, body: b.servico.slice(0, 200),
     });
   });
@@ -755,7 +766,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         [w.id, b.plannedStart, b.plannedHours, ctx.actor.id, b.obs], ctx.db);
       const moved = new Date(b.plannedStart).getTime() !== new Date(w.requested_start).getTime();
       await event(ctx, w.id, 'aprovou', { data: when, horas: b.plannedHours, ...(b.obs ? { obs: b.obs } : {}), ...(moved ? { pedida: await fmtWhen(w.requested_start) } : {}) });
-      const team = (await domainTeam(d, ctx.db, areaId)).map((t) => t.id);
+      const team = await domainAudience(d, ctx.db, areaId);
       await notify(ctx.db, ctx.events, {
         userIds: [w.opened_by, ...team], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
         title: `${w.code}: manutenção programada aprovada para ${when}`,
@@ -766,7 +777,7 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
         [w.id, ctx.actor.id, b.motivo], ctx.db);
       await event(ctx, w.id, 'reprovou', { motivo: b.motivo });
       await notify(ctx.db, ctx.events, {
-        userIds: [w.opened_by, ...(await areaManagers(ctx.db, areaId))], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
+        userIds: [w.opened_by, ...(await domainLeaders(ctx.db, areaId))], type: 'os_programada', exceptUserId: ctx.actor.id, workOrderId: w.id,
         title: `${w.code}: manutenção programada recusada pelo gestor de Manutenção`, body: b.motivo,
       });
     }

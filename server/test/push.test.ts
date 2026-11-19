@@ -102,6 +102,43 @@ describe('avisos no celular (push)', () => {
   });
 });
 
+describe('quem recebe os avisos de cada módulo', () => {
+  it('OA nova avisa os processistas e todo o pessoal de Processos; OS nova, o pessoal de Manutenção', async () => {
+    const procColab = await createUser('Colab Processos', 'colaborador', 'processos');
+    const procista = await createUser('Processista Prod', 'tecnico_processo', 'producao');
+    const manColab = await createUser('Colab Manutencao', 'colaborador', 'manutencao');
+    const prodColab = await createUser('Colab Producao', 'colaborador', 'producao');
+    const oa = await operador.post('/api/oa', { areaId: prod, location: 'maquina', assetRef: '17A', reason: 3, machineStopped: false, description: 'Rebarba' });
+    expect(oa.status).toBe(201);
+    const os = await open(false, { description: 'Ruído novo' });
+    const got = async (id: string, woId: string) => (await q('SELECT 1 FROM notifications WHERE user_id = $1 AND work_order_id = $2', [id, woId])).length > 0;
+    expect(await got(procColab.id, oa.body.id)).toBe(true);
+    expect(await got(procista.id, oa.body.id)).toBe(true);
+    expect(await got(manColab.id, oa.body.id)).toBe(false);
+    expect(await got(joaoId, oa.body.id)).toBe(false);
+    expect(await got(manColab.id, os.body.id)).toBe(true);
+    expect(await got(joaoId, os.body.id)).toBe(true);
+    expect(await got(procColab.id, os.body.id)).toBe(false);
+    expect(await got(prodColab.id, os.body.id)).toBe(false);
+  });
+
+  it('aceite e finalização avisam quem abriu e os gestores e líderes do módulo', async () => {
+    const os = await open(false, { description: 'Correia' });
+    expect((await joao.post(`/api/os/${os.body.id}/aceitar`)).status).toBe(200);
+    expect((await q(`SELECT 1 FROM notifications WHERE user_id = $1 AND work_order_id = $2 AND type = 'os_aceita'`, [liderId, os.body.id])).length).toBe(1);
+    expect((await q(`SELECT 1 FROM notifications WHERE user_id = $1 AND work_order_id = $2 AND type = 'os_aceita'`, [operadorId, os.body.id])).length).toBe(1);
+    expect((await joao.post(`/api/os/${os.body.id}/finalizar`, { servico: 'Trocada' })).status).toBe(200);
+    expect((await q(`SELECT 1 FROM notifications WHERE user_id = $1 AND work_order_id = $2 AND type = 'os_finalizada'`, [liderId, os.body.id])).length).toBe(1);
+  });
+
+  it('todo aviso vai com prioridade alta, para o Android não segurar', async () => {
+    await open(false, { description: 'Sem urgência' });
+    await deliverPush();
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((m) => m.urgency === 'high')).toBe(true);
+  });
+});
+
 describe('cobrança por tempo das ordens sem aceite', () => {
   it('mostra a espera de forma curta', () => {
     expect(waitText(9.6)).toBe('10 min');

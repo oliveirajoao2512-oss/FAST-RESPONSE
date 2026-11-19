@@ -226,8 +226,13 @@ pendências atribuídas, atrasos. Máquina parada e cobranças ficam na tela at�
 - Não usa WhatsApp nem conta externa: o próprio navegador (Google, Apple, Mozilla) entrega, sem custo. As chaves do
   servidor são criadas sozinhas e ficam no banco (ou vêm de `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`).
 
-**Quem é avisado ao abrir.** Máquina parada: técnicos e líderes da área (Manutenção para OS, Processos para OA), como
-urgente. Máquina rodando: os mesmos, como aviso normal (pode desligar em Configurações).
+**Quem é avisado** (decisão de 19/11/2026: "se é processos aparece para os processistas e pessoal do processos").
+OS: todos os manutentores e todo o pessoal da área Manutenção. OA: todos os processistas e todo o pessoal da área
+Processos (o técnico do outro módulo não recebe). Isso vale para ordem nova, máquina parada (urgente), cobrança e
+manutenção programada aprovada. Aceite, finalização e devolução avisam quem abriu e os gestores e líderes do módulo.
+Todo aviso vai com prioridade alta para o serviço de push: com prioridade normal o Android segura a mensagem com o
+celular parado e ela chega atrasada. Em Gestão → Usuários a coluna "Avisos no celular" mostra quem ativou, e o filtro
+"Mostrar só quem não ativou" ajuda a cobrar quem falta. O convite "Ativar avisos" volta no dia seguinte a um "Agora não".
 
 **Cobrança enquanto ninguém aceita** (Gestão → Configurações → "Avisos das ordens de manutenção e de ajuste"):
 

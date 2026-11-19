@@ -52,8 +52,10 @@ export async function pushToUser(userId: string, msg: PushMessage): Promise<Push
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, {
         vapidDetails: { subject: subject(), publicKey: k.publicKey, privateKey: k.privateKey },
-        TTL: msg.urgent ? 60 * 60 : 12 * 60 * 60,
-        urgency: msg.urgent ? 'high' : 'normal',
+        // always "high": with "normal" Android holds the message while the phone is idle (Doze) and it arrives late or
+        // only when the screen is turned on, which looked like notifications that "do not arrive every time"
+        TTL: msg.urgent ? 2 * 60 * 60 : 12 * 60 * 60,
+        urgency: 'high',
         timeout: 10_000,
       });
       await q('UPDATE push_subscriptions SET last_ok_at = now(), failures = 0 WHERE id = $1', [s.id]);

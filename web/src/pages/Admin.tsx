@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileUp, KeyRound, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import { FileUp, KeyRound, Pencil, Plus, Save, Smartphone, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { pnKey } from '@shared/partNumbers';
 import { shiftRanges } from '@shared/shifts';
@@ -22,7 +22,11 @@ export function UsersPage() {
   const [edit, setEdit] = useState<any>(null);
   const [reset, setReset] = useState<any>(null);
   const [filter, setFilter] = useState('');
-  const list = (q.data ?? []).filter((u: any) => !filter || `${u.name} ${u.email ?? ''} ${u.registration ?? ''}`.toLowerCase().includes(filter.toLowerCase()));
+  const [noPhone, setNoPhone] = useState(false);
+  const active = (q.data ?? []).filter((u: any) => u.active);
+  const withPhone = active.filter((u: any) => u.push_devices > 0).length;
+  const list = (q.data ?? []).filter((u: any) => (!filter || `${u.name} ${u.email ?? ''} ${u.registration ?? ''} ${u.area_name ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
+    && (!noPhone || (u.active && !u.push_devices)));
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -33,10 +37,17 @@ export function UsersPage() {
         </div>
       </div>
       <p className="text-sm text-gray-500">Usuários não são excluídos: desative para bloquear o acesso e manter o histórico.</p>
+      {q.data && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm">
+          <Smartphone size={18} className="text-orange-600" />
+          <span><b>{withPhone}</b> de <b>{active.length}</b> usuários ativos recebem os avisos no celular. Quem não ativou só vê os avisos dentro do app.</span>
+          <label className="ml-auto flex items-center gap-2"><input type="checkbox" checked={noPhone} onChange={(e) => setNoPhone(e.target.checked)} />Mostrar só quem não ativou</label>
+        </div>
+      )}
       {q.isLoading ? <Spinner /> : q.error ? <ErrorBox error={q.error} /> : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th className="px-3 py-2">Nome</th><th>E-mail / matrícula</th><th>Perfil</th><th>Área</th><th>Situação</th><th>Último acesso</th><th /></tr></thead>
+            <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th className="px-3 py-2">Nome</th><th>E-mail / matrícula</th><th>Perfil</th><th>Área</th><th>Situação</th><th>Avisos no celular</th><th>Último acesso</th><th /></tr></thead>
             <tbody className="divide-y">
               {list.map((u: any) => (
                 <tr key={u.id} className={cx(!u.active && 'text-gray-400')}>
@@ -45,6 +56,11 @@ export function UsersPage() {
                   <td>{ROLE_LABELS[u.role as keyof typeof ROLE_LABELS]}</td>
                   <td>{u.area_name ?? '—'}</td>
                   <td>{!u.active ? 'Inativo' : u.locked ? <span className="text-red-700">Bloqueado (tentativas)</span> : u.must_change_password ? 'Senha provisória' : 'Ativo'}</td>
+                  <td className="text-xs">
+                    {u.push_devices > 0
+                      ? <span className="inline-flex items-center gap-1 text-emerald-700" title={u.push_last_ok ? `Último aviso entregue: ${fmtDateTime(u.push_last_ok)}` : 'Ainda sem aviso entregue'}><Smartphone size={13} />Ativo{u.push_devices > 1 ? ` (${u.push_devices} aparelhos)` : ''}</span>
+                      : <span className="text-gray-400">Não ativou</span>}
+                  </td>
                   <td className="text-xs">{fmtDateTime(u.last_login_at)}</td>
                   <td className="whitespace-nowrap px-2 text-right">
                     <Button size="sm" kind="ghost" onClick={() => setEdit(u)} aria-label="Editar"><Pencil size={14} /></Button>
