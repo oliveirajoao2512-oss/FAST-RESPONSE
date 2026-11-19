@@ -455,7 +455,11 @@ test('17. ordem de ajuste: processista atende e só Processos vê o dashboard', 
   await login(tec, users.tecProc.email);
   await expect(tec.getByRole('heading', { name: 'Ordens de Ajuste' })).toBeVisible();
   await expect(tec).toHaveURL(/\/ajustes$/);
-  await tec.goto('/os');
+  // the processista may open an OS (other module), but does not work on it
+  await tec.getByRole('link', { name: 'Ordens de Manutenção' }).click();
+  await expect(tec.getByRole('heading', { name: 'Ordens de Manutenção' })).toBeVisible();
+  await expect(tec.getByRole('button', { name: 'Abrir OS' })).toBeVisible();
+  await tec.goto('/pendencias');
   await expect(tec).toHaveURL(/\/ajustes$/);
 
   await operador.getByRole('link', { name: 'Ordens de Ajuste' }).click();
