@@ -33,15 +33,26 @@ describe('acesso do processista', () => {
   it('vê só as Ordens de Ajuste: o resto do sistema é recusado no servidor', async () => {
     expect((await tec.get('/api/oa')).status).toBe(200);
     expect((await tec.get('/api/notifications')).status).toBe(200);
-    for (const url of ['/api/os', '/api/issues', '/api/dashboard', '/api/meta', '/api/admin/users']) {
+    for (const url of ['/api/issues', '/api/dashboard', '/api/meta', '/api/admin/users']) {
       const r = await tec.get(url);
       expect(r.status, url).toBe(403);
       expect(r.body.erro).toMatch(/somente às Ordens de Ajuste/);
     }
   });
 
-  it('o manutentor não entra nas Ordens de Ajuste', async () => {
-    expect((await manutentor.get('/api/oa')).status).toBe(403);
+  it('manutentor abre OA e processista abre OS, mas não atuam na ordem do outro módulo', async () => {
+    const oa = await manutentor.post('/api/oa', { areaId: (await manutentor.get('/api/oa/options')).body.areas[0].id, location: 'maquina', assetRef: '17A', reason: 3, machineStopped: false, description: 'Rebarba vista pelo mecânico' });
+    expect(oa.status).toBe(201);
+    expect((await manutentor.get(`/api/oa/${oa.body.id}`)).status).toBe(200);
+    expect((await manutentor.get('/api/oa/options')).body.canWork).toBe(false);
+    expect((await manutentor.post(`/api/oa/${oa.body.id}/aceitar`)).status).toBe(403);
+    const os = await tec.post('/api/os', { areaId: oa.body.areaId ?? (await tec.get('/api/os/options')).body.areas[0].id, location: 'maquina', assetRef: '17A', component: 'maquina', kind: 'mecanica', machineStopped: false, description: 'Vazamento visto pelo processista' });
+    expect(os.status).toBe(201);
+    expect((await tec.get('/api/os/options')).body.canWork).toBe(false);
+    expect((await tec.post(`/api/os/${os.body.id}/aceitar`)).status).toBe(403);
+    // the order of the other module can be cancelled by whoever opened it
+    expect((await tec.post(`/api/os/${os.body.id}/cancelar`, { motivo: 'Aberta para teste' })).status).toBe(200);
+    expect((await manutentor.post(`/api/oa/${oa.body.id}/cancelar`, { motivo: 'Aberta para teste' })).status).toBe(200);
   });
 });
 

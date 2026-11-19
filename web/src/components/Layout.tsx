@@ -291,6 +291,15 @@ export function MaintainerLayout({ domain }: { domain: WoDomain }) {
         <NotificationsBell />
         <UserMenu />
       </header>
+      <nav className="flex gap-1 border-b border-gray-200 bg-white px-3 sm:px-4" aria-label="Módulos">
+        {([domain, domain === 'manutencao' ? 'ajuste' : 'manutencao'] as WoDomain[]).map((d) => (
+          <NavLink key={d} to={WO_DOMAIN[d].path}
+            className={({ isActive }) => cx('flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium', isActive ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-600 hover:text-gray-900')}>
+            {d === 'ajuste' ? <SlidersHorizontal size={15} /> : <Wrench size={15} />}
+            {WO_DOMAIN[d].title}
+          </NavLink>
+        ))}
+      </nav>
       {conn !== 'online' && (
         <div className="flex items-center gap-2 bg-amber-100 px-4 py-1.5 text-sm text-amber-900" role="status">
           <WifiOff size={16} />
@@ -310,8 +319,8 @@ const PREVIEW_HINT: Partial<Record<Role, string>> = {
   gestor: 'Gestor de Manutenção comanda a fila de OS e vê o dashboard dela; o de Processos, o das Ordens de Ajuste; o de Qualidade, a Resposta Rápida.',
   lider: 'O líder enxerga e age nas pendências da própria área.',
   colaborador: 'O colaborador vê as pendências e age nas que são dele.',
-  manutentor: 'O manutentor vê só as Ordens de Manutenção.',
-  tecnico_processo: 'O processista vê só as Ordens de Ajuste.',
+  manutentor: 'O manutentor atua nas Ordens de Manutenção; também pode abrir e acompanhar Ordens de Ajuste.',
+  tecnico_processo: 'O processista atua nas Ordens de Ajuste; também pode abrir e acompanhar Ordens de Manutenção.',
   plant_manager: 'O plant manager tem permissões de gestor na planta inteira e vê o Painel da planta.',
 };
 

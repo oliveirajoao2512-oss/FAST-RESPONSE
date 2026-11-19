@@ -244,6 +244,13 @@ celular parado e ela chega atrasada. Em Gestão → Usuários a coluna "Avisos n
 Cada etapa avisa uma vez por ordem; 0 desliga a etapa. Quem abriu não é cobrado. Ordens já aceitas, programadas ou do
 histórico importado não são cobradas. A cobrança fica registrada na auditoria (`os.cobranca`/`oa.cobranca`).
 
+## Manutentor abrindo OA e processista abrindo OS
+
+Desde 19/11/2026 o manutentor também pode abrir e acompanhar Ordens de Ajuste, e o processista, Ordens de Manutenção
+(abas no topo da tela deles). Na ordem do outro módulo eles agem como qualquer usuário que abriu: acompanham, recebem
+os avisos de quem abriu e podem cancelar se abriram por engano, mas não aceitam nem atuam (isso continua da equipe do
+módulo). O resto do sistema (pendências, painéis, cadastros) continua fechado para esses perfis.
+
 ## Status da fábrica (tela de TV)
 
 Endereço `/tela` (menu Indicadores → "Status da fábrica (TV)"). Tela só de leitura, feita para uma TV no chão de fábrica:

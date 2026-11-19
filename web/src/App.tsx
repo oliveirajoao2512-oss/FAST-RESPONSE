@@ -56,6 +56,8 @@ export function App() {
       <Routes>
         <Route element={<MaintainerLayout domain={domain} />}>
           <Route path={home.slice(1)} element={domain === 'manutencao' ? osPage : adjPage} />
+          {/* they may also open (and follow) an order of the other module, without working on it */}
+          <Route path={WO_DOMAIN[domain === 'manutencao' ? 'ajuste' : 'manutencao'].path.slice(1)} element={domain === 'manutencao' ? adjPage : osPage} />
           <Route path="notificacoes" element={<NotificationsPage />} />
           <Route path="trocar-senha" element={<ChangePasswordPage />} />
           <Route path="*" element={<Navigate to={home} replace />} />

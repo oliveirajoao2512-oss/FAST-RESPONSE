@@ -20,15 +20,19 @@ import { pushRoutes } from './routes/push.js';
 import { statusBoardRoutes } from './routes/statusBoard.js';
 import { workOrderRoutes } from './routes/workOrders.js';
 
-/** API routes each single-module profile may call: maintainers the maintenance orders, process technicians the adjustment orders. */
+/**
+ * API routes each order profile may call. Maintainers work on the maintenance orders and process technicians on the
+ * adjustment orders; since 19/11/2026 each one may also open (and follow) an order of the other module, as any user can,
+ * without working on it (the order routes check who works on each domain).
+ */
 const ORDER_ONLY: Partial<Record<Role, { routes: RegExp; message: string }>> = {
   manutentor: {
-    routes: /^\/api\/(auth\/|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|push\/|health(\?|$))/,
-    message: 'Seu acesso é somente às Ordens de Manutenção.',
+    routes: /^\/api\/(auth\/|os(\/|\?|$)|oa(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|push\/|health(\?|$))/,
+    message: 'Seu acesso é somente às Ordens de Manutenção e de Ajuste.',
   },
   tecnico_processo: {
-    routes: /^\/api\/(auth\/|oa(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|push\/|health(\?|$))/,
-    message: 'Seu acesso é somente às Ordens de Ajuste.',
+    routes: /^\/api\/(auth\/|oa(\/|\?|$)|os(\/|\?|$)|events(\?|$)|notifications(\/|\?|$)|push\/|health(\?|$))/,
+    message: 'Seu acesso é somente às Ordens de Ajuste e de Manutenção.',
   },
 };
 
