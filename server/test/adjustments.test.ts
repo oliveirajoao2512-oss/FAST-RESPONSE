@@ -149,9 +149,19 @@ describe('painel da planta (estilo Power BI) e plant manager', () => {
     pm = await new Client(ctx.app).login((await createUser('Paula Plant', 'plant_manager', null)).email);
   });
 
-  it('somente administrador e plant manager', async () => {
+  it('administrador e plant manager veem as duas janelas; o gestor de cada área só a sua', async () => {
+    // gestor de Processos: só a janela de Processos (OA)
+    expect((await gestorProc.get('/api/painel?domain=ajuste')).status).toBe(200);
+    expect((await gestorProc.get('/api/painel?domain=manutencao')).status).toBe(403);
     expect((await gestorProc.get('/api/painel')).status).toBe(403);
+    // gestor de Manutenção: só a janela de Manutenção (OS)
+    const gestorMan = await new Client(ctx.app).login((await createUser('Gestor Manutenção', 'gestor', 'manutencao')).email);
+    expect((await gestorMan.get('/api/painel?domain=manutencao')).status).toBe(200);
+    expect((await gestorMan.get('/api/painel?domain=ajuste')).status).toBe(403);
+    // líder e quem não é gestor continuam sem acesso
     expect((await liderMan.get('/api/painel')).status).toBe(403);
+    expect((await liderProc.get('/api/painel?domain=ajuste')).status).toBe(403);
+    expect((await tec.get('/api/painel?domain=ajuste')).status).toBe(403);
     const r = await pm.get('/api/painel?domain=ajuste');
     expect(r.status).toBe(200);
     expect(r.body.months).toHaveLength(12);

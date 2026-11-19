@@ -259,3 +259,12 @@ export function eventText(e: { action: string; data: Record<string, any> }): str
     default: return e.action;
   }
 }
+
+/**
+ * Windows of the plant panel (Power BI style) a user may open: administrator and plant manager see both;
+ * the gestor of Manutenção sees only Manutenção and the gestor of Processos only Processos.
+ */
+export const plantPanelDomains = (a: { role: string }, areaSlug: string | null | undefined): WoDomain[] =>
+  a.role === 'admin' || a.role === 'plant_manager'
+    ? [...WO_DOMAINS]
+    : a.role === 'gestor' ? WO_DOMAINS.filter((d) => WO_DOMAIN[d].areaSlug === areaSlug) : [];

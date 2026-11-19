@@ -127,7 +127,7 @@ que o sistema gera para a mesma ordem. Cada emissão fica registrada na auditori
 
 # Painel da planta (estilo Power BI)
 
-Menu **Painel da planta** (rota `/painel-planta`), visível somente para o **administrador** e o **Plant Manager**.
+Menu **Painel da planta** (rota `/painel-planta`). O **administrador** e o **Plant Manager** veem as duas janelas (Manutenção e Processos). O **gestor de Manutenção** vê só a janela de Manutenção e o **gestor de Processos** só a de Processos (o servidor bloqueia a outra janela). Líderes e demais perfis não têm acesso.
 Segue o padrão visual dos relatórios em Power BI da empresa: duas janelas (Manutenção e Processos) na barra lateral do
 painel e filtros no topo (ano, mês, local, máquina/montagem, part number). Clicar em um mês, máquina ou PN filtra o painel.
 

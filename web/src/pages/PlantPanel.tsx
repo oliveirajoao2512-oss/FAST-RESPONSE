@@ -2,8 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { SlidersHorizontal, Wrench } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { domainLocations, WO_DOMAIN, WO_LOCATION_LABELS, type WoDomain, type WoLocation } from '@shared/maintenance';
+import { domainLocations, plantPanelDomains, WO_DOMAIN, WO_LOCATION_LABELS, type WoDomain, type WoLocation } from '@shared/maintenance';
 import { get, qs } from '../lib/api';
+import { useMe } from '../lib/session';
 import { num } from '../lib/format';
 import { cx, ErrorBox, Spinner } from '../components/ui';
 
@@ -40,7 +41,11 @@ const WINDOWS: { value: WoDomain; label: string; short: string; icon: ReactNode 
 ];
 
 export function PlantPanelPage() {
-  const [domain, setDomain] = useState<WoDomain>('manutencao');
+  const me = useMe();
+  // the gestor of a module sees only that module's window; admin and plant manager see both
+  const allowed = plantPanelDomains(me, me.area?.slug);
+  const windows = WINDOWS.filter((w) => allowed.includes(w.value));
+  const [domain, setDomain] = useState<WoDomain>(allowed[0] ?? 'manutencao');
   const [year, setYear] = useState(() => new Date().getFullYear());
   // opens on the current month; the month filter can switch to another month or the whole year
   const [month, setMonth] = useState<number | null>(() => new Date().getMonth() + 1);
@@ -63,7 +68,7 @@ export function PlantPanelPage() {
     <div className="-m-3 flex min-h-full bg-[#e6e8eb] sm:-m-5">
       {/* windows: one per module, as the icon rail of the Power BI report */}
       <nav className="sticky top-0 flex w-14 shrink-0 flex-col items-center gap-2 bg-[#d5d8dc] py-3 sm:w-16" aria-label="Janelas do painel">
-        {WINDOWS.map((w) => (
+        {windows.map((w) => (
           <button key={w.value} onClick={() => switchWindow(w.value)} aria-pressed={domain === w.value} title={w.label} aria-label={w.label}
             className={cx('flex h-12 w-12 flex-col items-center justify-center rounded-md text-[9px] font-semibold uppercase', domain === w.value ? 'bg-[#ea6a1f] text-white shadow' : 'bg-[#eceef0] text-[#3b4552] hover:bg-white')}>
             {w.icon}<span className="mt-0.5">{w.short}</span>

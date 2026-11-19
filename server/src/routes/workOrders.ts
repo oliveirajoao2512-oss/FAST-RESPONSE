@@ -5,12 +5,11 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, SCHEDULE_APPROVER_AREA_SLUG, WO_BUSY_STATUSES, WO_CANCELABLE_STATUSES, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
-  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
+  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, plantPanelDomains, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
 import { machineKey, pnDigits, type Tool, type ToolReason } from '../../../shared/tools.js';
 import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
-import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { requireUser } from '../auth.js';
 import { withTx, type Ctx, type SessionUser } from '../context.js';
@@ -1048,9 +1047,12 @@ const panelQuery = z.object({
 function plantPanelRoutes(app: FastifyInstance) {
   app.get('/api/painel', async (req) => {
     const u = requireUser(req);
-    if (!can.viewPlantPanel(u)) throw forbidden('O painel da planta é exclusivo do administrador e do plant manager.');
     const qs = parse(panelQuery, req.query);
     const d = qs.domain;
+    const areaSlug = u.areaId == null ? null : (await one<{ slug: string }>('SELECT slug FROM areas WHERE id = $1', [u.areaId]))?.slug;
+    const allowed = plantPanelDomains(u, areaSlug);
+    if (!allowed.length) throw forbidden('O painel da planta é exclusivo do administrador, do plant manager e dos gestores de Manutenção e Processos.');
+    if (!allowed.includes(d)) throw forbidden(`Você vê apenas a janela de ${WO_DOMAIN[allowed[0]].team} do painel da planta.`);
     const { timezone: zone, shifts } = await getConfig();
     const nowDt = DateTime.now().setZone(zone);
     const year = qs.year ?? nowDt.year;

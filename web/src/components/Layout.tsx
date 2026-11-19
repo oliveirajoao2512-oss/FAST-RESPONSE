@@ -6,7 +6,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ORDER_ONLY_ROLES, ROLE_LABELS, type Role } from '@shared/constants';
-import { WO_DOMAIN, type WoDomain } from '@shared/maintenance';
+import { WO_DOMAIN, plantPanelDomains, type WoDomain } from '@shared/maintenance';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
@@ -390,7 +390,7 @@ function useNavGroups() {
   };
   const indicadores: NavGroup = {
     key: 'indicadores', label: 'Indicadores', icon: BarChart3, tabs: [
-      ...(can.viewPlantPanel(me) ? [{ to: '/painel-planta', label: 'Painel da planta' }] : []),
+      ...(plantPanelDomains(me, me.area?.slug).length ? [{ to: '/painel-planta', label: 'Painel da planta' }] : []),
       ...(can.viewReports(me) ? [{ to: '/relatorios', label: 'Relatórios' }] : []),
       { to: '/ranking', label: 'Ranking mensal' },
       ...(can.viewStatusBoard(me) ? [{ to: '/tela', label: 'Status da fábrica (TV)' }] : []),

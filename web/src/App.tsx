@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { WO_DOMAIN } from '@shared/maintenance';
+import { WO_DOMAIN, plantPanelDomains } from '@shared/maintenance';
 import { Layout, MaintainerLayout } from './components/Layout';
 import { Spinner } from './components/ui';
 import { useQualityAccess } from './lib/quality';
@@ -80,7 +80,7 @@ export function App() {
         <Route path="aprovacoes" element={<ApprovalsPage />} />
         <Route path="os" element={osPage} />
         <Route path="ajustes" element={adjPage} />
-        {can.viewPlantPanel(me) && <Route path="painel-planta" element={<Suspense fallback={<Spinner />}><PlantPanelPage /></Suspense>} />}
+        {plantPanelDomains(me, me.area?.slug).length > 0 && <Route path="painel-planta" element={<Suspense fallback={<Spinner />}><PlantPanelPage /></Suspense>} />}
         <Route path="ranking" element={<RankingPage />} />
         {can.viewReports(me) && <Route path="relatorios" element={<ReportsPage />} />}
         <Route path="notificacoes" element={<NotificationsPage />} />
