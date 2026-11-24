@@ -247,7 +247,7 @@ histórico importado não são cobradas. A cobrança fica registrada na auditori
 ## Manutentor abrindo OA e processista abrindo OS
 
 Desde 19/11/2026 o manutentor também pode abrir e acompanhar Ordens de Ajuste, e o processista, Ordens de Manutenção
-(abas no topo da tela deles). Na ordem do outro módulo eles agem como qualquer usuário que abriu: acompanham, recebem
+(abas no topo da tela deles e, desde 24/11, botão "Abrir OS" na tela de Ordens de Ajuste e "Abrir OA" na de Ordens de Manutenção). Na ordem do outro módulo eles agem como qualquer usuário que abriu: acompanham, recebem
 os avisos de quem abriu e podem cancelar se abriram por engano, mas não aceitam nem atuam (isso continua da equipe do
 módulo). O resto do sistema (pendências, painéis, cadastros) continua fechado para esses perfis.
 

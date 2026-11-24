@@ -7,7 +7,7 @@ import { fmtShort } from '../lib/format';
 import { usePersistentState } from '../lib/hooks';
 import { useMe } from '../lib/session';
 import { useToast } from '../lib/toast';
-import type { WoDomain } from '@shared/maintenance';
+import { WO_DOMAIN, WO_DOMAINS, type WoDomain } from '@shared/maintenance';
 import { useWoDomain, useWoList, useWoOptions, WoDomainProvider, type WorkOrder } from '../lib/workOrders';
 import { Dashboard } from '../components/os/Dashboard';
 import { NewWoModal } from '../components/os/NewWoModal';
@@ -27,6 +27,8 @@ function Page() {
   const D = useWoDomain();
   const opts = useWoOptions();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const other = WO_DOMAIN[WO_DOMAINS.find((d) => WO_DOMAIN[d].path !== D.path)!];
   const [tab, setTab] = usePersistentState<Tab>(`fr-${D.short.toLowerCase()}-tab`, 'fila');
   const [creating, setCreating] = useState(false);
   const [text, setText] = useState('');
@@ -74,6 +76,8 @@ function Page() {
     <div className="mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="flex-1 text-2xl font-bold">{D.title}</h1>
+        {/* the other module's order can be opened from here too (a processista opening an OS, a manutentor an OA) */}
+        <Button className="min-h-11 px-4 text-base" onClick={() => navigate(`${other.path}?nova=1`)} title={`Abrir uma ${other.title.replace('Ordens', 'Ordem')}`}><Plus size={20} />Abrir {other.short}</Button>
         <Button kind="primary" className="min-h-11 px-5 text-base" onClick={() => setCreating(true)}><Plus size={20} />Abrir {D.short}</Button>
       </div>
       <div className="flex flex-wrap items-center gap-3">
