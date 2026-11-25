@@ -9,13 +9,14 @@ import { useMe } from '../lib/session';
 import { useToast } from '../lib/toast';
 import { WO_DOMAIN, WO_DOMAINS, type WoDomain } from '@shared/maintenance';
 import { useWoDomain, useWoList, useWoOptions, WoDomainProvider, type WorkOrder } from '../lib/workOrders';
+import { AnalyticsDashboard } from '../components/os/Analytics';
 import { Dashboard } from '../components/os/Dashboard';
 import { NewWoModal } from '../components/os/NewWoModal';
 import { WoHeadline, WoSituation, WoWhere } from '../components/os/parts';
 import { WoDetail } from '../components/os/WoDetail';
 import { Button, cx, Empty, ErrorBox, Input, Segmented, Spinner } from '../components/ui';
 
-type Tab = 'fila' | 'finalizadas' | 'dashboard';
+type Tab = 'fila' | 'finalizadas' | 'dashboard' | 'analise';
 
 /** Maintenance orders (/os) and process adjustment orders (/ajustes) share this page. */
 export function WorkOrdersPage({ domain }: { domain: WoDomain }) {
@@ -60,7 +61,7 @@ function Page() {
 
   // the dashboard is only for the gestores and líderes of the team's area, the plant manager and the administrator
   const seeDashboard = !!opts.data?.canSeeDashboard;
-  const current = tab === 'dashboard' && !seeDashboard ? 'fila' : tab;
+  const current = (tab === 'dashboard' && !seeDashboard) || (tab === 'analise' && me.role !== 'admin') ? 'fila' : tab;
   const open = useWoList('abertas', { q: term });
   // finished orders, month by month (current month first); a search looks in every month
   const [month, setMonthRaw] = useState(thisMonth);
@@ -85,8 +86,10 @@ function Page() {
           { value: 'fila', label: <>Fila{waiting ? <span className="ml-1 rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">{waiting}</span> : null}</> },
           { value: 'finalizadas', label: 'Finalizadas' },
           ...(seeDashboard ? [{ value: 'dashboard' as Tab, label: 'Dashboard' }] : []),
+          // new analytical dashboard, in test: only the administrator sees it until it is released
+          ...(me.role === 'admin' ? [{ value: 'analise' as Tab, label: 'Dashboard (novo)' }] : []),
         ]} />
-        {current !== 'dashboard' && (
+        {current !== 'dashboard' && current !== 'analise' && (
           <div className="relative min-w-48 flex-1 sm:max-w-xs">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Buscar ${D.short}, máquina, problema…`} aria-label={`Buscar ${D.short}`} className="pl-9" />
@@ -130,6 +133,7 @@ function Page() {
         </div>
       )}
       {current === 'dashboard' && <Dashboard onOpen={setOpen} />}
+      {current === 'analise' && <AnalyticsDashboard onOpen={setOpen} />}
 
       {creating && <NewWoModal onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setOpen(id); }} />}
       {openId && <WoDetail id={openId} onClose={() => setOpen(null)} />}

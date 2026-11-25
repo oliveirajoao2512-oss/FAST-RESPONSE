@@ -11,6 +11,7 @@ import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js
 import { machineKey, pnDigits, type Tool, type ToolReason } from '../../../shared/tools.js';
 import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
 import { audit } from '../audit.js';
+import { orderAnalyticsRoutes } from './orderAnalytics.js';
 import { requireUser } from '../auth.js';
 import { withTx, type Ctx, type SessionUser } from '../context.js';
 import { one, pool, q, type Db } from '../db.js';
@@ -272,6 +273,7 @@ async function readFilters(req: FastifyRequest) {
 export async function workOrderRoutes(app: FastifyInstance) {
   for (const d of WO_DOMAINS) domainRoutes(app, d);
   plantPanelRoutes(app);
+  await orderAnalyticsRoutes(app);
 }
 
 function domainRoutes(app: FastifyInstance, d: WoDomain) {

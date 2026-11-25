@@ -139,6 +139,22 @@ por técnico, máquina × montagem e setores que abrem.
 Disponibilidade e MTBF são estimados considerando 24 h por dia e todos os equipamentos cadastrados no filtro; a parada
 conta da abertura ao fim de cada ordem aberta com máquina parada.
 
+## Dashboard (novo) — em teste, só administrador
+
+Aba "Dashboard (novo)" em Ordens de Manutenção e Ordens de Ajuste, visível só para o perfil administrador enquanto
+está em teste (a API `GET /api/{os,ajustes}/analytics` e `/analytics/records` responde 403 para os demais). Só lê o
+banco: não altera nem corrige nenhum registro.
+
+- Filtros combináveis: período, turno, técnico, PN, máquina, motivo (OA) ou tipo/corretiva-preventiva/onde foi o problema (OS).
+  Clicar numa barra ou cartão aplica o filtro.
+- Seções: Visão geral (indicadores, evolução, Pareto, reincidência em 7 dias), Turnos (o que aconteceu em cada turno:
+  máquinas, motivos e técnicos), Técnicos, Máquinas e PN, Registros (busca, "o que o técnico fez", observações,
+  exportação Excel).
+- Separação: quantidade de ordens, tempo de atendimento (aceite ao fim menos pausas), tempo de máquina parada e horas-homem.
+- Turno vem do horário de abertura (configuração de turnos). Histórico importado entra só com a caixa marcada e fica sem turno.
+- Para conferir (não entra nas médias): mais de 24 h entre abertura e fim, ou finalizada menos de 1 min após o aceite.
+- MTBF fica oculto até os horários de trabalho dos turnos serem informados.
+
 # Perfil Plant Manager
 
 Tem as permissões de um gestor na planta inteira (pendências, relatórios, ranking, cadastros, auditoria), vê o
