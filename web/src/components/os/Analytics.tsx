@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, ChevronUp, Download, Info, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { get, qs, withSlot } from '../../lib/api';
 import { num } from '../../lib/format';
 import { useWoDomain } from '../../lib/workOrders';
@@ -17,7 +17,6 @@ import { Button, Card, cx, Empty, ErrorBox, Input, Select, Spinner } from '../ui
 const C_QTY = '#2a78d6';
 const C_TIME = '#ea6a1f';
 const C_STOP = '#d03b3b';
-const C_HELP = '#93c5fd';
 const C_PREV = '#1baf7a';
 const SHIFT_COLORS = ['#2a78d6', '#ea6a1f', '#1baf7a', '#8b5cf6', '#64748b', '#0f766e'];
 
@@ -192,13 +191,15 @@ function FilterSelect({ label, value, onChange, options, wide }: { label: string
   );
 }
 
-function Stat({ label, value, sub, onClick, tone }: { label: string; value: ReactNode; sub?: ReactNode; onClick?: () => void; tone?: 'stop' }) {
+const TONE: Record<'qty' | 'time' | 'stop' | 'where', string> = { qty: C_QTY, time: C_TIME, stop: C_STOP, where: '#64748b' };
+function Stat({ label, value, sub, onClick, tone = 'where' }: { label: string; value: ReactNode; sub?: ReactNode; onClick?: () => void; tone?: keyof typeof TONE }) {
   const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag onClick={onClick} className={cx('flex min-w-0 flex-col items-start rounded-xl border border-gray-200 bg-white px-4 py-3 text-left', onClick && 'hover:border-brand-400 hover:shadow-sm')}>
+    <Tag onClick={onClick} style={{ borderLeft: `4px solid ${TONE[tone]}` }}
+      className={cx('flex min-w-0 flex-col items-start rounded-xl border border-gray-200 bg-white px-4 py-3 text-left', onClick && 'hover:border-brand-400 hover:shadow-sm')}>
       <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</span>
-      <span className={cx('mt-1 max-w-full truncate text-2xl font-bold tabular', tone === 'stop' ? 'text-red-700' : 'text-gray-900')}>{value}</span>
-      {sub && <span className="max-w-full truncate text-xs text-gray-500">{sub}</span>}
+      <span className={cx('mt-1 max-w-full break-words text-xl font-bold leading-tight tabular sm:text-2xl', tone === 'stop' ? 'text-red-700' : 'text-gray-900')}>{value}</span>
+      {sub && <span className="line-clamp-2 max-w-full text-xs text-gray-500">{sub}</span>}
     </Tag>
   );
 }
@@ -221,7 +222,7 @@ function Ranking({ rows, value, fmt, color, onPick, note, colorOf }: { rows: { k
             <button type="button" disabled={!onPick} onClick={() => onPick?.(r.key)} title={onPick ? 'Clique para filtrar' : undefined}
               className="grid w-full grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-2 rounded px-1 py-0.5 text-left text-sm hover:bg-gray-50 disabled:hover:bg-transparent sm:grid-cols-[minmax(0,13rem)_1fr_auto]">
               <span className="truncate text-gray-800" title={r.label}>{r.label}</span>
-              <span className="h-3.5 rounded-sm bg-gray-100"><span className="block h-3.5 rounded-sm" style={{ width: `${((value(r) ?? 0) / max) * 100}%`, background: colorOf?.(r) ?? color }} /></span>
+              <span className="h-4 rounded bg-gray-100"><span className="block h-4 rounded" style={{ width: `${((value(r) ?? 0) / max) * 100}%`, background: colorOf?.(r) ?? color }} /></span>
               <span className="whitespace-nowrap text-right tabular text-gray-900"><b>{fmt(value(r) ?? 0)}</b>{note && <span className="ml-1.5 text-xs text-gray-500">{note(r)}</span>}</span>
             </button>
           </li>
@@ -240,21 +241,34 @@ function Overview({ d, adj, word, pick, go }: { d: Analytics; adj: boolean; word
   const k = d.kpis;
   const series = d.series.map((s) => ({ ...s, label: bucketLabel(s.key, d.bucket) }));
   const Word = adj ? 'Ajustes' : 'Manutenções';
+  const avgPer = series.length ? series.reduce((a, b) => a + b.n, 0) / series.length : 0;
+  const total = d.pareto.reduce((a, b) => a + b.n, 0) || 1;
+  const vitalCount = d.pareto.findIndex((p) => p.cumPct >= 80) + 1;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label={`Total de ${word}`} value={k.n} sub={`${k.finished} finalizadas · ${k.open} em aberto`} />
-        {!adj && <Stat label="Corretivas / preventivas" value={`${k.corrective} / ${k.preventive}`} sub="preventiva = programada" onClick={() => go('geral')} />}
-        <Stat label={`Tempo total em ${word}`} value={hrs(k.workH)} sub={`${k.timed} ordens com tempo confiável`} />
-        <Stat label="Tempo médio por ordem" value={min(k.avgMin)} sub="do aceite ao fim, sem pausas" />
-        {adj && <Stat label="Máquinas / PNs envolvidos" value={`${k.assets} / ${k.pns}`} sub={`${k.withPn} de ${k.n} com PN informado`} />}
-        <Stat label={`Máquina com mais ${word}`} value={k.topAsset?.label ?? '—'} sub={k.topAsset ? `${k.topAsset.n} ordens` : undefined} onClick={k.topAsset ? () => pick('asset')(k.topAsset!.key) : undefined} />
-        {!adj && <Stat label="Máquina com mais tempo parada" tone="stop" value={k.topStopAsset?.label ?? '—'} sub={k.topStopAsset ? `${hrs(k.topStopAsset.stoppedH)} parada` : undefined} onClick={k.topStopAsset ? () => pick('asset')(k.topStopAsset!.key) : undefined} />}
-        {adj && <Stat label="PN com mais ajustes" value={k.topPn?.key ?? '—'} sub={k.topPn ? `${k.topPn.n} ajustes` : undefined} onClick={k.topPn ? () => pick('pn')(k.topPn!.key) : undefined} />}
-        <Stat label="Turno com mais ordens" value={k.topShift?.label ?? '—'} sub={k.topShift ? `${k.topShift.n} ordens · ${k.topShift.pct}%` : undefined} onClick={k.topShift ? () => go('turnos') : undefined} />
-        {!adj && <Stat label="Principal tipo" value={k.topCategory?.label ?? '—'} sub={k.topCategory ? `${k.topCategory.n} OS` : undefined} onClick={k.topCategory ? () => pick('category')(k.topCategory!.key) : undefined} />}
-        <Stat label="Máquina parada" tone="stop" value={hrs(k.stoppedH)} sub={`${k.stops} paradas${k.mttrH != null ? ` · MTTR ${hrs(k.mttrH)}` : ''}`} />
-        <Stat label="Tempo para aceitar" value={min(k.avgWaitMin)} sub="média da abertura ao aceite" />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <KpiGroup title="Quantidade" color={C_QTY} cols={2}>
+          <Stat tone="qty" label={`Total de ${word}`} value={k.n} sub={`${k.finished} finalizadas · ${k.open} em aberto`} />
+          {!adj ? <Stat tone="qty" label="Corretivas / preventivas" value={`${k.corrective} / ${k.preventive}`} sub="preventiva = programada" />
+            : <Stat tone="qty" label="Máquinas / PNs envolvidos" value={`${k.assets} / ${k.pns}`} sub={`${k.withPn} de ${k.n} com PN informado`} />}
+        </KpiGroup>
+        <KpiGroup title="Tempo" color={C_TIME}>
+          <Stat tone="time" label={`Tempo total em ${word}`} value={hrs(k.workH)} sub={`${k.timed} ordens com tempo confiável`} />
+          <Stat tone="time" label="Tempo médio por ordem" value={min(k.avgMin)} sub="do aceite ao fim, sem pausas" />
+          <Stat tone="time" label="Tempo para aceitar" value={min(k.avgWaitMin)} sub="média da abertura ao aceite" />
+        </KpiGroup>
+        {!adj && (
+          <KpiGroup title="Máquina parada" color={C_STOP} cols={2}>
+            <Stat tone="stop" label="Tempo de máquina parada" value={hrs(k.stoppedH)} sub={`${k.stops} paradas${k.mttrH != null ? ` · MTTR ${hrs(k.mttrH)}` : ''}`} />
+            <Stat tone="stop" label="Máquina mais tempo parada" value={k.topStopAsset?.label ?? '—'} sub={k.topStopAsset ? `${hrs(k.topStopAsset.stoppedH)} parada` : undefined} onClick={k.topStopAsset ? () => pick('asset')(k.topStopAsset!.key) : undefined} />
+          </KpiGroup>
+        )}
+        <KpiGroup title="Onde mais acontece" color="#64748b">
+          <Stat label={`Máquina com mais ${word}`} value={k.topAsset?.label ?? '—'} sub={k.topAsset ? `${k.topAsset.n} ordens` : undefined} onClick={k.topAsset ? () => pick('asset')(k.topAsset!.key) : undefined} />
+          <Stat label="Turno com mais ordens" value={k.topShift?.label ?? '—'} sub={k.topShift ? `${k.topShift.n} ordens · ${k.topShift.pct}% do total` : undefined} onClick={k.topShift ? () => go('turnos') : undefined} />
+          {adj ? <Stat label="PN com mais ajustes" value={k.topPn?.key ?? '—'} sub={k.topPn ? `${k.topPn.n} ajustes` : undefined} onClick={k.topPn ? () => pick('pn')(k.topPn!.key) : undefined} />
+            : <Stat label="Principal tipo" value={k.topCategory?.label ?? '—'} sub={k.topCategory ? `${k.topCategory.n} OS` : undefined} onClick={k.topCategory ? () => pick('category')(k.topCategory!.key) : undefined} />}
+        </KpiGroup>
       </div>
 
       {d.quality.excluded > 0 && (
@@ -267,13 +281,18 @@ function Overview({ d, adj, word, pick, go }: { d: Analytics; adj: boolean; word
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={`Evolução: ${word} por ${d.bucket === 'dia' ? 'dia' : d.bucket === 'semana' ? 'semana' : 'mês'}`}
           actions={!adj ? <Legend items={[['Corretivas', C_QTY], ['Preventivas', C_PREV]]} /> : undefined}>
+          <Hint>Cada barra é {d.bucket === 'dia' ? 'um dia' : d.bucket === 'semana' ? 'uma semana' : 'um mês'}. A linha tracejada é a média ({num(avgPer, 1)} por {d.bucket}): barras acima dela são {d.bucket === 'dia' ? 'dias' : 'períodos'} com mais {word} que o normal.</Hint>
           <div className="h-64">
             <ResponsiveContainer>
-              <BarChart data={series} margin={{ top: 18, right: 4, left: -24, bottom: 0 }}>
+              <BarChart data={series} margin={{ top: 18, right: 70, left: -24, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="#f0f1f3" />
                 <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={8} />
                 <YAxis allowDecimals={false} {...axis} />
-                <Tooltip cursor={{ fill: '#f3f4f6' }} contentStyle={tip} />
+                <Tooltip cursor={{ fill: '#f3f4f6' }} content={({ payload }) => {
+                  const p: any = payload?.[0]?.payload; if (!p) return null;
+                  return <div className="rounded-lg border bg-white px-3 py-2 text-xs shadow"><b>{p.label}</b><div>{p.n} {p.n === 1 ? (adj ? 'ajuste' : 'manutenção') : word}{!adj && p.preventive ? ` (${p.preventive} preventiva${p.preventive > 1 ? 's' : ''})` : ''}</div>{p.workH != null && <div className="text-gray-500">{hrs(p.workH)} de trabalho</div>}</div>;
+                }} />
+                <ReferenceLine y={avgPer} stroke="#6b7280" strokeDasharray="4 4" ifOverflow="extendDomain" label={{ value: `média ${num(avgPer, 1)}`, position: 'right', fontSize: 11, fontWeight: 600, fill: '#4b5563' }} />
                 {adj ? (
                   <Bar dataKey="n" name={Word} fill={C_QTY} radius={[4, 4, 0, 0]} maxBarSize={28}><LabelList dataKey="n" position="top" fontSize={10} fill="#374151" formatter={(v: any) => (v ? v : '')} /></Bar>
                 ) : (<>
@@ -285,36 +304,42 @@ function Overview({ d, adj, word, pick, go }: { d: Analytics; adj: boolean; word
           </div>
         </Card>
 
-        <Card title={`Pareto dos ${adj ? 'motivos' : 'tipos'}`} actions={<span className="text-xs text-gray-500">% acumulado ao lado · clique para filtrar</span>}>
-          <ul className="space-y-1.5">
+        <Card title={`Quais ${adj ? 'motivos' : 'tipos'} mais aparecem`} actions={<span className="text-xs text-gray-500">clique para filtrar</span>}>
+          <Hint>{vitalCount > 0 ? <>Os <b className="text-gray-800">{vitalCount} primeiros</b> (em laranja forte) somam 80% das ordens: atacar esses resolve a maior parte.</> : null}</Hint>
+          <div className="grid grid-cols-[minmax(0,11rem)_1fr_2.5rem_3.5rem] gap-2 border-b px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:grid-cols-[minmax(0,15rem)_1fr_2.5rem_3.5rem]">
+            <span>{adj ? 'Motivo' : 'Tipo'}</span><span /><span className="text-right">Qtd</span><span className="text-right">%</span>
+          </div>
+          <ul className="mt-1.5 space-y-1.5">
             {d.pareto.slice(0, 12).map((p, i) => {
               const max = d.pareto[0]?.n || 1;
-              const vital = i === 0 || d.pareto[i - 1].cumPct < 80;
+              const vital = i < vitalCount;
               return (
                 <li key={p.key}>
-                  <button onClick={() => pick('category')(p.key)} className="grid w-full grid-cols-[minmax(0,11rem)_1fr_auto_3.5rem] items-center gap-2 rounded px-1 py-0.5 text-left text-sm hover:bg-gray-50 sm:grid-cols-[minmax(0,15rem)_1fr_auto_3.5rem]">
-                    <span className="truncate text-gray-800" title={p.label}>{p.label}</span>
-                    <span className="h-3.5 rounded-sm bg-gray-100"><span className="block h-3.5 rounded-sm" style={{ width: `${(p.n / max) * 100}%`, background: vital ? C_TIME : '#f5c3a3' }} /></span>
-                    <b className="tabular">{p.n}</b>
-                    <span className="text-right text-xs tabular text-gray-500">{num(p.cumPct, 0)}%</span>
+                  {i === vitalCount && vitalCount > 0 && <div className="my-1.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-gray-400"><span className="h-px flex-1 border-t border-dashed border-gray-300" />acima desta linha: 80% das ordens<span className="h-px flex-1 border-t border-dashed border-gray-300" /></div>}
+                  <button onClick={() => pick('category')(p.key)} className="grid w-full grid-cols-[minmax(0,11rem)_1fr_2.5rem_3.5rem] items-center gap-2 rounded px-1 py-0.5 text-left text-sm hover:bg-gray-50 sm:grid-cols-[minmax(0,15rem)_1fr_2.5rem_3.5rem]">
+                    <span className={cx('truncate', vital ? 'font-medium text-gray-900' : 'text-gray-600')} title={p.label}>{p.label}</span>
+                    <span className="h-4 rounded bg-gray-100"><span className="block h-4 rounded" style={{ width: `${(p.n / max) * 100}%`, background: vital ? C_TIME : '#f5c3a3' }} /></span>
+                    <b className="text-right tabular">{p.n}</b>
+                    <span className="text-right text-xs tabular text-gray-600">{num((p.n / total) * 100, 0)}%</span>
                   </button>
                 </li>
               );
             })}
           </ul>
-          <p className="mt-2 text-xs text-gray-500">Em laranja forte, os {adj ? 'motivos' : 'tipos'} que somam os primeiros 80% das ordens.</p>
         </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title={`Máquinas: quantidade x tempo de ${adj ? 'ajuste' : 'manutenção'}`} actions={<span className="text-xs text-gray-500">cada ponto é uma máquina · clique para filtrar</span>}>
-          <QtyTime rows={d.byAsset} onPick={pick('asset')} />
+        <Card title="Máquinas que mais pedem atenção" actions={<span className="text-xs text-gray-500">clique para filtrar</span>}>
+          <Hint>Ordenadas pelo tempo gasto. Barra azul = quantas ordens, barra laranja = quantas horas de {adj ? 'ajuste' : 'manutenção'}.</Hint>
+          <Attention rows={d.byAsset} adj={adj} onPick={pick('asset')} />
         </Card>
         <Card title="Problemas que se repetem" actions={<span className="text-xs text-gray-500">mesma máquina e {adj ? 'motivo' : 'tipo'} em até 7 dias</span>}>
+          <Hint>O mesmo problema voltou na mesma máquina. "Volta a cada" é o tempo médio entre uma ordem e a seguinte: quanto menor, mais urgente achar a causa.</Hint>
           {d.recurrence.length ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="border-b text-left text-xs text-gray-500"><th className="py-1.5">Máquina</th><th>{adj ? 'Motivo' : 'Tipo'}</th><th className="text-right">Ordens</th><th className="text-right">Voltou</th><th className="text-right">Intervalo médio</th></tr></thead>
+                <thead><tr className="border-b text-left text-xs text-gray-500"><th className="py-1.5">Máquina</th><th>{adj ? 'Motivo' : 'Tipo'}</th><th className="text-right">Ordens</th><th className="text-right">Repetiu</th><th className="text-right">Volta a cada</th></tr></thead>
                 <tbody>{d.recurrence.slice(0, 8).map((x) => (
                   <tr key={x.asset + x.category} className="cursor-pointer border-b last:border-0 hover:bg-gray-50" onClick={() => { pick('asset')(x.asset); }}>
                     <td className="py-1.5 font-medium">{x.assetLabel}</td><td className="max-w-48 truncate" title={x.categoryLabel}>{x.categoryLabel}</td>
@@ -330,34 +355,62 @@ function Overview({ d, adj, word, pick, go }: { d: Analytics; adj: boolean; word
   );
 }
 
+function KpiGroup({ title, color, children, cols = 3 }: { title: string; color: string; children: ReactNode; cols?: 2 | 3 }) {
+  return (
+    <div className="rounded-xl bg-gray-50 p-2.5">
+      <div className="mb-1.5 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-gray-600"><span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />{title}</div>
+      <div className={cx('grid grid-cols-2 gap-2 [&>*]:min-h-[5.5rem]', cols === 3 && 'sm:grid-cols-3')}>{children}</div>
+    </div>
+  );
+}
+
+/** One line under a chart title saying how to read it. */
+function Hint({ children }: { children: ReactNode }) {
+  return <p className="-mt-1 mb-3 text-xs text-gray-500">{children}</p>;
+}
+
 function Legend({ items }: { items: [string, string][] }) {
   return <div className="flex flex-wrap gap-3 text-xs text-gray-600">{items.map(([l, c]) => <span key={l} className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />{l}</span>)}</div>;
 }
 
-function QtyTime({ rows, onPick }: { rows: Analytics['byAsset']; onPick: (k: string) => void }) {
-  const data = rows.filter((r) => r.n).map((r) => ({ key: r.key, label: r.label, n: r.n, h: r.workH ?? 0 }));
-  if (!data.length) return <Empty>Sem registros.</Empty>;
+function Attention({ rows, adj, onPick }: { rows: Analytics['byAsset']; adj: boolean; onPick: (k: string) => void }) {
+  const list = [...rows].filter((r) => r.n).sort((a, b) => (b.workH ?? 0) - (a.workH ?? 0) || b.n - a.n).slice(0, 8);
+  if (!list.length) return <Empty>Sem registros.</Empty>;
+  const maxN = Math.max(1, ...list.map((r) => r.n));
+  const maxH = Math.max(0.01, ...list.map((r) => r.workH ?? 0));
   return (
-    <div className="h-64">
-      <ResponsiveContainer>
-        <ScatterChart margin={{ top: 10, right: 16, left: -12, bottom: 12 }}>
-          <CartesianGrid stroke="#f0f1f3" />
-          <XAxis type="number" dataKey="n" name="Ordens" allowDecimals={false} {...axis} label={{ value: 'quantidade de ordens', position: 'insideBottom', offset: -6, fontSize: 11, fill: '#6b7280' }} />
-          <YAxis type="number" dataKey="h" name="Horas" {...axis} label={{ value: 'horas', angle: -90, position: 'insideLeft', offset: 20, fontSize: 11, fill: '#6b7280' }} />
-          <ZAxis range={[70, 70]} />
-          <Tooltip contentStyle={tip} cursor={{ strokeDasharray: '3 3' }} content={({ payload }) => {
-            const p = payload?.[0]?.payload; if (!p) return null;
-            return <div className="rounded-lg border bg-white px-3 py-2 text-xs shadow"><b>{p.label}</b><div>{p.n} ordens · {hrs(p.h)} no total</div></div>;
-          }} />
-          <Scatter data={data} fill={C_QTY} fillOpacity={0.75} stroke="#fff" strokeWidth={2} cursor="pointer" onClick={(p: any) => onPick(p.key)} />
-        </ScatterChart>
-      </ResponsiveContainer>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead><tr className="border-b text-left text-[11px] uppercase tracking-wide text-gray-500">
+          <th className="py-1.5">Máquina</th><th className="w-[24%]">Ordens</th><th className="w-[24%]">Horas</th>{!adj && <th className="text-right">Parada</th>}<th className="pl-2">{adj ? 'Motivo' : 'Tipo'} mais comum</th>
+        </tr></thead>
+        <tbody>{list.map((r) => (
+          <tr key={r.key} onClick={() => onPick(r.key)} className="cursor-pointer border-b last:border-0 hover:bg-gray-50">
+            <td className="whitespace-nowrap py-1.5 pr-2 font-medium">{r.label}</td>
+            <td className="pr-2"><MiniBar v={r.n} max={maxN} color={C_QTY} text={String(r.n)} /></td>
+            <td className="pr-2"><MiniBar v={r.workH ?? 0} max={maxH} color={C_TIME} text={hrs(r.workH)} /></td>
+            {!adj && <td className="whitespace-nowrap text-right tabular text-red-700">{r.stoppedH ? hrs(r.stoppedH) : <span className="text-gray-300">—</span>}</td>}
+            <td className="max-w-40 truncate pl-2 text-gray-600" title={r.topCategory?.label}>{r.topCategory?.label ?? '—'}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function MiniBar({ v, max, color, text }: { v: number; max: number; color: string; text: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="h-3 flex-1 rounded-sm bg-gray-100"><span className="block h-3 rounded-sm" style={{ width: `${(v / max) * 100}%`, background: color }} /></span>
+      <span className="w-14 text-right text-xs font-semibold tabular">{text}</span>
     </div>
   );
 }
 
 function Shifts({ d, adj, pick, active }: { d: Analytics; adj: boolean; pick: (k: keyof F) => (v: string) => void; active: string }) {
   const rows = d.byShift.map((s, i) => ({ ...s, color: SHIFT_COLORS[i % SHIFT_COLORS.length] }));
+  const totN = rows.reduce((a, b) => a + b.n, 0) || 1;
+  const totH = rows.reduce((a, b) => a + (b.workH ?? 0), 0) || 1;
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">O que acontece em cada turno no período. Clique num turno para filtrar o dashboard inteiro por ele.{d.noShift ? ` ${d.noShift} ordem(ns) do histórico importado não têm turno.` : ''}</p>
@@ -367,6 +420,10 @@ function Shifts({ d, adj, pick, active }: { d: Analytics; adj: boolean; pick: (k
             <button onClick={() => pick('shift')(s.key)} className="flex w-full items-baseline justify-between gap-2 px-4 pt-3 text-left">
               <h3 className="text-base font-bold">{s.label}</h3><span className="text-xs text-gray-500">{s.start} às {s.end}</span>
             </button>
+            <div className="px-4 pt-2">
+              <div className="flex items-center justify-between text-xs text-gray-500"><span>Parte das ordens do período</span><b className="text-gray-800">{num((s.n / totN) * 100, 0)}%</b></div>
+              <span className="mt-1 block h-2 rounded-full bg-gray-100"><span className="block h-2 rounded-full" style={{ width: `${(s.n / totN) * 100}%`, background: s.color }} /></span>
+            </div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-4 py-3 text-sm">
               <dt className="text-gray-600">Ordens</dt><dd className="text-right font-bold tabular">{s.n}</dd>
               <dt className="text-gray-600">Tempo total</dt><dd className="text-right font-semibold tabular">{hrs(s.workH)}</dd>
@@ -383,10 +440,10 @@ function Shifts({ d, adj, pick, active }: { d: Analytics; adj: boolean; pick: (k
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Quantidade de ordens por turno"><ShiftBars rows={rows} value="n" fmt={(v) => String(v)} onPick={pick('shift')} /></Card>
-        <Card title={`Tempo total de ${adj ? 'ajuste' : 'manutenção'} por turno (horas)`}><ShiftBars rows={rows} value="workH" fmt={(v) => hrs(v)} onPick={pick('shift')} /></Card>
+        <Card title="Quantidade de ordens por turno"><Hint>Número em cima da barra: ordens e a parte do total.</Hint><ShiftBars rows={rows} value="n" fmt={(v) => `${v}\u00a0(${num((v / totN) * 100, 0)}%)`} onPick={pick('shift')} /></Card>
+        <Card title={`Horas de ${adj ? 'ajuste' : 'manutenção'} por turno`}><Hint>Soma do tempo de trabalho nas ordens de cada turno.</Hint><ShiftBars rows={rows} value="workH" fmt={(v) => `${hrs(v)}\u00a0(${num((v / totH) * 100, 0)}%)`.replace(/ /g, '\u00a0')} onPick={pick('shift')} /></Card>
       </div>
-      <Card title="Quando as ordens são abertas" actions={<span className="text-xs text-gray-500">dia da semana × hora · mais escuro = mais ordens</span>}><Heat heat={d.heat} /></Card>
+      <Card title="Quando as ordens são abertas" actions={<span className="text-xs text-gray-500">dia da semana × hora · mais escuro = mais ordens</span>}><Heat heat={d.heat} shifts={rows} /></Card>
     </div>
   );
 }
@@ -413,10 +470,11 @@ function ShiftBars({ rows, value, fmt, onPick }: { rows: (Shift & { color: strin
         <BarChart data={rows} margin={{ top: 20, right: 4, left: -20, bottom: 0 }}>
           <XAxis dataKey="label" {...axis} />
           <YAxis {...axis} allowDecimals={value === 'workH'} />
+          <CartesianGrid vertical={false} stroke="#f0f1f3" />
           <Tooltip cursor={{ fill: '#f3f4f6' }} contentStyle={tip} formatter={(v: any) => fmt(Number(v))} />
           <Bar dataKey={value} name={value === 'n' ? 'Ordens' : 'Horas'} radius={[4, 4, 0, 0]} maxBarSize={64} cursor="pointer" onClick={(p: any) => onPick(p.key)}>
             {rows.map((r) => <Cell key={r.key} fill={r.color} />)}
-            <LabelList dataKey={value} position="top" fontSize={11} fill="#111827" formatter={(v: any) => (v ? fmt(Number(v)) : '')} />
+            <LabelList dataKey={value} position="top" fontSize={12} fontWeight={600} fill="#111827" formatter={(v: any) => (v ? fmt(Number(v)) : '')} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
@@ -424,15 +482,31 @@ function ShiftBars({ rows, value, fmt, onPick }: { rows: (Shift & { color: strin
   );
 }
 
-function Heat({ heat }: { heat: number[][] }) {
+function Heat({ heat, shifts }: { heat: number[][]; shifts: { label: string; start: string; end: string; color: string }[] }) {
+  // which shift each hour belongs to, to draw the shift band above the grid
+  const shiftAt = (h: number) => shifts.find((s) => {
+    const a = +s.start.slice(0, 2), b = +s.end.slice(0, 2);
+    return a < b ? h >= a && h < b : h >= a || h < b;
+  });
   const max = Math.max(1, ...heat.flat());
+  let peak = { d: 0, h: 0, n: 0 };
+  heat.forEach((row, d) => row.forEach((n, h) => { if (n > peak.n) peak = { d, h, n }; }));
+  const shade = (n: number) => (n ? `rgba(234,106,31,${0.15 + (n / max) * 0.85})` : '#f3f4f6');
   return (
     <div className="overflow-x-auto">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
+        <span>{peak.n ? <>Horário com mais aberturas: <b className="text-gray-900">{WEEKDAYS[peak.d]} às {peak.h}h</b> ({peak.n} ordens)</> : 'Sem aberturas no período.'}</span>
+        <span className="inline-flex items-center gap-1">menos{[0, 0.25, 0.5, 0.75, 1].map((f) => <span key={f} className="h-3 w-4 rounded-sm" style={{ background: shade(f ? Math.max(1, Math.round(f * max)) : 0) }} />)}mais</span>
+      </div>
       <table className="border-separate border-spacing-0.5 text-[10px] text-gray-500">
-        <thead><tr><th />{Array.from({ length: 24 }, (_, h) => <th key={h} className="w-6 font-normal">{h % 3 === 0 ? `${h}h` : ''}</th>)}</tr></thead>
+        <thead>
+          <tr><th />{Array.from({ length: 24 }, (_, h) => { const s = shiftAt(h); const first = s && shiftAt((h + 23) % 24) !== s; return <th key={h} className="relative h-4 p-0 text-left align-bottom text-[10px] font-semibold" style={{ color: s?.color }}>{first && <span className="absolute bottom-0 left-0 whitespace-nowrap">{s!.label}</span>}</th>; })}</tr>
+          <tr><th />{Array.from({ length: 24 }, (_, h) => <th key={h} className="h-1.5 p-0"><span className="block h-1.5" style={{ background: shiftAt(h)?.color ?? '#e5e7eb' }} /></th>)}</tr>
+          <tr><th />{Array.from({ length: 24 }, (_, h) => <th key={h} className="w-7 font-normal">{h % 2 === 0 ? `${h}h` : ''}</th>)}</tr>
+        </thead>
         <tbody>{heat.map((row, d) => (
           <tr key={d}><th className="pr-1 text-right font-normal">{WEEKDAYS[d]}</th>
-            {row.map((n, h) => <td key={h} title={`${WEEKDAYS[d]} ${h}h: ${n} ordem(ns)`} className="h-6 w-6 rounded" style={{ background: n ? `rgba(234,106,31,${0.15 + (n / max) * 0.85})` : '#f3f4f6' }} />)}
+            {row.map((n, h) => <td key={h} title={`${WEEKDAYS[d]} ${h}h: ${n} ordem(ns)`} className="h-7 w-7 rounded text-center align-middle text-[10px] font-semibold text-white" style={{ background: shade(n) }}>{n / max > 0.5 ? n : ''}</td>)}
           </tr>
         ))}</tbody>
       </table>
@@ -451,7 +525,7 @@ function Techs({ d, adj, pick, active }: { d: Analytics; adj: boolean; pick: (k:
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Intervenções por técnico" actions={<Legend items={[['Como responsável', C_QTY], ['Ajudando', C_HELP]]} />}>
+        <Card title="Intervenções por técnico" actions={<span className="text-xs text-gray-500">conta as ordens em que trabalhou</span>}>
           <Ranking rows={d.byTech.map((t) => ({ ...t, key: t.id, label: t.name }))} value={(r) => r.n} fmt={(v) => String(v)} color={C_QTY} onPick={pick('tech')}
             note={(r) => (r.helped ? `${r.lead} + ${r.helped} ajudando` : '')} colorOf={(r) => (active && r.key !== active ? '#d1d5db' : C_QTY)} />
         </Card>
@@ -499,7 +573,7 @@ function Assets({ d, adj, pick }: { d: Analytics; adj: boolean; pick: (k: keyof 
         </Card>
         <Card title={`Tempo de ${adj ? 'ajuste' : 'manutenção'} por PN`}><Ranking rows={pnTime} value={(r) => r.workH} fmt={hrs} color={C_TIME} onPick={pick('pn')} colorOf={(r) => (r.key === '-' ? '#d1d5db' : C_TIME)} /></Card>
         {!adj && <Card title="Onde foi o problema"><Ranking rows={d.byComponent} value={(r) => r.n} fmt={(v) => String(v)} color={C_QTY} onPick={pick('component')} note={(r) => hrs(r.workH)} /></Card>}
-        {!adj && <Card title="Dispositivos e trim dies com mais OS"><Ranking rows={d.byTool} value={(r) => r.n} fmt={(v) => String(v)} color={C_QTY} /></Card>}
+        {!adj && d.byTool.length > 0 && <Card title="Dispositivos e trim dies com mais OS"><Ranking rows={d.byTool} value={(r) => r.n} fmt={(v) => String(v)} color={C_QTY} /></Card>}
       </div>
     </div>
   );
@@ -544,7 +618,7 @@ function Records({ api, params, adj, onOpen, exportHref }: { api: string; params
                 <td className="whitespace-nowrap px-2 py-2">{x.asset}</td>
                 <td className="whitespace-nowrap px-2 py-2 tabular">{x.pn ?? <span className="text-gray-400">sem PN</span>}</td>
                 <td className="max-w-48 px-2 py-2">{x.category}{!adj && x.type === 'preventiva' && <span className="ml-1 rounded bg-emerald-50 px-1 text-[10px] font-semibold text-emerald-700">PREVENTIVA</span>}</td>
-                <td className="px-2 py-2">{x.techs.join(', ') || '—'}</td>
+                <td className="px-2 py-2">{x.techs.length ? x.techs.map((t) => <span key={t} className="block whitespace-nowrap">{t}</span>) : '—'}</td>
                 <td className="whitespace-nowrap px-2 py-2 text-right tabular">{x.durationMin == null ? '—' : min(x.durationMin)}{x.review && <span title={x.review} className="ml-1 inline-flex text-amber-600"><AlertTriangle size={13} /></span>}</td>
                 <td className="whitespace-nowrap px-2 py-2 text-right tabular text-red-700">{x.stopped ? hrs(x.stoppedH) : ''}</td>
                 <td className="whitespace-nowrap px-2 py-2">{x.statusLabel}</td>
