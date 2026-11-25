@@ -526,7 +526,13 @@ test('16. administrador visualiza como outro perfil (somente leitura)', async ({
   await expect(page.getByRole('link', { name: 'Pendências', exact: true })).toBeVisible();
 
   // plant panel (Power BI style): administrator and plant manager only
+  // the admin lands on the new single-page dashboard of OS/OA (in test, admin only)
   await page.getByRole('link', { name: 'Indicadores' }).click();
+  await expect(page.getByRole('tab', { name: 'Manutenção e ajustes (novo)' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'O que acontece em cada turno' }).or(page.getByText(/Nenhuma OS com esses filtros/))).toBeVisible();
+  await page.getByRole('radio', { name: 'Ajustes (OA)' }).click();
+  await expect(page.getByRole('heading', { name: /Ajustes, um a um/ })).toBeVisible();
+  await page.getByRole('tab', { name: 'Painel da planta' }).click();
   await expect(page.getByRole('tab', { name: 'Painel da planta' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Dias sem máquina parada')).toBeVisible();
   await page.getByRole('button', { name: 'Processos', exact: true }).click();

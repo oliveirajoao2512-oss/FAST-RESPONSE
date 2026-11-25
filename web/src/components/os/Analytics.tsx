@@ -88,7 +88,7 @@ export function AnalyticsDashboard({ onOpen }: { onOpen: (id: string) => void })
   const [custom, setCustom] = useState(() => rangeOf('mes', { from: '', to: '' }));
   const [f, setF] = useState<F>(EMPTY);
   const [imported, setImported] = useState(true);
-  const [section, setSection] = useState<Section>('geral');
+  const go = (sec: Section) => document.getElementById(`dash-${sec}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const range = rangeOf(period, custom);
   const params = { ...range, ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)), ...(imported ? {} : { imported: '0' }) };
   const r = useQuery<Analytics>({ queryKey: ['os', 'analytics', D.api, params], queryFn: () => get(`${D.api}/analytics${qs(params)}`), placeholderData: keepPreviousData });
@@ -119,14 +119,14 @@ export function AnalyticsDashboard({ onOpen }: { onOpen: (id: string) => void })
       </div>
 
       {/* filters: all of them work together and update every number below */}
-      <section className="rounded-xl border border-gray-200 bg-white p-3">
+      <section id="dash-filtros" className="scroll-mt-4 rounded-xl border border-gray-200 bg-white p-3">
         <div className="flex flex-wrap items-end gap-2">
-          <label className="w-[calc(50%-4px)] text-xs text-gray-600 sm:w-auto">Período
+          <label className="flex w-[calc(50%-4px)] flex-col text-xs text-gray-600 sm:w-auto">Período
             <Select value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)} className="mt-0.5 w-full sm:w-40">{PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</Select>
           </label>
           {period === 'custom' && (<>
-            <label className="w-[calc(50%-4px)] text-xs text-gray-600 sm:w-auto">De<Input type="date" value={custom.from} max={custom.to} onChange={(e) => e.target.value && setCustom({ ...custom, from: e.target.value })} className="mt-0.5 w-full sm:w-40" /></label>
-            <label className="w-[calc(50%-4px)] text-xs text-gray-600 sm:w-auto">Até<Input type="date" value={custom.to} min={custom.from} onChange={(e) => e.target.value && setCustom({ ...custom, to: e.target.value })} className="mt-0.5 w-full sm:w-40" /></label>
+            <label className="flex w-[calc(50%-4px)] flex-col text-xs text-gray-600 sm:w-auto">De<Input type="date" value={custom.from} max={custom.to} onChange={(e) => e.target.value && setCustom({ ...custom, from: e.target.value })} className="mt-0.5 w-full sm:w-40" /></label>
+            <label className="flex w-[calc(50%-4px)] flex-col text-xs text-gray-600 sm:w-auto">Até<Input type="date" value={custom.to} min={custom.from} onChange={(e) => e.target.value && setCustom({ ...custom, to: e.target.value })} className="mt-0.5 w-full sm:w-40" /></label>
           </>)}
           <FilterSelect label="Turno" value={f.shift} onChange={(v) => setF({ ...f, shift: v })} options={(o?.shifts ?? []).map((s) => [s, s])} />
           <FilterSelect label="Técnico" value={f.tech} onChange={(v) => setF({ ...f, tech: v })} options={(o?.techs ?? []).map((t) => [t.id, t.name])} wide />
@@ -141,43 +141,49 @@ export function AnalyticsDashboard({ onOpen }: { onOpen: (id: string) => void })
             </label>
           )}
         </div>
-        <div className="mt-2 flex min-h-7 flex-wrap items-center gap-1.5">
-          {chips.length ? chips.map(([k, l, v]) => (
-            <span key={k} className="inline-flex items-center gap-1 rounded-full bg-brand-600 py-0.5 pl-2.5 pr-1 text-xs font-medium text-white">
-              {l}: {v}<button onClick={() => setF({ ...f, [k]: '' })} aria-label={`Tirar filtro ${l}`} className="rounded-full p-0.5 hover:bg-white/20"><X size={12} /></button>
-            </span>
-          )) : <span className="text-xs text-gray-500">Sem filtros além do período. Clique em qualquer barra, linha ou cartão para filtrar.</span>}
-          {chips.length > 0 && <button onClick={() => setF(EMPTY)} className="text-xs font-medium text-brand-700 underline">Limpar filtros</button>}
-          {r.isFetching && <span className="text-xs text-gray-400">atualizando…</span>}
-        </div>
       </section>
-
-      <div className="flex gap-1 overflow-x-auto border-b border-gray-200" role="tablist" aria-label="Seções do dashboard">
-        {([['geral', 'Visão geral'], ['turnos', 'Turnos'], ['tecnicos', 'Técnicos'], ['maquinas', adj ? 'Máquinas e PN' : 'Máquinas, PN e dispositivos'], ['registros', 'Registros']] as [Section, string][]).map(([k, l]) => (
-          <button key={k} role="tab" aria-selected={section === k} onClick={() => setSection(k)}
-            className={cx('whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium', section === k ? 'border-brand-600 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800')}>{l}</button>
-        ))}
+      <div className="sticky -top-3 z-20 -mx-1 flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-white/95 px-2 py-1.5 shadow-sm backdrop-blur sm:-top-5">
+        <span className="text-xs font-semibold text-gray-700">{PERIODS.find((x) => x.value === period)?.label}{period === 'custom' ? ` (${range.from} a ${range.to})` : ''}</span>
+        {chips.length ? chips.map(([k, l, v]) => (
+          <span key={k} className="inline-flex items-center gap-1 rounded-full bg-brand-600 py-0.5 pl-2.5 pr-1 text-xs font-medium text-white">
+            {l}: {v}<button onClick={() => setF({ ...f, [k]: '' })} aria-label={`Tirar filtro ${l}`} className="rounded-full p-0.5 hover:bg-white/20"><X size={12} /></button>
+          </span>
+        )) : <span className="text-xs text-gray-500">sem outros filtros<span className="hidden sm:inline"> · clique em qualquer barra, linha ou cartão para filtrar</span></span>}
+        {chips.length > 0 && <button onClick={() => setF(EMPTY)} className="text-xs font-medium text-brand-700 underline">Limpar filtros</button>}
+        {r.isFetching && <span className="text-xs text-gray-400">atualizando…</span>}
+        <button onClick={() => document.getElementById('dash-filtros')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="ml-auto text-xs font-medium text-brand-700 underline">Alterar filtros</button>
       </div>
 
       {r.error && <ErrorBox error={r.error} onRetry={() => r.refetch()} />}
       {!d && !r.error && <Spinner />}
-      {d && (d.kpis.n === 0 && section !== 'registros' ? (
-        <Card><Empty>Nenhuma {adj ? 'OA' : 'OS'} com esses filtros. {chips.length ? 'Tire um dos filtros acima ou ' : ''}Escolha outro período.</Empty></Card>
-      ) : (<>
-        {section === 'geral' && <Overview d={d} adj={adj} word={word} pick={pick} go={setSection} />}
-        {section === 'turnos' && <Shifts d={d} adj={adj} pick={pick} active={f.shift} />}
-        {section === 'tecnicos' && <Techs d={d} adj={adj} pick={pick} active={f.tech} />}
-        {section === 'maquinas' && <Assets d={d} adj={adj} pick={pick} />}
-        {section === 'registros' && <Records api={D.api} params={params} adj={adj} onOpen={onOpen} exportHref={exportHref} />}
-        {section !== 'registros' && <Criteria d={d} />}
-      </>))}
+      {d && (<>
+        {d.kpis.n === 0 ? (
+          <Card><Empty>Nenhuma {adj ? 'OA' : 'OS'} com esses filtros. {chips.length ? 'Tire um dos filtros acima ou ' : ''}Escolha outro período.</Empty></Card>
+        ) : (<>
+          <Block id="geral" title="Visão geral"><Overview d={d} adj={adj} word={word} pick={pick} go={go} /></Block>
+          <Block id="turnos" title="O que acontece em cada turno"><Shifts d={d} adj={adj} pick={pick} active={f.shift} /></Block>
+          <Block id="tecnicos" title="Técnicos"><Techs d={d} adj={adj} pick={pick} active={f.tech} /></Block>
+          <Block id="maquinas" title={adj ? 'Máquinas e PN' : 'Máquinas, PN e dispositivos'}><Assets d={d} adj={adj} pick={pick} /></Block>
+        </>)}
+        <Block id="registros" title={adj ? 'Ajustes, um a um: o que foi feito' : 'Manutenções, uma a uma: o que o técnico fez'}><Records api={D.api} params={params} adj={adj} onOpen={onOpen} exportHref={exportHref} /></Block>
+        {d.kpis.n > 0 && <Criteria d={d} />}
+      </>)}
     </div>
+  );
+}
+
+function Block({ id, title, children }: { id: Section; title: string; children: ReactNode }) {
+  return (
+    <section id={`dash-${id}`} className="scroll-mt-14 space-y-3 pt-2">
+      <h2 className="border-b border-gray-200 pb-1 text-lg font-semibold text-gray-900">{title}</h2>
+      {children}
+    </section>
   );
 }
 
 function FilterSelect({ label, value, onChange, options, wide }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][]; wide?: boolean }) {
   return (
-    <label className="w-[calc(50%-4px)] text-xs text-gray-600 sm:w-auto">{label}
+    <label className="flex w-[calc(50%-4px)] flex-col text-xs text-gray-600 sm:w-auto">{label}
       <Select value={value} onChange={(e) => onChange(e.target.value)} className={cx('mt-0.5 w-full', wide ? 'sm:w-52' : 'sm:w-40')}>
         <option value="">Todos</option>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}

@@ -141,13 +141,13 @@ conta da abertura ao fim de cada ordem aberta com máquina parada.
 
 ## Dashboard (novo) — em teste, só administrador
 
-Aba "Dashboard (novo)" em Ordens de Manutenção e Ordens de Ajuste, visível só para o perfil administrador enquanto
-está em teste (a API `GET /api/{os,ajustes}/analytics` e `/analytics/records` responde 403 para os demais). Só lê o
+Indicadores → "Manutenção e ajustes (novo)" (rota /indicadores-ordens), com escolha entre Manutenção (OS) e Ajustes (OA),
+tudo numa página só (sem abas), visível só para o perfil administrador enquanto está em teste (a API `GET /api/{os,ajustes}/analytics` e `/analytics/records` responde 403 para os demais). Só lê o
 banco: não altera nem corrige nenhum registro.
 
 - Filtros combináveis: período, turno, técnico, PN, máquina, motivo (OA) ou tipo/corretiva-preventiva/onde foi o problema (OS).
-  Clicar numa barra ou cartão aplica o filtro.
-- Seções: Visão geral (indicadores, evolução, Pareto, reincidência em 7 dias), Turnos (o que aconteceu em cada turno:
+  Clicar numa barra ou cartão aplica o filtro; a barra com os filtros ativos acompanha a rolagem.
+- Seções, uma embaixo da outra: Visão geral (indicadores, evolução, Pareto, reincidência em 7 dias), Turnos (o que aconteceu em cada turno:
   máquinas, motivos e técnicos), Técnicos, Máquinas e PN, Registros (busca, "o que o técnico fez", observações,
   exportação Excel).
 - Separação: quantidade de ordens, tempo de atendimento (aceite ao fim menos pausas), tempo de máquina parada e horas-homem.

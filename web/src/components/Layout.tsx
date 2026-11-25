@@ -390,6 +390,7 @@ function useNavGroups() {
   };
   const indicadores: NavGroup = {
     key: 'indicadores', label: 'Indicadores', icon: BarChart3, tabs: [
+      ...(me.role === 'admin' ? [{ to: '/indicadores-ordens', label: 'Manutenção e ajustes (novo)' }] : []),
       ...(plantPanelDomains(me, me.area?.slug).length ? [{ to: '/painel-planta', label: 'Painel da planta' }] : []),
       ...(can.viewReports(me) ? [{ to: '/relatorios', label: 'Relatórios' }] : []),
       { to: '/ranking', label: 'Ranking mensal' },
