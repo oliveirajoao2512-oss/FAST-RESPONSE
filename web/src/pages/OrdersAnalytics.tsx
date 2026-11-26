@@ -5,7 +5,7 @@ import { WoDetail } from '../components/os/WoDetail';
 import { cx } from '../components/ui';
 import { WoDomainProvider } from '../lib/workOrders';
 
-/** Indicadores → "Manutenção e ajustes": the analytical dashboard of OS or OA on a single page (admin only while in test). */
+/** Indicadores → "Manutenção e ajustes": the analytical dashboard of OS or OA on a single page (administrator and gestor of Produção). */
 export function OrdersAnalyticsPage() {
   const [domain, setDomain] = useState<WoDomain>('manutencao');
   const [open, setOpen] = useState<string | null>(null);

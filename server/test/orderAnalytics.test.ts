@@ -7,7 +7,7 @@ import { areaId, Client, createUser, setup } from './helpers.js';
  * Times are São Paulo local (UTC-3): 08:00 local = 11:00Z.
  */
 let ctx: Awaited<ReturnType<typeof setup>>;
-let admin: Client, gestorProc: Client, ana: Client, bruno: Client, mec: Client, operador: Client;
+let admin: Client, gestorProd: Client, gestorProc: Client, ana: Client, bruno: Client, mec: Client, operador: Client;
 let anaId: string, brunoId: string;
 let prod: number;
 const RANGE = 'from=2026-11-01&to=2026-11-30';
@@ -36,6 +36,7 @@ beforeAll(async () => {
     createUser('Bruno Tecnico', 'tecnico_processo', null),
     createUser('Carlos Manutentor', 'manutentor', null),
   ]);
+  gestorProd = await new Client(ctx.app).login((await createUser('Gestor Producao', 'gestor', 'producao')).email);
   anaId = users[1].id;
   brunoId = users[2].id;
   [gestorProc, ana, bruno, mec] = await Promise.all(users.map((u) => new Client(ctx.app).login(u.email)));
@@ -54,8 +55,12 @@ afterAll(async () => {
   await ctx.app.close();
 });
 
-describe('dashboards analíticos (em teste: só o administrador)', () => {
-  it('só o administrador acessa por enquanto', async () => {
+describe('dashboards analíticos (administrador e gestor de Produção)', () => {
+  it('só o administrador e o gestor de Produção acessam', async () => {
+    expect((await gestorProd.get(`/api/oa/analytics?${RANGE}`)).status).toBe(200);
+    expect((await gestorProd.get(`/api/os/analytics/records?${RANGE}`)).status).toBe(200);
+    expect((await gestorProd.get(`/api/os/export.xlsx?${RANGE}`)).status).toBe(200);
+    expect((await operador.get(`/api/os/analytics?${RANGE}`)).status).toBe(403);
     expect((await gestorProc.get(`/api/oa/analytics?${RANGE}`)).status).toBe(403);
     expect((await ana.get(`/api/oa/analytics?${RANGE}`)).status).toBe(403);
     expect((await admin.get(`/api/oa/analytics?${RANGE}`)).status).toBe(200);

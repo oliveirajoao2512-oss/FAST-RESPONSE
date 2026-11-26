@@ -139,11 +139,13 @@ por técnico, máquina × montagem e setores que abrem.
 Disponibilidade e MTBF são estimados considerando 24 h por dia e todos os equipamentos cadastrados no filtro; a parada
 conta da abertura ao fim de cada ordem aberta com máquina parada.
 
-## Dashboard (novo) — em teste, só administrador
+## Dashboard de manutenção e ajustes (Indicadores)
 
-Indicadores → "Manutenção e ajustes (novo)" (rota /indicadores-ordens), com escolha entre Manutenção (OS) e Ajustes (OA),
-tudo numa página só (sem abas), visível só para o perfil administrador enquanto está em teste (a API `GET /api/{os,ajustes}/analytics` e `/analytics/records` responde 403 para os demais). Só lê o
-banco: não altera nem corrige nenhum registro.
+Indicadores → "Manutenção e ajustes" (rota /indicadores-ordens), com escolha entre Manutenção (OS) e Ajustes (OA),
+tudo numa página só. Liberado em 26/11/2026 para o administrador e o gestor de Produção (regra `canSeeOrderAnalytics`
+em shared/maintenance.ts; a API `GET /api/{os,oa}/analytics` e `/analytics/records` responde 403 para os demais, e o
+Excel `export.xlsx` também aceita esse acesso). Só lê o banco: não altera nem corrige nenhum registro. A aba
+"Dashboard" das telas de OS e OA continua como era, para os gestores e líderes de cada equipe.
 
 - Tela inicial enxuta (estilo BI): faixa de indicadores, rosca "Distribuição de problemas/motivos", tendência
   (ordens, horas ou máquina parada, com média), máquinas, turnos (barra empilhada por problema), técnicos, part numbers

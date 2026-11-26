@@ -11,7 +11,7 @@ import { cx, Empty, ErrorBox, Input, Select, Spinner } from '../ui';
  * Analytical dashboard of one order module (OA or OS), BI style (João, 26/11/2026): few charts on the main screen,
  * every click opens a side panel with the details of what was clicked, and inside it the user keeps drilling
  * (problem → machine → technician → orders). Read only: every number comes from /api/{oa,os}/analytics with the
- * filters applied by the server; the browser only draws. In test: shown only to the administrator.
+ * filters applied by the server; the browser only draws. Seen by the administrator and the gestor of Produção.
  */
 
 // one hue per measure; categories get a fixed color from the period's frequency order (never by the current rank)
@@ -131,9 +131,6 @@ export function AnalyticsDashboard({ onOpen }: { onOpen: (id: string) => void })
 
   return (
     <div className="space-y-4">
-      <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
-        <Info size={14} className="shrink-0" /><span><b>Em teste.</b> Só você está vendo. Números das {word} registradas no sistema, sem nenhum valor estimado.</span>
-      </p>
 
       {/* global filters: they change every chart and every detail panel */}
       <section className="rounded-2xl bg-white p-3 ring-1 ring-gray-100">

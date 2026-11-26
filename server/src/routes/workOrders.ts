@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
   ADJ_MATERIAL_REASON, ADJ_REASON_CODES, analyzesSchedule, eventText, SCHEDULE_APPROVER_AREA_SLUG, WO_BUSY_STATUSES, WO_CANCELABLE_STATUSES, WO_CLOSED_STATUSES, WO_WAITING_STATUSES, woStart, leadsDomain, WO_DOMAIN, WO_DOMAINS, WO_KINDS, WO_PRIORITIES, WO_PRIORITY_LABELS,
-  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, plantPanelDomains, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
+  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_LOCATION_LABELS, WO_LOCATIONS, WO_STATUS_LABELS, domainLocations, seesDomainDashboard, canSeeOrderAnalytics, plantPanelDomains, woCategory, woCode, workedMs, worksDomain, woTimes, normalizePn, normalizeToolCode, componentTool, type Interval, type WoDomain, type WoLocation, type WoPriority, type WoStatus,
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
 import { machineKey, pnDigits, type Tool, type ToolReason } from '../../../shared/tools.js';
@@ -996,7 +996,9 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
 
   app.get(`${api}/export.xlsx`, async (req, reply) => {
     const u = requireUser(req);
-    await guardDashboard(u);
+    // the Excel also serves the analytical dashboard (Indicadores), released to the gestor of Produção
+    const slug = u.areaId == null ? null : (await one<{ slug: string }>('SELECT slug FROM areas WHERE id = $1', [u.areaId]))?.slug;
+    if (!canSeeOrderAnalytics(u, slug)) await guardDashboard(u);
     const { from, to, zone, match, shiftOfRow } = await readFilters(req);
     const rows = (await reportRows(from.toJSDate(), to.toJSDate())).filter((r) => match(r) && new Date(r.opened_at) >= from.toJSDate());
     const dt = (x: string | Date | null): OutCell => ({ v: x ? DateTime.fromJSDate(new Date(x)).setZone(zone).toFormat('dd/MM/yyyy HH:mm') : null });

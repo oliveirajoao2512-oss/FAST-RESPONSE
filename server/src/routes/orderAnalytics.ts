@@ -2,13 +2,13 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
-  WO_COMPONENT_LABELS, WO_COMPONENTS, WO_DOMAIN, WO_DOMAINS, WO_LOCATION_LABELS, WO_STATUS_LABELS, normalizePn, woCategory, woStart, woTimes, workedMs,
+  canSeeOrderAnalytics, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_DOMAIN, WO_DOMAINS, WO_LOCATION_LABELS, WO_STATUS_LABELS, normalizePn, woCategory, woStart, woTimes, workedMs,
   type Interval, type WoDomain, type WoLocation,
 } from '../../../shared/maintenance.js';
 import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
 import { requireUser } from '../auth.js';
 import type { SessionUser } from '../context.js';
-import { q } from '../db.js';
+import { one, q } from '../db.js';
 import { forbidden } from '../errors.js';
 import { getConfig } from '../settings.js';
 import { parse } from '../validation.js';
@@ -183,12 +183,13 @@ export async function orderAnalyticsRoutes(app: FastifyInstance) {
 
 function domainAnalytics(app: FastifyInstance, d: WoDomain) {
   const D = WO_DOMAIN[d];
-  const guard = (u: SessionUser) => {
-    if (u.role !== 'admin') throw forbidden('O novo dashboard está em teste e por enquanto só o administrador vê.');
+  const guard = async (u: SessionUser) => {
+    const areaSlug = u.areaId == null ? null : (await one<{ slug: string }>('SELECT slug FROM areas WHERE id = $1', [u.areaId]))?.slug;
+    if (!canSeeOrderAnalytics(u, areaSlug)) throw forbidden('Este dashboard é do administrador e do gestor de Produção.');
   };
   const load = async (req: FastifyRequest, schema: typeof filtersSchema | typeof recordsSchema) => {
     const u = requireUser(req);
-    guard(u);
+    await guard(u);
     const qs = parse(schema, req.query) as z.infer<typeof recordsSchema>;
     const { timezone: zone, shifts } = await getConfig();
     const to = qs.to ? DateTime.fromISO(qs.to, { zone }) : DateTime.now().setZone(zone);
