@@ -332,6 +332,8 @@ function domainAnalytics(app: FastifyInstance, d: WoDomain) {
         pns: [...new Map(all.map((x) => [x.pnKey, { key: x.pnKey, label: x.pnLabel }])).values()].sort((a, b) => (a.key === '-' ? 1 : b.key === '-' ? -1 : a.key.localeCompare(b.key, 'pt-BR', { numeric: true }))),
         assets: [...new Map(all.map((x) => [x.assetKey, { key: x.assetKey, label: x.assetLabel }])).values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true })),
         categories: [...new Map(all.map((x) => [x.catKey, { key: x.catKey, label: x.catLabel }])).values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true })),
+        // most frequent first over the whole period: the dashboard gives each category a fixed color from this order
+        categoryOrder: [...all.reduce((m, x) => m.set(x.catKey, (m.get(x.catKey) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([k]) => k),
         components: d === 'manutencao' ? WO_COMPONENTS.map((c) => ({ key: c, label: WO_COMPONENT_LABELS[c] })) : [],
         hasImported: all.some((x) => x.row.imported),
       },

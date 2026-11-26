@@ -529,9 +529,14 @@ test('16. administrador visualiza como outro perfil (somente leitura)', async ({
   // the admin lands on the new single-page dashboard of OS/OA (in test, admin only)
   await page.getByRole('link', { name: 'Indicadores' }).click();
   await expect(page.getByRole('tab', { name: 'Manutenção e ajustes (novo)' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'O que acontece em cada turno' }).or(page.getByText(/Nenhuma OS com esses filtros/))).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Distribuição de problemas' }).or(page.getByText(/Nenhuma OS com esses filtros/))).toBeVisible();
   await page.getByRole('radio', { name: 'Ajustes (OA)' }).click();
-  await expect(page.getByRole('heading', { name: /Ajustes, um a um/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Distribuição dos motivos' }).or(page.getByText(/Nenhuma OA com esses filtros/))).toBeVisible();
+  // the side panel opens over the dashboard and closes back to the overview
+  await page.getByRole('button', { name: 'Pesquisar ordens' }).click();
+  await expect(page.getByRole('complementary', { name: 'Detalhes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Fechar' }).click();
+  await expect(page.getByRole('complementary', { name: 'Detalhes' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Painel da planta' }).click();
   await expect(page.getByRole('tab', { name: 'Painel da planta' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Dias sem máquina parada')).toBeVisible();

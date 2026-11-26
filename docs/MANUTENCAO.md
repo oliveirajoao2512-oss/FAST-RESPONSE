@@ -145,11 +145,15 @@ Indicadores → "Manutenção e ajustes (novo)" (rota /indicadores-ordens), com 
 tudo numa página só (sem abas), visível só para o perfil administrador enquanto está em teste (a API `GET /api/{os,ajustes}/analytics` e `/analytics/records` responde 403 para os demais). Só lê o
 banco: não altera nem corrige nenhum registro.
 
-- Filtros combináveis: período, turno, técnico, PN, máquina, motivo (OA) ou tipo/corretiva-preventiva/onde foi o problema (OS).
-  Clicar numa barra ou cartão aplica o filtro; a barra com os filtros ativos acompanha a rolagem.
-- Seções, uma embaixo da outra: Visão geral (indicadores, evolução, Pareto, reincidência em 7 dias), Turnos (o que aconteceu em cada turno:
-  máquinas, motivos e técnicos), Técnicos, Máquinas e PN, Registros (busca, "o que o técnico fez", observações,
-  exportação Excel).
+- Tela inicial enxuta (estilo BI): faixa de indicadores, rosca "Distribuição de problemas/motivos", tendência
+  (ordens, horas ou máquina parada, com média), máquinas, turnos (barra empilhada por problema), técnicos, part numbers
+  e mapa de horários com a faixa de cada turno. Cada categoria tem cor fixa (ordem de frequência no período).
+- Clicar em qualquer item abre um painel lateral com os detalhes daquele recorte (ocorrências, % do total, técnicos,
+  tempo médio, horas, máquina parada, máquinas, PNs, turnos, quando aconteceu) e as ordens uma a uma com o problema
+  relatado e o que o técnico fez. Dentro do painel dá para continuar aprofundando (problema → máquina → técnico),
+  voltar pelo caminho no topo ou aplicar o recorte como filtro do dashboard. "Pesquisar ordens" abre a busca.
+- Filtros globais (período, turno, técnico, PN, máquina, motivo/tipo, corretiva/preventiva, onde foi o problema)
+  atualizam a tela e os painéis.
 - Separação: quantidade de ordens, tempo de atendimento (aceite ao fim menos pausas), tempo de máquina parada e horas-homem.
 - Turno vem do horário de abertura (configuração de turnos). Histórico importado entra só com a caixa marcada e fica sem turno.
 - Para conferir (não entra nas médias): mais de 24 h entre abertura e fim, ou finalizada menos de 1 min após o aceite.
