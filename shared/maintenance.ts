@@ -264,10 +264,13 @@ export function eventText(e: { action: string; data: Record<string, any> }): str
  * Windows of the plant panel (Power BI style) a user may open: administrator and plant manager see both;
  * the gestor of Manutenção sees only Manutenção and the gestor of Processos only Processos.
  */
-/** Who sees the analytical dashboard of OS and OA (Indicadores → Manutenção e ajustes): João released it to the
- *  administrator and the gestor of Produção on 26/11/2026. */
-export const canSeeOrderAnalytics = (a: { role: string }, areaSlug: string | null | undefined) =>
-  a.role === 'admin' || (a.role === 'gestor' && areaSlug === 'producao');
+/** Which modules of the analytical dashboard (Indicadores → Manutenção e ajustes) a person sees — João, 26/11/2026:
+ *  administrator, plant manager and the gestor of Produção see both; the gestor of Manutenção sees OS and the gestor
+ *  of Processos sees OA. Líderes do not. */
+export const orderAnalyticsDomains = (a: { role: string }, areaSlug: string | null | undefined): WoDomain[] =>
+  a.role === 'admin' || a.role === 'plant_manager' || (a.role === 'gestor' && areaSlug === 'producao')
+    ? [...WO_DOMAINS]
+    : a.role === 'gestor' ? WO_DOMAINS.filter((d) => WO_DOMAIN[d].areaSlug === areaSlug) : [];
 
 export const plantPanelDomains = (a: { role: string }, areaSlug: string | null | undefined): WoDomain[] =>
   a.role === 'admin' || a.role === 'plant_manager'

@@ -142,9 +142,10 @@ conta da abertura ao fim de cada ordem aberta com máquina parada.
 ## Dashboard de manutenção e ajustes (Indicadores)
 
 Indicadores → "Manutenção e ajustes" (rota /indicadores-ordens), com escolha entre Manutenção (OS) e Ajustes (OA),
-tudo numa página só. Liberado em 26/11/2026 para o administrador e o gestor de Produção (regra `canSeeOrderAnalytics`
-em shared/maintenance.ts; a API `GET /api/{os,oa}/analytics` e `/analytics/records` responde 403 para os demais, e o
-Excel `export.xlsx` também aceita esse acesso). Só lê o banco: não altera nem corrige nenhum registro. A aba
+tudo numa página só. Acesso (26/11/2026, regra `orderAnalyticsDomains` em shared/maintenance.ts): administrador,
+plant manager e gestor de Produção veem OS e OA; gestor de Manutenção vê só OS; gestor de Processos vê só OA; líderes
+não veem. A API `GET /api/{os,oa}/analytics` e `/analytics/records` responde 403 fora disso, e o Excel `export.xlsx`
+também aceita esse acesso. Só lê o banco: não altera nem corrige nenhum registro. A aba
 "Dashboard" das telas de OS e OA continua como era, para os gestores e líderes de cada equipe.
 
 - Tela inicial enxuta (estilo BI): faixa de indicadores, rosca "Distribuição de problemas/motivos", tendência

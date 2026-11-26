@@ -55,13 +55,15 @@ afterAll(async () => {
   await ctx.app.close();
 });
 
-describe('dashboards analíticos (administrador e gestor de Produção)', () => {
-  it('só o administrador e o gestor de Produção acessam', async () => {
+describe('dashboards analíticos (cada gestor vê o seu módulo)', () => {
+  it('gestor de Produção vê os dois, Processos só OA, líder não vê', async () => {
     expect((await gestorProd.get(`/api/oa/analytics?${RANGE}`)).status).toBe(200);
     expect((await gestorProd.get(`/api/os/analytics/records?${RANGE}`)).status).toBe(200);
     expect((await gestorProd.get(`/api/os/export.xlsx?${RANGE}`)).status).toBe(200);
     expect((await operador.get(`/api/os/analytics?${RANGE}`)).status).toBe(403);
-    expect((await gestorProc.get(`/api/oa/analytics?${RANGE}`)).status).toBe(403);
+    expect((await gestorProc.get(`/api/oa/analytics?${RANGE}`)).status).toBe(200);
+    expect((await gestorProc.get(`/api/os/analytics?${RANGE}`)).status).toBe(403);
+    expect((await (await ctx.c('liderProd')).get(`/api/os/analytics?${RANGE}`)).status).toBe(403);
     expect((await ana.get(`/api/oa/analytics?${RANGE}`)).status).toBe(403);
     expect((await admin.get(`/api/oa/analytics?${RANGE}`)).status).toBe(200);
   });

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
-  canSeeOrderAnalytics, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_DOMAIN, WO_DOMAINS, WO_LOCATION_LABELS, WO_STATUS_LABELS, normalizePn, woCategory, woStart, woTimes, workedMs,
+  orderAnalyticsDomains, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_DOMAIN, WO_DOMAINS, WO_LOCATION_LABELS, WO_STATUS_LABELS, normalizePn, woCategory, woStart, woTimes, workedMs,
   type Interval, type WoDomain, type WoLocation,
 } from '../../../shared/maintenance.js';
 import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
@@ -185,7 +185,7 @@ function domainAnalytics(app: FastifyInstance, d: WoDomain) {
   const D = WO_DOMAIN[d];
   const guard = async (u: SessionUser) => {
     const areaSlug = u.areaId == null ? null : (await one<{ slug: string }>('SELECT slug FROM areas WHERE id = $1', [u.areaId]))?.slug;
-    if (!canSeeOrderAnalytics(u, areaSlug)) throw forbidden('Este dashboard é do administrador e do gestor de Produção.');
+    if (!orderAnalyticsDomains(u, areaSlug).includes(d)) throw forbidden(`O dashboard de ${D.title} é dos gestores de ${D.team}, de Produção, do plant manager e do administrador.`);
   };
   const load = async (req: FastifyRequest, schema: typeof filtersSchema | typeof recordsSchema) => {
     const u = requireUser(req);
