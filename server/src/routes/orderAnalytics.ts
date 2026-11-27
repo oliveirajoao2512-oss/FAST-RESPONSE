@@ -5,7 +5,7 @@ import {
   orderAnalyticsDomains, WO_COMPONENT_LABELS, WO_COMPONENTS, WO_DOMAIN, WO_DOMAINS, WO_LOCATION_LABELS, WO_STATUS_LABELS, normalizePn, woCategory, woStart, woTimes, workedMs,
   type Interval, type WoDomain, type WoLocation,
 } from '../../../shared/maintenance.js';
-import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
+import { OFF_SHIFT, shiftOf, shiftRanges, shiftSchedule } from '../../../shared/shifts.js';
 import { requireUser } from '../auth.js';
 import type { SessionUser } from '../context.js';
 import { one, q } from '../db.js';
@@ -207,7 +207,9 @@ function domainAnalytics(app: FastifyInstance, d: WoDomain) {
 
     // ---- groups (every chart reads from these, so the numbers always agree)
     // what happens in each shift: its numbers, the machines and problems it has most, and who works on it
-    const byShift = shiftRanges(shifts).map((r) => {
+    // the configured shifts, plus "Fora do turno" when something happened while no shift was working
+    const shiftRows = [...shiftRanges(shifts).map((r) => ({ ...r, schedule: shiftSchedule(r) })), ...(xs.some((x) => x.shift === OFF_SHIFT) ? [{ name: OFF_SHIFT, start: '', end: '', schedule: 'quando nenhum turno trabalha' }] : [])];
+    const byShift = shiftRows.map((r) => {
       const sx = xs.filter((x) => x.shift === r.name);
       const ranked = (key: (x: Fact) => string, label: (x: Fact) => string) =>
         groupBy(sx, key, label).map((g) => ({ key: g.key, label: g.label, n: g.xs.length, stoppedH: stats(g.xs).stoppedH })).sort((a, b) => b.n - a.n).slice(0, 5);
@@ -215,7 +217,7 @@ function domainAnalytics(app: FastifyInstance, d: WoDomain) {
       for (const x of sx) x.techIds.forEach((id, i) => { const c = people.get(id) ?? { id, name: x.techNames[i], n: 0 }; c.n++; people.set(id, c); });
       const waits = sx.map((x) => x.waitMs).filter((v): v is number => v != null);
       return {
-        key: r.name, label: r.name, start: r.start, end: r.end, ...stats(sx),
+        key: r.name, label: r.name, start: r.start, end: r.end, schedule: r.schedule, ...stats(sx),
         avgWaitMin: waits.length ? round(waits.reduce((a, b) => a + b, 0) / waits.length / 60_000, 1) : null,
         topAssets: ranked((x) => x.assetKey, (x) => x.assetLabel), topCategories: ranked((x) => x.catKey, (x) => x.catLabel),
         techs: [...people.values()].sort((a, b) => b.n - a.n),
@@ -300,7 +302,7 @@ function domainAnalytics(app: FastifyInstance, d: WoDomain) {
       criteria: {
         duration: 'Do aceite até finalizar, menos as pausas. Fora da média: ordens com mais de 24 h entre abertura e fim e ordens finalizadas menos de 1 min depois do aceite.',
         stopped: 'Ordens abertas com máquina parada, da abertura até a finalização (o app não registra a hora em que a máquina voltou a produzir).',
-        shift: `Pela hora de abertura e os turnos de Configurações: ${shiftRanges(shifts).map((r) => `${r.name} ${r.start}–${r.end}`).join(', ')}.`,
+        shift: `Pela hora de abertura e o calendário de turnos de Configurações: ${shiftRanges(shifts).map((r) => `${r.name} ${shiftSchedule(r)}`).join('; ')}. O que acontece quando nenhum turno trabalha conta como "${OFF_SHIFT}".`,
         mtbf: 'MTBF não é calculado: falta o calendário de produção (turnos e dias trabalhados) de cada máquina.',
       },
       kpis: {
@@ -328,7 +330,7 @@ function domainAnalytics(app: FastifyInstance, d: WoDomain) {
       },
       // filter options come from the whole period, so choosing one never hides the others
       options: {
-        shifts: shiftRanges(shifts).map((r) => r.name),
+        shifts: [...shiftRanges(shifts).map((r) => r.name), ...(all.some((x) => x.shift === OFF_SHIFT) ? [OFF_SHIFT] : [])],
         techs: [...new Map(all.flatMap((x) => x.row.stints.map((st) => [st.user_id, { id: st.user_id, name: st.name }] as const))).values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
         pns: [...new Map(all.map((x) => [x.pnKey, { key: x.pnKey, label: x.pnLabel }])).values()].sort((a, b) => (a.key === '-' ? 1 : b.key === '-' ? -1 : a.key.localeCompare(b.key, 'pt-BR', { numeric: true }))),
         assets: [...new Map(all.map((x) => [x.assetKey, { key: x.assetKey, label: x.assetLabel }])).values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { numeric: true })),

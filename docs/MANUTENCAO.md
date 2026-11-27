@@ -196,7 +196,17 @@ OS em análise ou recusadas não entram nos indicadores. O comprovante em PDF mo
 
 ## Turnos
 
-Cada ordem (manutenção ou ajuste) conta no **turno em que foi aberta**, pelo horário da fábrica. Os turnos são cadastrados em **Administração → Configurações → Turnos**, pelo horário em que cada um começa (padrão: 06:00, 14:00 e 22:00; o último vai até o início do primeiro, passando da meia-noite). Como o turno é calculado a partir da hora de abertura, mudar os horários recalcula também as ordens antigas.
+Cada ordem (manutenção ou ajuste) conta no **turno em que foi aberta**, pelo horário da fábrica. Os turnos são cadastrados em **Administração → Configurações → Turnos**: horário em que cada um começa (vai até o início do próximo), dias em que trabalha e, se houver, um horário diferente no sábado. Como o turno é calculado a partir da hora de abertura, mudar os horários recalcula também as ordens antigas.
+
+Calendário oficial da fábrica (João, 27/11/2026), que é o padrão do sistema:
+
+| Turno | Segunda a sexta | Sábado |
+|---|---|---|
+| 1º turno | 06:00–14:00 | 06:00–11:00 |
+| 2º turno | 14:00–22:00 | 11:00–16:00 |
+| 3º turno | 22:00–06:00 (noites de segunda a sexta) | — |
+
+De sábado 16:00 até segunda 06:00 nenhum turno trabalha: o que for aberto nesse intervalo conta como **"Fora do turno"** (aparece como uma linha a mais nos quadros por turno). Esse calendário também é o tempo planejado para os próximos indicadores (MTBF, disponibilidade, OEE).
 
 Onde aparece: filtro "Turno de abertura" e tabela "por turno de abertura" (abertas, espera média, atendimento médio e horas de máquina parada) no Dashboard de cada módulo, coluna "Turno" no Excel exportado e quadro "abertas por turno" no Painel da planta.
 

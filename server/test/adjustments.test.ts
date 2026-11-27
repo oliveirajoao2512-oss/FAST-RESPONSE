@@ -117,7 +117,8 @@ describe('fluxo da Ordem de Ajuste', () => {
     const only6 = await gestorProc.get('/api/oa/report?category=6');
     expect(only6.body.totals.opened).toBe(1);
     // every order falls in exactly one shift, and filtering by a shift keeps only its orders
-    expect(r.body.byShift.map((t: any) => t.key)).toEqual(['1º turno', '2º turno', '3º turno']);
+    // (on a weekend the orders of the test fall in "Fora do turno", which then shows up after the shifts)
+    expect(r.body.byShift.map((t: any) => t.key).slice(0, 3)).toEqual(['1º turno', '2º turno', '3º turno']);
     expect(r.body.byShift.reduce((a: number, t: any) => a + t.n, 0)).toBe(2);
     const busy = r.body.byShift.find((t: any) => t.n > 0);
     expect((await gestorProc.get(`/api/oa/report?shift=${encodeURIComponent(busy.key)}`)).body.totals.opened).toBe(busy.n);

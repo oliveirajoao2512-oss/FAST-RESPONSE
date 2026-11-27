@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG, mergeConfig } from '../../../shared/config.js';
 import { ASSET_TYPES, ROLES } from '../../../shared/constants.js';
 import { normalizePn, normalizeToolCode, toolTypeOf } from '../../../shared/maintenance.js';
 import { pnDigits } from '../../../shared/tools.js';
-import { shiftsProblem } from '../../../shared/shifts.js';
+import { cleanShifts, shiftsProblem } from '../../../shared/shifts.js';
 import { can } from '../../../shared/permissions.js';
 import { audit } from '../audit.js';
 import { hashPassword, requireUser, revokeUserSessions } from '../auth.js';
@@ -399,5 +399,5 @@ function validateConfig(c: ReturnType<typeof mergeConfig>) {
   }
   if (o.stoppedRemindMinutes && o.stoppedManagerMinutes && o.stoppedManagerMinutes <= o.stoppedRemindMinutes) throw badRequest('Máquina parada: o aviso aos gestores deve vir depois da cobrança à equipe.');
   if (o.runningRemindMinutes && o.runningManagerMinutes && o.runningManagerMinutes <= o.runningRemindMinutes) throw badRequest('Máquina rodando: o aviso aos gestores deve vir depois da cobrança à equipe.');
-  c.shifts = c.shifts.map((s) => ({ name: s.name.trim(), start: s.start }));
+  c.shifts = cleanShifts(c.shifts);
 }

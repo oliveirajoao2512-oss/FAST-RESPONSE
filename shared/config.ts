@@ -76,10 +76,12 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   timezone: 'America/Sao_Paulo',
+  // plant calendar given by João on 27/11/2026: Monday to Friday in three shifts, a short Saturday, stopped from
+  // Saturday 16:00 to Monday 06:00 (the 3rd shift works Monday to Friday nights)
   shifts: [
-    { name: '1º turno', start: '06:00' },
-    { name: '2º turno', start: '14:00' },
-    { name: '3º turno', start: '22:00' },
+    { name: '1º turno', start: '06:00', days: [1, 2, 3, 4, 5], saturday: { start: '06:00', end: '11:00' } },
+    { name: '2º turno', start: '14:00', days: [1, 2, 3, 4, 5], saturday: { start: '11:00', end: '16:00' } },
+    { name: '3º turno', start: '22:00', days: [1, 2, 3, 4, 5] },
   ],
   deadline: {
     days: 1,

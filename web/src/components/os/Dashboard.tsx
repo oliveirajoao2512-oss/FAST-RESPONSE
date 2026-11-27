@@ -59,7 +59,7 @@ interface Report {
   byPn: Group[];
   byComponent: Group[];
   byTool: Group[];
-  byShift: (Group & { start: string; end: string; waitH: number | null })[];
+  byShift: (Group & { start: string; end: string; schedule?: string; waitH: number | null })[];
   pnCoverage: number | null;
   heat: number[][];
   pauses: { reason: string; n: number; hours: number }[];
@@ -288,7 +288,7 @@ function ShiftTable({ rows, adj, short, onPick }: { rows: Report['byShift']; adj
         <tbody>
           {rows.map((r) => (
             <tr key={r.key} onClick={() => onPick(r.key)} className="cursor-pointer border-b last:border-0 hover:bg-gray-50" title="Filtrar por este turno">
-              <td className="px-4 py-2"><span className="font-medium text-gray-900">{r.label}</span> <span className="text-xs text-gray-500">{r.start}–{r.end}</span></td>
+              <td className="px-4 py-2"><span className="font-medium text-gray-900">{r.label}</span> <span className="text-xs text-gray-500">{r.schedule ?? `${r.start}–${r.end}`}</span></td>
               <td className="py-2 text-right tabular"><b>{r.n}</b> <span className="text-xs text-gray-500">{short}</span></td>
               <td className="py-2 text-right tabular text-gray-700">{Math.round((r.n / total) * 100)}%</td>
               <td className="py-2 text-right tabular text-gray-700">{h(r.waitH)}</td>

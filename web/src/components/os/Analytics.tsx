@@ -21,6 +21,7 @@ const C_STOP = '#d03b3b';
 const C_OTHER = '#c4c9d1';
 const PALETTE = ['#2a78d6', '#ea6a1f', '#0f9d8a', '#7c5cd6', '#c99a1a', '#d6458b', '#1aa0c8', '#8a6a4a'];
 const SHIFT_COLORS = ['#2a78d6', '#ea6a1f', '#0f9d8a', '#7c5cd6', '#64748b', '#c99a1a'];
+const shiftColor = (key: string, i: number) => (key === 'Fora do turno' ? '#9ca3af' : SHIFT_COLORS[i % SHIFT_COLORS.length]);
 
 type PeriodKey = 'hoje' | 'ontem' | '7d' | '30d' | 'mes' | 'anterior' | 'custom';
 const PERIODS: { value: PeriodKey; label: string }[] = [
@@ -44,7 +45,7 @@ function rangeOf(p: PeriodKey, custom: { from: string; to: string }) {
 
 interface Stats { n: number; finished: number; timed: number; workH: number | null; avgMin: number | null; stops: number; stoppedH: number | null; mttrH: number | null }
 interface Named { key: string; label: string; n: number }
-interface Shift extends Stats { key: string; label: string; start: string; end: string; avgWaitMin: number | null; topAssets: (Named & { stoppedH: number | null })[]; topCategories: (Named & { stoppedH: number | null })[]; techs: { id: string; name: string; n: number }[] }
+interface Shift extends Stats { key: string; label: string; start: string; end: string; schedule?: string; avgWaitMin: number | null; topAssets: (Named & { stoppedH: number | null })[]; topCategories: (Named & { stoppedH: number | null })[]; techs: { id: string; name: string; n: number }[] }
 interface Analytics {
   domain: 'ajuste' | 'manutencao'; from: string; to: string; bucket: 'dia' | 'semana' | 'mes';
   criteria: { duration: string; stopped: string; shift: string; mtbf: string };
@@ -204,8 +205,8 @@ export function AnalyticsDashboard({ onOpen }: { onOpen: (id: string) => void })
               onPick={(k, l) => open({ dim: 'pn', key: k, label: l })} />
           </Panel>
         </div>
-        <Panel title="Quando as ordens são abertas" sub="dia da semana × hora, com a faixa de cada turno">
-          <Heat heat={d.heat} shifts={d.byShift.map((s, i) => ({ ...s, color: SHIFT_COLORS[i % SHIFT_COLORS.length] }))} />
+        <Panel title="Quando as ordens são abertas" sub="dia da semana × hora; a faixa colorida mostra os turnos de segunda a sexta">
+          <Heat heat={d.heat} shifts={d.byShift.map((s, i) => ({ ...s, color: SHIFT_COLORS[i % SHIFT_COLORS.length] })).filter((s) => s.start)} />
         </Panel>
         <Criteria d={d} />
       </>))}
@@ -438,7 +439,7 @@ function ShiftStack({ d, colorOf, onShift, onPart }: { d: Analytics; colorOf: (k
         return (
           <div key={s.key}>
             <button onClick={() => onShift(s.key)} className="group flex w-full items-baseline justify-between gap-2 text-left">
-              <span className="flex items-baseline gap-2"><span className="h-2.5 w-2.5 self-center rounded-full" style={{ background: SHIFT_COLORS[i % SHIFT_COLORS.length] }} /><b className="text-sm text-gray-900 group-hover:underline">{s.label}</b><span className="text-[11px] text-gray-400">{s.start}–{s.end}</span></span>
+              <span className="flex items-baseline gap-2"><span className="h-2.5 w-2.5 self-center rounded-full" style={{ background: shiftColor(s.key, i) }} /><b className="text-sm text-gray-900 group-hover:underline">{s.label}</b><span className="text-[11px] text-gray-400">{s.schedule ?? `${s.start}–${s.end}`}</span></span>
               <span className="text-sm"><b className="tabular">{s.n}</b> <span className="text-xs text-gray-500">({pct(s.n, total)})</span></span>
             </button>
             <div className="mt-1 flex h-6 gap-0.5" style={{ width: `${Math.max(4, (s.n / max) * 100)}%` }}>
@@ -620,7 +621,7 @@ function DrillPanel({ api, adj, drill, setDrill, base, totalN, colorOf, onOpen, 
               {!used.has('shift') && !used.has('day') && d.byShift.some((s) => s.n) && (
                 <Mini title="Por turno">
                   <Bars limit={6} onPick={(k, l) => push({ dim: 'shift', key: k, label: l })}
-                    rows={d.byShift.filter((s) => s.n).map((s) => ({ key: s.key, label: s.label, v: s.n, text: `${s.n} · ${pct(s.n, d.kpis.n)}`, color: SHIFT_COLORS[d.byShift.indexOf(s) % SHIFT_COLORS.length] }))} />
+                    rows={d.byShift.filter((s) => s.n).map((s) => ({ key: s.key, label: s.label, v: s.n, text: `${s.n} · ${pct(s.n, d.kpis.n)}`, color: shiftColor(s.key, d.byShift.indexOf(s)) }))} />
                 </Mini>
               )}
               {!used.has('day') && d.series.length > 1 && (

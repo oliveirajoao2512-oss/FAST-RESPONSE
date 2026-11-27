@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG, mergeConfig } from '../../shared/config.js';
 import { computeCriticalSafetyDue, computeDefaultDue, isOverdue } from '../../shared/deadline.js';
 import { can } from '../../shared/permissions.js';
 import { scoreIssue } from '../../shared/scoring.js';
-import { shiftOf, shiftRanges, shiftsProblem } from '../../shared/shifts.js';
+import { OFF_SHIFT, shiftOf, shiftRanges, shiftSchedule, shiftsProblem } from '../../shared/shifts.js';
 import { autoComplexity, canSimpleTransition, completionProblems, stepProgress } from '../../shared/workflow.js';
 
 const cfg = DEFAULT_CONFIG;
@@ -143,11 +143,36 @@ describe('turno de abertura', () => {
     expect(shiftOf('2026-11-14T02:10:00-03:00', shifts, z)).toBe('3º turno');
     expect(shiftOf('2026-11-13T08:00:00Z', shifts, z)).toBe('3º turno'); // 05:00 na fábrica
   });
+  it('calendário da fábrica: sábado reduzido e parada no fim de semana', () => {
+    // 2026-11-14 é sábado, 2026-11-15 domingo, 2026-11-16 segunda
+    expect(shiftOf('2026-11-14T05:30:00-03:00', shifts, z)).toBe('3º turno'); // noite de sexta
+    expect(shiftOf('2026-11-14T06:00:00-03:00', shifts, z)).toBe('1º turno');
+    expect(shiftOf('2026-11-14T10:59:00-03:00', shifts, z)).toBe('1º turno');
+    expect(shiftOf('2026-11-14T11:00:00-03:00', shifts, z)).toBe('2º turno');
+    expect(shiftOf('2026-11-14T15:59:00-03:00', shifts, z)).toBe('2º turno');
+    expect(shiftOf('2026-11-14T16:00:00-03:00', shifts, z)).toBe(OFF_SHIFT);
+    expect(shiftOf('2026-11-14T23:00:00-03:00', shifts, z)).toBe(OFF_SHIFT);
+    expect(shiftOf('2026-11-15T12:00:00-03:00', shifts, z)).toBe(OFF_SHIFT);
+    expect(shiftOf('2026-11-15T23:00:00-03:00', shifts, z)).toBe(OFF_SHIFT); // domingo à noite não tem 3º turno
+    expect(shiftOf('2026-11-16T05:59:00-03:00', shifts, z)).toBe(OFF_SHIFT); // volta segunda às 6
+    expect(shiftOf('2026-11-16T06:00:00-03:00', shifts, z)).toBe('1º turno');
+    expect(shiftOf('2026-11-16T22:30:00-03:00', shifts, z)).toBe('3º turno');
+    expect(shiftOf('2026-11-17T03:00:00-03:00', shifts, z)).toBe('3º turno');
+    // sem calendário (configuração antiga), todo horário tem turno
+    const old = [{ name: 'A', start: '06:00' }, { name: 'B', start: '18:00' }];
+    expect(shiftOf('2026-11-15T12:00:00-03:00', old, z)).toBe('A');
+    expect(shiftOf('2026-11-15T03:00:00-03:00', old, z)).toBe('B');
+    expect(shiftSchedule(shiftRanges(shifts)[0])).toBe('seg a sex 06:00–14:00 · sáb 06:00–11:00');
+  });
   it('intervalos e validação', () => {
     expect(shiftRanges(shifts).map((s) => `${s.start}-${s.end}`)).toEqual(['06:00-14:00', '14:00-22:00', '22:00-06:00']);
     expect(shiftsProblem(shifts)).toBeNull();
     expect(shiftsProblem([])).not.toBeNull();
     expect(shiftsProblem([{ name: 'A', start: '06:00' }, { name: 'B', start: '06:00' }])).not.toBeNull();
     expect(shiftsProblem([{ name: 'A', start: '25:00' }])).not.toBeNull();
+    expect(shiftsProblem([{ name: 'A', start: '06:00', days: [] }])).not.toBeNull();
+    expect(shiftsProblem([{ name: 'A', start: '06:00', saturday: { start: '11:00', end: '06:00' } }])).not.toBeNull();
+    expect(shiftsProblem([{ name: 'A', start: '06:00', days: [6], saturday: { start: '06:00', end: '11:00' } }])).not.toBeNull();
+    expect(shiftsProblem([{ name: 'A', start: '06:00', saturday: { start: '06:00', end: '12:00' } }, { name: 'B', start: '14:00', saturday: { start: '11:00', end: '16:00' } }])).not.toBeNull();
   });
 });

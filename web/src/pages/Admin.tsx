@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileUp, KeyRound, Pencil, Plus, Save, Smartphone, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { pnKey } from '@shared/partNumbers';
-import { shiftRanges } from '@shared/shifts';
+import { shiftRanges, shiftSchedule, WEEKDAY_NAMES, type Shift } from '@shared/shifts';
 import { toolMatches } from '@shared/tools';
 import { ASSET_TYPE_LABELS, ASSET_TYPES, PRIORITIES, PRIORITY_LABELS, ORDER_ONLY_ROLES, ROLE_LABELS, ROLES } from '@shared/constants';
 import { FormError } from '../components/actions';
@@ -221,18 +221,46 @@ export function SettingsPage() {
         </Field>
       </Section>
       <Section title="Turnos">
-        <p className="text-sm text-gray-600 sm:col-span-2">Cada ordem de manutenção e de ajuste conta no turno em que foi aberta. Informe o horário em que cada turno começa: ele vai até o início do próximo.</p>
-        <div className="space-y-2 sm:col-span-2">
-          {cfg.shifts.map((s: { name: string; start: string }, i: number) => (
-            <div key={i} className="flex flex-wrap items-center gap-2">
-              <div className="w-44"><Input value={s.name} disabled={!editable} aria-label="Nome do turno" onChange={(e) => set('shifts', cfg.shifts.map((x: any, j: number) => (j === i ? { ...x, name: e.target.value } : x)))} /></div>
-              <span className="text-sm text-gray-600">começa às</span>
-              <div className="w-36"><Input type="time" value={s.start} disabled={!editable} aria-label="Início do turno" onChange={(e) => set('shifts', cfg.shifts.map((x: any, j: number) => (j === i ? { ...x, start: e.target.value } : x)))} /></div>
-              {editable && cfg.shifts.length > 1 && <Button kind="ghost" size="sm" aria-label="Remover turno" onClick={() => set('shifts', cfg.shifts.filter((_: any, j: number) => j !== i))}><Trash2 size={15} /></Button>}
-            </div>
-          ))}
-          {editable && cfg.shifts.length < 6 && <Button size="sm" onClick={() => set('shifts', [...cfg.shifts, { name: `${cfg.shifts.length + 1}º turno`, start: '00:00' }])}><Plus size={15} />Adicionar turno</Button>}
-          <p className="text-xs text-gray-500">{shiftRanges(cfg.shifts.filter((s: any) => /^\d{2}:\d{2}$/.test(s.start))).map((s) => `${s.name}: ${s.start} às ${s.end}`).join(' · ')}</p>
+        <p className="text-sm text-gray-600 sm:col-span-2">Cada ordem de manutenção e de ajuste conta no turno em que foi aberta. Informe quando cada turno começa (ele vai até o início do próximo), os dias em que trabalha e, se for o caso, o horário diferente de sábado. O que acontecer quando nenhum turno está trabalhando conta como "Fora do turno". Esse calendário também é o tempo planejado dos indicadores.</p>
+        <div className="space-y-3 sm:col-span-2">
+          {cfg.shifts.map((s: Shift, i: number) => {
+            const upd = (patch: Partial<Shift>) => set('shifts', cfg.shifts.map((x: Shift, j: number) => (j === i ? { ...x, ...patch } : x)));
+            const days = s.days ?? [1, 2, 3, 4, 5, 6, 7];
+            return (
+              <div key={i} className="space-y-2 rounded-lg border border-gray-200 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-44"><Input value={s.name} disabled={!editable} aria-label="Nome do turno" onChange={(e) => upd({ name: e.target.value })} /></div>
+                  <span className="text-sm text-gray-600">começa às</span>
+                  <div className="w-36"><Input type="time" value={s.start} disabled={!editable} aria-label="Início do turno" onChange={(e) => upd({ start: e.target.value })} /></div>
+                  {editable && cfg.shifts.length > 1 && <Button kind="ghost" size="sm" aria-label="Remover turno" onClick={() => set('shifts', cfg.shifts.filter((_: any, j: number) => j !== i))}><Trash2 size={15} /></Button>}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700">
+                  <span className="text-gray-600">Dias:</span>
+                  {WEEKDAY_NAMES.map((w, k) => (
+                    <label key={w} className="inline-flex items-center gap-1">
+                      <input type="checkbox" disabled={!editable} checked={days.includes(k + 1)}
+                        onChange={(e) => upd({ days: e.target.checked ? [...days, k + 1].sort() : days.filter((d) => d !== k + 1), ...(k === 5 && e.target.checked ? { saturday: null } : {}) })} />
+                      {w.slice(0, 3)}
+                    </label>
+                  ))}
+                </div>
+                {!days.includes(6) && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+                    <label className="inline-flex items-center gap-1.5">
+                      <input type="checkbox" disabled={!editable} checked={!!s.saturday} onChange={(e) => upd({ saturday: e.target.checked ? { start: s.start, end: s.start } : null })} />
+                      Trabalha no sábado com outro horário
+                    </label>
+                    {s.saturday && (<>
+                      <span>das</span><div className="w-32"><Input type="time" value={s.saturday.start} disabled={!editable} aria-label="Início no sábado" onChange={(e) => upd({ saturday: { ...s.saturday!, start: e.target.value } })} /></div>
+                      <span>às</span><div className="w-32"><Input type="time" value={s.saturday.end} disabled={!editable} aria-label="Fim no sábado" onChange={(e) => upd({ saturday: { ...s.saturday!, end: e.target.value } })} /></div>
+                    </>)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {editable && cfg.shifts.length < 6 && <Button size="sm" onClick={() => set('shifts', [...cfg.shifts, { name: `${cfg.shifts.length + 1}º turno`, start: '00:00', days: [1, 2, 3, 4, 5] }])}><Plus size={15} />Adicionar turno</Button>}
+          <p className="text-xs text-gray-500">{shiftRanges(cfg.shifts.filter((s: Shift) => /^\d{2}:\d{2}$/.test(s.start))).map((s) => `${s.name}: ${shiftSchedule(s)}`).join(' · ')}</p>
         </div>
       </Section>
       <Section title="Fluxo e encerramento">

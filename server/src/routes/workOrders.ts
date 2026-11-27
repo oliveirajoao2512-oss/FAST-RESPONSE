@@ -9,7 +9,7 @@ import {
 } from '../../../shared/maintenance.js';
 import { findPn, matchPn, type PartNumber } from '../../../shared/partNumbers.js';
 import { machineKey, pnDigits, type Tool, type ToolReason } from '../../../shared/tools.js';
-import { shiftOf, shiftRanges } from '../../../shared/shifts.js';
+import { OFF_SHIFT, shiftOf, shiftRanges, shiftSchedule } from '../../../shared/shifts.js';
 import { audit } from '../audit.js';
 import { orderAnalyticsRoutes } from './orderAnalytics.js';
 import { requireUser } from '../auth.js';
@@ -914,10 +914,11 @@ function domainRoutes(app: FastifyInstance, d: WoDomain) {
     const withPn = opened.filter((r) => r.part_number).length;
     // shift in which each order was opened, in the order of the day
     const shiftGroups = group((r) => shiftOfRow(r) ?? '', (r) => shiftOfRow(r) ?? '');
-    const byShift = shiftRanges(shifts).map((s) => {
+    const offShift = shiftGroups.some((x) => x.key === OFF_SHIFT) ? [{ name: OFF_SHIFT, start: '', end: '', days: undefined, saturday: null }] : [];
+    const byShift = [...shiftRanges(shifts), ...offShift].map((s) => {
       const g = shiftGroups.find((x) => x.key === s.name);
       const w = opened.filter((r) => r.first_accepted_at && shiftOfRow(r) === s.name).map((r) => r.times.waitMs);
-      return { key: s.name, label: s.name, start: s.start, end: s.end, n: g?.n ?? 0, stoppedH: g?.stoppedH ?? 0, finished: g?.finished ?? 0, workH: g?.workH ?? null, waitH: avg(w) };
+      return { key: s.name, label: s.name, start: s.start, end: s.end, schedule: s.start ? shiftSchedule(s) : 'quando nenhum turno trabalha', n: g?.n ?? 0, stoppedH: g?.stoppedH ?? 0, finished: g?.finished ?? 0, workH: g?.workH ?? null, waitH: avg(w) };
     });
 
     // when problems appear: openings by weekday × hour
@@ -1179,7 +1180,9 @@ function plantPanelRoutes(app: FastifyInstance) {
       byShift: (() => {
         const sh = (r: any) => (r.imported ? '' : shiftOf(r.opened_at, shifts, zone) ?? '');
         const t = tally(sh, sh, opened_rows);
-        return shiftRanges(shifts).map((s) => ({ key: s.name, label: `${s.name} (${s.start}–${s.end})`, n: t.find((x) => x.key === s.name)?.n ?? 0, downtimeH: t.find((x) => x.key === s.name)?.downtimeH ?? 0 }));
+        const rows = shiftRanges(shifts).map((s) => ({ key: s.name, label: `${s.name} (${s.start}–${s.end})`, n: t.find((x) => x.key === s.name)?.n ?? 0, downtimeH: t.find((x) => x.key === s.name)?.downtimeH ?? 0 }));
+        const off = t.find((x) => x.key === OFF_SHIFT);
+        return off ? [...rows, { key: OFF_SHIFT, label: OFF_SHIFT, n: off.n, downtimeH: off.downtimeH ?? 0 }] : rows;
       })(),
       partNumbers: (await q<{ pn: string }>(`SELECT DISTINCT part_number AS pn FROM work_orders WHERE domain = $1 AND part_number IS NOT NULL`, [d]))
         .map((r) => r.pn).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
