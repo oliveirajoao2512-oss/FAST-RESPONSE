@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Download, Factory, HelpCircle, Info, Pencil, Save } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Download, Factory, HelpCircle, Info, Pencil, Save, Upload } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -16,7 +16,7 @@ import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Segmented, Sele
  * whether the stops already registered (OS, OA with the machine stopped, setups) explain what was not produced.
  */
 
-interface Standard { machine: string; pn: string; cycleSeconds: number; cavities: number; source: 'manual' | 'controle_ciclo'; updatedAt: string; description: string | null }
+interface Standard { machine: string; pn: string; cycleSeconds: number; cavities: number; source: 'manual' | 'controle_ciclo' | 'planilha_pcp'; updatedAt: string; description: string | null }
 interface Options {
   machines: string[]; standards: Standard[]; shifts: any[]; timezone: string; canEditStandards: boolean;
   last: { machine: string; pn: string; periodEnd: string }[];
@@ -433,6 +433,7 @@ function StandardsSection({ o }: { o: Options }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
+  const [pcp, setPcp] = useState(false);
   const [form, setForm] = useState({ machine: '', pn: '', cycleSeconds: '', cavities: '1' });
   const saveStd = useMutation({
     mutationFn: () => put('/api/producao/padroes', { machine: form.machine, pn: form.pn, cycleSeconds: Number(form.cycleSeconds.replace(',', '.')), cavities: Number(form.cavities) }),
@@ -445,9 +446,14 @@ function StandardsSection({ o }: { o: Options }) {
   const term = filter.trim().toUpperCase();
   const rows = o.standards.filter((s) => !term || s.pn.includes(term) || machineKey(s.machine) === machineKey(term) || (s.description ?? '').toUpperCase().includes(term));
   return (
+    <>
+    {pcp && <PcpImportModal onClose={() => setPcp(false)} />}
     <Card title={<button className="flex items-center gap-2" onClick={() => setOpen((v) => !v)}>Ciclos padrão por máquina e PN <span className="rounded-full bg-gray-100 px-2 text-xs text-gray-600">{o.standards.length}</span><ChevronDown className={cx('h-4 w-4 text-gray-400', open && 'rotate-180')} /></button>}
       actions={open && o.canEditStandards ? (
-        <Button size="sm" loading={importCycle.isPending} onClick={() => importCycle.mutate()}><Download className="h-3.5 w-3.5" />Trazer do Controle de Ciclo</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" kind="primary" onClick={() => setPcp(true)}><Upload className="h-3.5 w-3.5" />Importar planilha do PCP</Button>
+          <Button size="sm" loading={importCycle.isPending} onClick={() => importCycle.mutate()}><Download className="h-3.5 w-3.5" />Trazer do Controle de Ciclo</Button>
+        </div>
       ) : undefined}>
       {!open ? (
         <p className="text-sm text-gray-500">A meta usa o ciclo padrão do PN naquela máquina. Sem ciclo cadastrado, o apontamento é salvo, mas a meta não é calculada.</p>
@@ -483,7 +489,7 @@ function StandardsSection({ o }: { o: Options }) {
                       <td className="px-3 py-1.5 font-semibold">{s.machine}</td>
                       <td className="px-3 py-1.5">{s.pn}{s.description && <span className="block text-xs text-gray-500">{s.description}</span>}</td>
                       <td className="px-3 py-1.5 tabular">{cycleText(s)}</td>
-                      <td className="px-3 py-1.5 text-xs text-gray-500">{s.source === 'controle_ciclo' ? 'Controle de Ciclo' : 'digitado'}</td>
+                      <td className="px-3 py-1.5 text-xs text-gray-500">{s.source === 'controle_ciclo' ? 'Controle de Ciclo' : s.source === 'planilha_pcp' ? 'Planilha do PCP' : 'digitado'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -493,5 +499,67 @@ function StandardsSection({ o }: { o: Options }) {
         </div>
       )}
     </Card>
+    </>
+  );
+}
+
+interface PcpPreview {
+  sheets: string[]; total: number; added: number; updated: number; same: number; manual: number;
+  outside: { machine: string; n: number }[];
+  mismatches: { machine: string; pn: string; cycleSeconds: number; cavities: number; perHour: number }[];
+  examples: { machine: string; pn: string; cycleSeconds: number; cavities: number; before: { cycleSeconds: number; cavities: number; source: string } | null }[];
+}
+/** standard cycles and cavities from the PCP spreadsheet "PLANEJAMENTO APONTAMENTO …": check first, then import */
+function PcpImportModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<PcpPreview | null>(null);
+  const [done, setDone] = useState<PcpPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const send = async (commit: boolean) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    setBusy(true); setError(null);
+    try {
+      const r = await post<PcpPreview>(`/api/producao/padroes/importar-planilha?commit=${commit ? 1 : 0}`, fd);
+      if (commit) { setDone(r); qc.invalidateQueries({ queryKey: ['producao'] }); } else setPreview(r);
+    } catch (e) { setError(errorMessage(e)); setPreview(null); } finally { setBusy(false); }
+  };
+  const p = done ?? preview;
+  return (
+    <Modal open onClose={onClose} title="Importar ciclos da planilha do PCP" wide
+      footer={done ? <Button kind="primary" onClick={onClose}>Fechar</Button> : <>
+        <Button onClick={onClose}>Cancelar</Button>
+        {preview ? <Button kind="primary" loading={busy} disabled={!preview.added && !preview.updated} onClick={() => send(true)}>Importar {preview.added + preview.updated}</Button>
+          : <Button kind="primary" loading={busy} disabled={!file} onClick={() => send(false)}>Conferir planilha</Button>}
+      </>}>
+      <div className="space-y-3 text-sm">
+        <p className="text-gray-600">Envie a planilha "PLANEJAMENTO APONTAMENTO" (.xlsm). São lidas as abas com máquina, part number, ciclo e cavidade (a base de produtos e o planejamento do dia; o planejamento vence, porque é a máquina usada de fato). Ciclo digitado à mão não é trocado. Nada é apagado.</p>
+        {!done && <input type="file" accept=".xlsx,.xlsm" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); }} />}
+        {error && <p className="text-red-700">{error}</p>}
+        {p && (
+          <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            {done && <p className="flex items-center gap-1.5 font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />Importado.</p>}
+            <p><b>{p.total}</b> linhas de ciclo nas abas {p.sheets.join(' e ')}: <b>{p.added}</b> novos, <b>{p.updated}</b> com ciclo ou cavidade diferente, {p.same} iguais{p.manual ? `, ${p.manual} digitados à mão (mantidos)` : ''}.</p>
+            {p.examples.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold uppercase text-gray-500">Mudanças (exemplos)</div>
+                <ul className="text-xs">{p.examples.map((x) => (
+                  <li key={x.machine + x.pn}>Máq. {x.machine} · {x.pn}: {x.before ? `${x.before.cycleSeconds} s × ${x.before.cavities}` : 'novo'} → <b>{x.cycleSeconds} s × {x.cavities}</b></li>
+                ))}</ul>
+              </div>
+            )}
+            {p.mismatches.length > 0 && (
+              <p className="text-xs text-amber-800">Na planilha, "peças por hora" não bate com ciclo × cavidades em: {p.mismatches.map((m) => `${m.machine} PN ${m.pn} (${m.cycleSeconds} s × ${m.cavities} = ${Math.round((3600 / m.cycleSeconds) * m.cavities)}/h, planilha ${m.perHour}/h)`).join('; ')}. Usei ciclo × cavidades.</p>
+            )}
+            {p.outside.length > 0 && (
+              <p className="text-xs text-gray-500">Fora das máquinas cadastradas (não entram): {p.outside.map((o) => `${o.machine} (${o.n})`).join(', ')}.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }

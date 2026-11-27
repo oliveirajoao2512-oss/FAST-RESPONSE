@@ -12,7 +12,9 @@ import { requireUser } from '../auth.js';
 import type { SessionUser } from '../context.js';
 import { one, pool, q, type Db } from '../db.js';
 import { badRequest, conflict, forbidden, notFound } from '../errors.js';
+import { parsePlanCycles, planMachineKey } from '../services/productionPlanImport.js';
 import { setupInterval, setupSnapshot } from '../services/setups.js';
+import { readXlsx, XlsxError } from '../services/xlsx.js';
 import { getConfig } from '../settings.js';
 import { parse } from '../validation.js';
 import { placeLists } from './workOrders.js';
@@ -271,6 +273,62 @@ export async function productionRoutes(app: FastifyInstance) {
       [machine, pn, b.cycleSeconds, b.cavities, u.id]);
     await audit(pool, { actorId: u.id, action: 'producao.padrao', entityType: 'production_standard', entityId: `${machine}|${pn}`, data: { antes: old ?? null, cycleSeconds: b.cycleSeconds, cavities: b.cavities } });
     return { ok: true };
+  });
+
+  /**
+   * Standard cycles (with cavities) from the PCP spreadsheet. commit=0 only shows what would change. A cycle typed by
+   * hand is never overwritten; one that came from the Controle de Ciclo is replaced, since the spreadsheet has cavities.
+   */
+  app.post('/api/producao/padroes/importar-planilha', async (req) => {
+    const u = requireUser(req);
+    const slug = await guard(u);
+    if (!canEditStandards(u, slug)) throw forbidden('Os ciclos padrão são editados pelo gestor de Produção, plant manager ou administrador.');
+    const { commit } = parse(z.object({ commit: z.enum(['0', '1']).default('0') }), req.query);
+    let buf: Buffer | null = null;
+    for await (const part of req.parts()) {
+      if (part.type !== 'file') continue;
+      if (!/\.(xlsx|xlsm)$/i.test(part.filename)) throw badRequest('Envie a planilha no formato Excel (.xlsx ou .xlsm).');
+      buf = await part.toBuffer();
+    }
+    if (!buf) throw badRequest('Selecione a planilha.');
+    let parsed;
+    try { parsed = parsePlanCycles(readXlsx(buf)); } catch (e) {
+      if (e instanceof XlsxError) throw badRequest(e.message);
+      throw e;
+    }
+    if (!parsed.items.length) throw badRequest('Nenhuma aba com colunas de máquina, part number e ciclo foi encontrada.');
+    const { maquina } = await placeLists(['maquina']);
+    const codes = new Map(maquina.map((m) => [planMachineKey(m.code), m.code]));
+    const current = new Map((await q<any>(`SELECT machine, pn, cycle_seconds::float AS cycle, cavities, source FROM production_standards`))
+      .map((r) => [`${machineKey(r.machine)}|${r.pn}`, r]));
+    const outside = new Map<string, number>();
+    const changes: { machine: string; pn: string; cycleSeconds: number; cavities: number; before: { cycleSeconds: number; cavities: number; source: string } | null }[] = [];
+    let same = 0, manual = 0;
+    for (const it of parsed.items) {
+      const machine = codes.get(planMachineKey(it.machine));
+      if (!machine) { outside.set(it.machine, (outside.get(it.machine) ?? 0) + 1); continue; }
+      const cur = current.get(`${machineKey(machine)}|${it.pn}`);
+      if (cur?.source === 'manual') { manual++; continue; }
+      if (cur && cur.cycle === it.cycleSeconds && cur.cavities === it.cavities) { same++; continue; }
+      changes.push({ machine, pn: it.pn, cycleSeconds: it.cycleSeconds, cavities: it.cavities, before: cur ? { cycleSeconds: cur.cycle, cavities: cur.cavities, source: cur.source } : null });
+    }
+    const summary = {
+      sheets: parsed.sheets, total: parsed.items.length,
+      added: changes.filter((c) => !c.before).length, updated: changes.filter((c) => c.before).length, same, manual,
+      outside: [...outside.entries()].map(([machine, n]) => ({ machine, n })).sort((a, b) => b.n - a.n),
+      mismatches: parsed.mismatches,
+      examples: changes.filter((c) => c.before).slice(0, 10),
+    };
+    if (commit !== '1') return summary;
+    for (const c of changes) {
+      await q(
+        `INSERT INTO production_standards (machine, pn, cycle_seconds, cavities, source, updated_by) VALUES ($1,$2,$3,$4,'planilha_pcp',$5)
+         ON CONFLICT (upper(machine), upper(pn)) DO UPDATE SET cycle_seconds = EXCLUDED.cycle_seconds, cavities = EXCLUDED.cavities,
+           source = 'planilha_pcp', updated_by = EXCLUDED.updated_by, updated_at = now()
+           WHERE production_standards.source <> 'manual'`, [c.machine, c.pn, c.cycleSeconds, c.cavities, u.id]);
+    }
+    await audit(pool, { actorId: u.id, action: 'producao.importar_planilha', entityType: 'production_standard', data: { added: summary.added, updated: summary.updated, abas: parsed.sheets } });
+    return summary;
   });
 
   /**

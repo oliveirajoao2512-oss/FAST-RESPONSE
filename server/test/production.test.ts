@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkProduction, clipStops, productionAccess, UNJUSTIFIED_MESSAGE } from '../../shared/production.js';
 import { q } from '../src/db.js';
 import { setCycleProducts } from '../src/routes/production.js';
+import { parsePlanCycles, planMachineKey } from '../src/services/productionPlanImport.js';
+import { readXlsx, writeXlsx } from '../src/services/xlsx.js';
 import { resetMaintenanceAreaCache } from '../src/routes/workOrders.js';
 import { setSetupFetcher, toRow } from '../src/services/setups.js';
 import { areaId, Client, createUser, setup } from './helpers.js';
@@ -211,5 +213,57 @@ describe('apontamento e conferência (API)', () => {
     expect(a).toEqual({ c: 30, source: 'manual' });
     expect((await q<any>(`SELECT machine FROM production_standards WHERE pn = 'PN-F'`))[0].machine).toBe('INJETORA 120 T');
     expect((await lider.post('/api/producao/padroes/importar-ciclo')).status).toBe(403);
+  });
+
+  it('importa ciclo e cavidades da planilha do PCP (planejamento vence a base; digitado à mão fica)', async () => {
+    const c = (v: string | number | null) => ({ v });
+    const buf = writeXlsx([
+      { name: 'BASE att 23-09', rows: [
+        ['DESCRIÇÃO', 'PN NEO', 'CLIENTE', 'MÁQUINA\nPADRÃO', 'CICLO', 'CAVIDADE'].map(c),
+        ['Duto', 10009990001, 'X', '8', 60, 2].map(c),
+        ['Duto 2', 10009990002, 'X', '10', 50, 1].map(c),
+        ['Mangueira', 10009990003, 'X', 'Comprado', 76, 1].map(c),
+        ['Peça A', 10009990005, 'X', '12', 99, 1].map(c),
+      ] },
+      { name: 'PLANEJAMENTO', rows: [
+        [c('Planejamento Diário')],
+        ['Máquinas', 'T1', 'T2', 'T3', 'PART NUMBER', 'Tempo \nCiclo', 'CAV', 'PEÇAS\nPOR HORA'].map(c),
+        ['MC-10', 1, 1, 1, 10009990002, 45, 1, 80].map(c),
+        ['MC-INJ 120', 1, 1, 1, 8109990009, 40, 8, 720].map(c),
+        ['MC-15', 2, 2, 2, 10009990010, 70, 1, 102].map(c),
+        ['ZONA 01 (GRUPO 1)', null, null, null, null, null, null, null].map(c),
+      ] },
+    ]);
+    await gestorProd.put('/api/producao/padroes', { machine: '12', pn: '10009990005', cycleSeconds: 30, cavities: 1 });
+    const parsed = parsePlanCycles(readXlsx(buf));
+    expect(parsed.sheets).toEqual(['BASE att 23-09', 'PLANEJAMENTO']);
+    expect(parsed.mismatches).toMatchObject([{ machine: 'MC-15', pn: '10009990010', perHour: 102 }]);
+    expect(planMachineKey('MC-02')).toBe('2');
+    expect(planMachineKey('Injeção 470T')).toBe('INJETORA470T');
+
+    const send = async (commit: 0 | 1) => {
+      const boundary = '----frtest' + Date.now();
+      const body = Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="PLANEJAMENTO.xlsm"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+        buf, Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
+      const r = await ctx.app.inject({ method: 'POST', url: `/api/producao/padroes/importar-planilha?commit=${commit}`, payload: body,
+        headers: { cookie: gestorProd.cookie, 'x-requested-with': 'fast-response', 'content-type': `multipart/form-data; boundary=${boundary}` } });
+      return { status: r.statusCode, body: r.json() };
+    };
+    const preview = await send(0);
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({ total: 6, added: 4, manual: 1, outside: [{ machine: 'Comprado', n: 1 }] });
+    expect((await q<any>(`SELECT 1 FROM production_standards WHERE pn = '10009990001'`))).toHaveLength(0);
+    expect((await send(1)).status).toBe(200);
+    const rows = await q<any>(`SELECT machine, pn, cycle_seconds::float AS c, cavities, source FROM production_standards WHERE pn LIKE '%999000%' ORDER BY pn, machine`);
+    expect(rows).toEqual(expect.arrayContaining([
+      { machine: '8', pn: '10009990001', c: 60, cavities: 2, source: 'planilha_pcp' },
+      { machine: '10', pn: '10009990002', c: 45, cavities: 1, source: 'planilha_pcp' },
+      { machine: 'INJETORA 120 T', pn: '8109990009', c: 40, cavities: 8, source: 'planilha_pcp' },
+      { machine: '12', pn: '10009990005', c: 30, cavities: 1, source: 'manual' },
+    ]));
+    // a second run changes nothing
+    expect((await send(0)).body).toMatchObject({ added: 0, updated: 0, same: 4 });
   });
 });

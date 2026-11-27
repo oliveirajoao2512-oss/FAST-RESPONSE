@@ -26,6 +26,13 @@ Tabela `production_standards`: máquina + PN, segundos por ciclo e cavidades (pe
 Meta por hora = 3600 ÷ ciclo × cavidades. Se a máquina não tem ciclo para o PN, usa o de outra máquina que roda o
 mesmo PN e avisa. Sem nenhum ciclo, o apontamento é salvo como "Sem ciclo padrão", sem meta.
 
+"Importar planilha do PCP" lê a planilha "PLANEJAMENTO APONTAMENTO …" (.xlsm): toda aba com colunas de máquina,
+part number, ciclo e cavidade (hoje "BASE att …" e "PLANEJAMENTO"). O planejamento do dia vence a base, porque é a
+máquina usada de fato. Primeiro mostra o que muda, depois importa. Códigos "MC-02", "MC-INJ 120", "Injeção 470T" viram
+"2", "INJETORA 120 T", "INJETORA 470 T". Linhas de montagem, robôs e fornecedores ficam de fora. Avisa quando a coluna
+"peças por hora" da planilha não bate com ciclo × cavidades. Ciclo digitado à mão nunca é trocado; ciclo vindo do
+Controle de Ciclo é substituído pelo da planilha (que tem cavidades), e o Controle de Ciclo não sobrescreve a planilha.
+
 "Trazer do Controle de Ciclo" lê o app Controle de Ciclo (Firestore `controleciclos-fb533`, coleção `produtos`:
 `pn`, `maquinaPadrao`, `cicloPadrao`), só leitura. Nunca sobrescreve um ciclo digitado à mão. Cavidades vêm como 1.
 "INJEÇÃO 120T/470T" vira "INJETORA 120 T/470 T". Produtos com máquina fora do cadastro (Montagem, Comprado,
