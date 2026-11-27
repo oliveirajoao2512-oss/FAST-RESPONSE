@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { q } from '../src/db.js';
 import { resetMaintenanceAreaCache } from '../src/routes/workOrders.js';
+import { setSetupFetcher, toRow } from '../src/services/setups.js';
 import { areaId, Client, createUser, setup } from './helpers.js';
 
 let ctx: Awaited<ReturnType<typeof setup>>;
@@ -16,7 +17,7 @@ beforeAll(async () => {
   joao = await new Client(ctx.app).login((await createUser('Joao Manutentor', 'manutentor', null)).email);
   prod = await areaId('producao');
 });
-afterAll(async () => { await ctx.app.close(); });
+afterAll(async () => { setSetupFetcher(null); await ctx.app.close(); });
 
 const open = async (assetRef: string, stopped: boolean, description = 'Teste') => {
   const r = await operador.post('/api/os', { areaId: prod, location: 'maquina', assetRef, component: 'maquina', kind: 'mecanica', machineStopped: stopped, description });
@@ -73,5 +74,38 @@ describe('status da fábrica (tela de TV)', () => {
   it('precisa estar logado; o manutentor continua só nas OS', async () => {
     expect((await new Client(ctx.app).get('/api/tela')).status).toBe(401);
     expect((await joao.get('/api/tela')).status).toBe(403);
+  });
+
+  it('Controle de Setup: máquinas em setup aparecem só para o administrador', async () => {
+    const t0 = Date.now() - 50 * 60_000;
+    setSetupFetcher(async () => [
+      toRow({ id: 's1', maquina: '20', pn: '100.01.0778', usuario: 'Carlos', status: 'Em andamento', inicio_timestamp: t0 })!,
+      toRow({ id: 's2', maquina: '8', pn: '100.01.0779', usuario: 'Ana', status: 'Aguardando Produção', inicio_timestamp: t0, fim_timestamp: t0 + 30 * 60_000 })!,
+      toRow({ id: 's3', maquina: 'INJ', status: 'Em andamento', inicio_timestamp: t0 })!,
+      toRow({ id: 's4', maquina: '22', status: 'Finalizado', inicio_timestamp: t0, fim_timestamp: t0 + 20 * 60_000 })!,
+    ]);
+    const stopped = await open('8', true, 'Vazamento');
+    const b = (await (await ctx.c('admin')).get('/api/tela')).body;
+    const place = (code: string) => b.places.find((p: any) => p.type === 'maquina' && p.code === code);
+    expect(place('20')).toMatchObject({ state: 'setup', setup: { status: 'Em andamento', pn: '100.01.0778', user: 'Carlos' } });
+    // a maintenance stop wins over the setup, but the setup is still attached
+    expect(place('8')).toMatchObject({ state: 'parada', setup: { status: 'Aguardando Produção' } });
+    expect(place('22').state).toBe('ok');
+    expect(b.setup).toMatchObject({ ok: true, inSetup: 2, waitingProduction: 1, today: 4, finishedToday: 2, unknownMachines: ['INJ'] });
+    expect(b.setup.hoursToday).toBeGreaterThan(2);
+
+    for (const c of [lider, pm]) {
+      const o = (await c.get('/api/tela')).body;
+      expect(o.setup).toBeUndefined();
+      expect(o.places.some((p: any) => p.state === 'setup' || p.setup)).toBe(false);
+    }
+    await operador.post(`/api/os/${stopped.id}/cancelar`, { motivo: 'Teste' });
+  });
+
+  it('Controle de Setup fora do ar: a tela continua, avisando', async () => {
+    setSetupFetcher(async () => { throw new Error('Controle de Setup respondeu 503'); });
+    const r = await (await ctx.c('admin')).get('/api/tela');
+    expect(r.status).toBe(200);
+    expect(r.body.setup).toMatchObject({ ok: false, error: 'Controle de Setup respondeu 503', inSetup: 0 });
   });
 });

@@ -302,6 +302,21 @@ Só gestores, líderes, plant manager e administrador abrem a tela (decisão de 
 tela ao entrar no app (uma vez por login em cada janela; o X "Voltar ao sistema" leva ao Painel geral). No celular ela
 se reorganiza em uma coluna. Para a TV, use um usuário próprio com perfil líder ou gestor. API: `GET /api/tela`.
 
+### Máquinas em setup (Controle de Setup) — só administrador
+
+Desde 27/11/2026 a tela lê, só para leitura, o app Controle de Setup (Firestore `controle-f7242`, coleção `setups`).
+O Fast Response nunca grava lá. Por enquanto só o administrador vê (pedido do João); os outros perfis recebem a tela
+como antes.
+
+- Máquina com setup `Em andamento` fica roxa, com o tempo de setup e o PN. `Aguardando Produção` (setup terminou, a
+  máquina ainda não produz) fica roxa com o tempo desde o fim do setup. Ordem com máquina parada continua vermelha e
+  ganha prioridade sobre o setup.
+- Número "Em setup agora", com setups do dia e horas de setup no dia, e o quadro "Em setup agora" com cada máquina.
+- O código da máquina é comparado sem espaços e sem diferença de maiúsculas. Máquina do setup que não existe no
+  cadastro (por exemplo `INJ`) aparece em "Sem cadastro no Fast Response".
+- Consulta a cada 30 s no máximo. Se o Firestore não responder, a tela continua e avisa "Controle de Setup sem resposta".
+- Variáveis: `SETUP_FIRESTORE_PROJECT` (padrão `controle-f7242`) e `SETUP_SOURCE=off` para desligar.
+
 ## Histórico importado
 
 As OS antigas da planilha de manutenção (outubro/2026) foram carregadas. A aba "molde" entrou como problema na própria máquina; a aba "dispositivo" entrou como problema em dispositivo, só com o código do dispositivo (a planilha não diz a máquina); esse código virou o dispositivo da OS. Elas foram carregadas como OS finalizadas, marcadas como **HISTÓRICO** com o número da OS de papel. Só a data é conhecida: a abertura foi registrada às 12:00 do dia, a espera e o tempo de reparo vêm da planilha, e essas ordens ficam fora da tabela por turno e do mapa "Quando os chamados acontecem". O manutentor é ligado pela matrícula (RA). Solicitante e setor não existiam na planilha: aparecem como o administrador e Produção.

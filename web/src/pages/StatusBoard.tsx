@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock, Maximize, Minimize, PauseCircle, Wrench, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock, Maximize, Minimize, PauseCircle, Settings2, Wrench, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { WO_DOMAIN, type WoDomain } from '@shared/maintenance';
@@ -14,8 +14,15 @@ import { useRealtime } from '../lib/realtime';
 
 interface Place {
   type: 'maquina' | 'montagem'; code: string; description: string | null;
-  state: 'parada' | 'atencao' | 'ok'; since: string | null;
+  state: 'parada' | 'setup' | 'atencao' | 'ok'; since: string | null;
   orders: { code: string; domain: WoDomain; status: string; stopped: boolean; workers: string[] }[];
+  setup?: SetupInfo;
+}
+interface SetupInfo { status: 'Em andamento' | 'Aguardando Produção'; pn: string | null; user: string | null; startedAt: string; finishedAt: string | null }
+/** from the Controle de Setup app; only the administrator receives it */
+interface SetupBoard {
+  ok: boolean; error: string | null; inSetup: number; waitingProduction: number; today: number; finishedToday: number; hoursToday: number;
+  unknownMachines: string[]; active: (SetupInfo & { machine: string })[];
 }
 interface QueueItem {
   id: string; code: string; domain: WoDomain; status: 'aberta' | 'em_atendimento' | 'pausada'; priority: string; stopped: boolean;
@@ -29,6 +36,7 @@ interface Board {
   scheduled: { id: string; code: string; domain: WoDomain; place: string; plannedStart: string; plannedHours: number | null; description: string }[];
   today: { opened: number; finished: number; stops: number; acceptMin: number | null; downtimeH: number; stoppedNow: number; waiting: number; working: number; paused: number };
   issues: { open: number; overdue: number; safety: number; areas: { name: string; color: string | null; open: number; overdue: number; safety: number }[] };
+  setup?: SetupBoard;
 }
 
 /** "8 min", "1 h 05", "2 d 3 h" */
@@ -113,7 +121,7 @@ export function StatusBoardPage() {
       ) : (
         <>
           {/* KPIs */}
-          <section className="grid grid-cols-2 gap-3 px-4 pt-4 sm:grid-cols-3 lg:grid-cols-6 lg:px-6">
+          <section className={`grid grid-cols-2 gap-3 px-4 pt-4 sm:grid-cols-3 lg:px-6 ${data.setup ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`}>
             <Kpi tone={data.today.stoppedNow ? 'red' : 'green'} label="Máquinas paradas agora" value={data.today.stoppedNow} />
             <Kpi tone={data.today.waiting ? 'amber' : 'plain'} label="Aguardando aceite" value={data.today.waiting} />
             <Kpi tone="blue" label="Em atendimento" value={data.today.working} sub={data.today.paused ? `${data.today.paused} pausada(s)` : undefined} />
@@ -121,6 +129,10 @@ export function StatusBoardPage() {
             <Kpi tone="green" label="Finalizadas hoje" value={data.today.finished}
               sub={data.today.acceptMin != null ? `aceite médio ${Math.round(data.today.acceptMin)} min` : undefined} />
             <Kpi tone={data.today.downtimeH > 0 ? 'amber' : 'plain'} label="Máquina parada hoje" value={hours(data.today.downtimeH)} />
+            {data.setup && (
+              <Kpi tone={data.setup.inSetup + data.setup.waitingProduction ? 'violet' : 'plain'} label="Em setup agora" value={data.setup.inSetup}
+                sub={!data.setup.ok ? 'Controle de Setup sem resposta' : data.setup.waitingProduction ? `+${data.setup.waitingProduction} aguardando produção` : `${data.setup.today} hoje · ${hours(data.setup.hoursToday)}`} />
+            )}
           </section>
 
           <main className="grid flex-1 gap-4 px-4 py-4 lg:min-h-0 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] lg:px-6">
@@ -128,7 +140,7 @@ export function StatusBoardPage() {
             <section className="flex flex-col gap-3 lg:min-h-0 lg:overflow-hidden">
               <PlaceGrid title="Máquinas" places={data.places.filter((p) => p.type === 'maquina')} now={now} />
               <PlaceGrid title="Montagens" places={data.places.filter((p) => p.type === 'montagem')} now={now} />
-              <Legend />
+              <Legend setup={!!data.setup} />
             </section>
 
             {/* queue */}
@@ -143,6 +155,24 @@ export function StatusBoardPage() {
                   <Queue items={data.queue} now={now} />
                 )}
               </Panel>
+              {data.setup && data.setup.active.length > 0 && (
+                <Panel title="Em setup agora" count={data.setup.active.length} icon={<Settings2 className="h-4 w-4" />}>
+                  <ul className="space-y-1.5">
+                    {data.setup.active.slice(0, 6).map((s) => (
+                      <li key={s.machine + s.startedAt} className="flex items-baseline gap-2 text-[0.9em]">
+                        <span className="font-bold text-violet-300">Máq. {s.machine}</span>
+                        <span className="truncate text-slate-300">{s.pn ?? ''}{s.user ? ` · ${s.user}` : ''}</span>
+                        <span className={`ml-auto shrink-0 font-semibold tabular-nums ${s.status === 'Aguardando Produção' ? 'text-amber-300' : 'text-violet-200'}`}>
+                          {s.status === 'Aguardando Produção' ? `aguard. produção ${since(s.finishedAt ?? s.startedAt, now)}` : since(s.startedAt, now)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {data.setup.unknownMachines.length > 0 && (
+                    <div className="mt-1 text-[0.75em] text-slate-500">Sem cadastro no Fast Response: {data.setup.unknownMachines.join(', ')}</div>
+                  )}
+                </Panel>
+              )}
               {data.scheduled.length > 0 && (
                 <Panel title="Programadas para hoje" count={data.scheduled.length} icon={<CalendarClock className="h-4 w-4" />}>
                   <ul className="space-y-1.5">
@@ -192,6 +222,7 @@ const TONES = {
   amber: 'border-amber-400/50 bg-amber-400/10 text-amber-200',
   green: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
   blue: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
+  violet: 'border-violet-500/50 bg-violet-500/15 text-violet-200',
   plain: 'border-white/10 bg-white/5 text-slate-200',
 };
 function Kpi({ label, value, sub, tone }: { label: string; value: number | string; sub?: string; tone: keyof typeof TONES }) {
@@ -217,6 +248,7 @@ function Panel({ title, count, icon, className = '', children }: { title: string
 
 const STATE = {
   parada: 'border-red-500 bg-red-600/90 text-white shadow-[0_0_18px_rgba(239,68,68,.45)]',
+  setup: 'border-violet-400 bg-violet-600/35 text-violet-50',
   atencao: 'border-amber-400 bg-amber-400/15 text-amber-100',
   ok: 'border-emerald-600/40 bg-emerald-600/10 text-emerald-100',
 };
@@ -225,7 +257,7 @@ function PlaceGrid({ title, places, now }: { title: string; places: Place[]; now
   return (
     <div className="rounded-xl border border-white/10 bg-[#111a2e] p-3">
       <h2 className="mb-2 text-[0.85em] font-semibold uppercase tracking-wider text-slate-400">
-        {title} <span className="normal-case text-slate-500">· {places.filter((p) => p.state === 'ok').length} de {places.length} sem ordem aberta</span>
+        {title} <span className="normal-case text-slate-500">· {places.filter((p) => p.state === 'ok').length} de {places.length} sem ordem aberta{places.some((p) => p.state === 'setup') ? ` · ${places.filter((p) => p.state === 'setup').length} em setup` : ''}</span>
       </h2>
       <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(6.4em, 1fr))' }}>
         {places.map((p) => {
@@ -234,7 +266,12 @@ function PlaceGrid({ title, places, now }: { title: string; places: Place[]; now
             <div key={p.code} className={`flex min-h-[3.9em] flex-col justify-between rounded-lg border-2 px-2 py-1 ${STATE[p.state]} ${p.state === 'parada' ? 'animate-[pulse_2.5s_ease-in-out_infinite]' : ''}`}
               title={p.description ?? p.code}>
               <div className={`truncate font-bold leading-tight ${p.code.length > 8 ? 'text-[0.8em]' : 'text-[1.05em]'}`}>{p.code}</div>
-              {o ? (
+              {p.state === 'setup' && p.setup ? (
+                <div className="text-[0.75em] leading-tight">
+                  <div className="truncate font-semibold">{p.setup.status === 'Aguardando Produção' ? 'AG. PRODUÇÃO' : `SETUP ${since(p.since, now).replace(' h ', 'h').replace(' min', 'min').replace(' d ', 'd')}`}</div>
+                  <div className="truncate opacity-90">{p.setup.status === 'Aguardando Produção' ? `há ${since(p.since, now)}` : p.setup.pn ?? p.setup.user ?? 'em setup'}</div>
+                </div>
+              ) : o ? (
                 <div className="text-[0.75em] leading-tight">
                   <div className="truncate font-semibold">{p.state === 'parada' ? `PARADA ${since(p.since, now).replace(" h ", "h").replace(" min", "min").replace(" d ", "d")}` : `${WO_DOMAIN[o.domain].short} aberta`}</div>
                   <div className="truncate opacity-90">
@@ -252,10 +289,11 @@ function PlaceGrid({ title, places, now }: { title: string; places: Place[]; now
   );
 }
 
-function Legend() {
+function Legend({ setup }: { setup: boolean }) {
   return (
     <div className="flex flex-wrap gap-x-5 gap-y-1 px-1 text-[0.8em] text-slate-400">
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-red-600" />Máquina parada com ordem aberta</span>
+      {setup && <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-violet-500" />Em setup (Controle de Setup)</span>}
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded border-2 border-amber-400" />Ordem aberta, máquina rodando</span>
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded border-2 border-emerald-600/60" />Sem ordem aberta</span>
     </div>
