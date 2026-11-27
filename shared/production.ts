@@ -9,12 +9,18 @@ export const PRODUCTION_TOLERANCE_MIN = 5;
 /** A single report covers at most this many hours. */
 export const PRODUCTION_MAX_HOURS = 12;
 
+/**
+ * Preview: live only for the administrator (João, 27/11/2026) until he releases it. Turning it off gives the rules
+ * below to the leadership of Produção and the plant manager.
+ */
+export const productionAccess = { adminOnly: true };
+
 /** who reports production and sees the conferência: leadership of Produção, plant manager and administrator */
 export const canReportProduction = (a: { role: string }, areaSlug: string | null | undefined) =>
-  a.role === 'admin' || a.role === 'plant_manager' || ((a.role === 'lider' || a.role === 'gestor') && areaSlug === 'producao');
+  a.role === 'admin' || (!productionAccess.adminOnly && (a.role === 'plant_manager' || ((a.role === 'lider' || a.role === 'gestor') && areaSlug === 'producao')));
 /** who edits the standard cycles: administrator, plant manager and the gestor of Produção */
 export const canEditStandards = (a: { role: string }, areaSlug: string | null | undefined) =>
-  a.role === 'admin' || a.role === 'plant_manager' || (a.role === 'gestor' && areaSlug === 'producao');
+  a.role === 'admin' || (!productionAccess.adminOnly && (a.role === 'plant_manager' || (a.role === 'gestor' && areaSlug === 'producao')));
 
 export const machineKey = (code: string) => code.trim().toUpperCase().replace(/\s+/g, '');
 

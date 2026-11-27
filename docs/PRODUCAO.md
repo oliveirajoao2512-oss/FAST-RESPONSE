@@ -4,6 +4,8 @@ Etapa 1, pedida pelo João em 27/11/2026 (branch `lancamento-producao`). Menu **
 
 ## Quem usa
 
+Em prévia desde 27/11/2026: no ar só para o administrador (`productionAccess.adminOnly` em `shared/production.ts`). Quando o João liberar, valem as regras abaixo.
+
 - Apontar e ver a conferência: líderes e gestores da área Produção, plant manager e administrador.
 - Ciclos padrão (cadastrar, corrigir, trazer do Controle de Ciclo): gestor de Produção, plant manager e administrador.
 - Corrigir um apontamento: quem apontou, ou a gestão de Produção. O valor anterior fica na auditoria. Ninguém apaga.

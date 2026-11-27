@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkProduction, clipStops, UNJUSTIFIED_MESSAGE } from '../../shared/production.js';
+import { checkProduction, clipStops, productionAccess, UNJUSTIFIED_MESSAGE } from '../../shared/production.js';
 import { q } from '../src/db.js';
 import { setCycleProducts } from '../src/routes/production.js';
 import { resetMaintenanceAreaCache } from '../src/routes/workOrders.js';
@@ -79,12 +79,21 @@ describe('apontamento e conferência (API)', () => {
     mec = await new Client(ctx.app).login((await createUser('Mecanico Um', 'manutentor', null)).email);
     prod = await areaId('producao');
     setSetupFetcher(async () => []);
+    productionAccess.adminOnly = false; // the rules for when it is released
   });
-  afterAll(async () => { setSetupFetcher(null); await ctx.app.close(); });
+  afterAll(async () => { productionAccess.adminOnly = true; setSetupFetcher(null); await ctx.app.close(); });
 
   const iso = (ms: number) => new Date(ms).toISOString();
   const report = (c: Client, machine: string, pn: string, from: number, to: number, quantity: number) =>
     c.post('/api/producao/apontamentos', { machine, pn, start: iso(from), end: iso(to), quantity });
+
+  it('em prévia: só o administrador', async () => {
+    productionAccess.adminOnly = true;
+    try {
+      expect((await admin.get('/api/producao/opcoes')).status).toBe(200);
+      for (const c of [lider, gestorProd, operador]) expect((await c.get('/api/producao/opcoes')).status).toBe(403);
+    } finally { productionAccess.adminOnly = false; }
+  });
 
   it('só liderança de Produção, plant manager e administrador', async () => {
     expect((await lider.get('/api/producao/opcoes')).status).toBe(200);
