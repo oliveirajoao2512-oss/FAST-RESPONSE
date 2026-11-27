@@ -121,6 +121,7 @@ export const NOTIFICATION_TYPES = [
   'os_nova',
   'os_cobranca',
   'os_cancelada',
+  'producao_hora',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

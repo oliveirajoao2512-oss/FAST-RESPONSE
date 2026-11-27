@@ -10,14 +10,32 @@ Em prévia desde 27/11/2026: no ar só para o administrador (`productionAccess.a
 - Ciclos padrão (cadastrar, corrigir, trazer do Controle de Ciclo): gestor de Produção, plant manager e administrador.
 - Corrigir um apontamento: quem apontou, ou a gestão de Produção. O valor anterior fica na auditoria. Ninguém apaga.
 
-## Apontamento
+## Rodada da hora (o jeito principal de apontar)
+
+1. O PCP sobe a planilha "PLANEJAMENTO APONTAMENTO" do dia (botão **Planejamento do PCP**). A aba PLANEJAMENTO diz o
+   PN de cada máquina em cada turno (T1, T2, T3; "X", vazio ou HRS = 0 = não roda). O dia vem do nome do arquivo
+   (ddmmaaaa) e pode ser trocado. Pode subir de novo quando o plano mudar: vale o último envio do dia (sem plano do
+   dia, usa o mais recente dos 3 dias anteriores e avisa). Os ciclos e cavidades da planilha também são atualizados.
+2. Quando a hora fecha, quem aponta recebe no celular "Hora fechada 07:00–08:00: aponte a produção" (uma vez por hora,
+   nos primeiros 15 min, só se há planejamento). A tela abre na última hora fechada; ◀ ▶ navegam pelas horas.
+3. Cada máquina rodando no turno vem numa linha com PN, meta por hora e OP. Máquina com dois ou três PNs ao mesmo tempo
+   (peças esquerda/direita, molde família) tem uma linha por PN. O último setup da máquina nas últimas 24 h no
+   Controle de Setup troca o PN quando ele não está no plano ("PN do último setup"); setup aberto aparece como "em
+   setup desde hh:mm".
+4. O líder digita só as peças e marca a refeição (não / 30 / 60 min). "Salvar" grava todas de uma vez; cada linha vira
+   um apontamento e já mostra meta × real, as paradas que justificam e o tempo sem justificativa. A linha com erro
+   (por exemplo, já apontada) fica na tela com o motivo; as outras são salvas.
+
+O turno de uma hora segue o calendário oficial; o 3º turno pertence ao dia em que começou (22:00).
+
+## Apontamento avulso
 
 O líder escolhe a máquina (botões), o PN, a data, o horário de/até e a quantidade de peças. O período já vem sugerido:
 começa onde terminou o último apontamento da máquina (até 12 h atrás) e termina na hora atual. Fim antes do início
 quer dizer que passou da meia-noite (3º turno). O turno é calculado pelo horário de início, com o calendário oficial.
 
 Regras: período de até 12 h, não termina no futuro, máquina do cadastro, e a mesma máquina não pode ter dois
-apontamentos no mesmo horário. O ciclo padrão usado fica gravado no apontamento: mudar o ciclo depois não reescreve
+apontamentos do mesmo PN no mesmo horário (PNs diferentes ao mesmo tempo podem). O ciclo padrão usado fica gravado no apontamento: mudar o ciclo depois não reescreve
 o histórico. Apontamento salvo sem ciclo cadastrado usa o ciclo cadastrado depois (e avisa).
 
 ## Ciclo padrão
@@ -66,6 +84,7 @@ Se o Controle de Setup não responder, a conferência sai sem os setups e avisa.
 - A parada da OS/OA vai até a finalização da ordem, que pode ser depois de a máquina voltar a produzir.
 - Refugo ainda não é apontado (a Qualidade do OEE fica para a próxima etapa).
 
-API: `GET /api/producao/opcoes`, `POST /api/producao/apontamentos`, `PATCH /api/producao/apontamentos/:id`,
+API: `POST /api/producao/planejamento?commit&date` (multipart), `GET /api/producao/planejamento?date`,
+`GET /api/producao/rodada?end`, `POST /api/producao/rodada`, `GET /api/producao/opcoes`, `POST /api/producao/apontamentos`, `PATCH /api/producao/apontamentos/:id`,
 `POST /api/producao/apontamentos/:id/motivo`, `GET /api/producao/conferencia?from&to&machine&status`,
 `PUT /api/producao/padroes`, `POST /api/producao/padroes/importar-ciclo`.

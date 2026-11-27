@@ -214,7 +214,7 @@ export function NotificationsBell() {
             <div className="max-h-[60vh] overflow-y-auto">
               {list.data?.length === 0 && <div className="px-3 py-6 text-center text-sm text-gray-500">Nenhuma notificação.</div>}
               {list.data?.map((n: any) => (
-                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.work_order_id) navigate(`${n.work_order_domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); }}
+                <button key={n.id} onClick={() => { post('/api/notifications/read', { ids: [n.id] }); setOpen(false); if (n.work_order_id) navigate(`${n.work_order_domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}`); else if (n.issue_id) openIssue(n.issue_id); else if (n.type === 'producao_hora') navigate('/producao'); }}
                   className={cx('block w-full border-b px-3 py-2 text-left text-sm hover:bg-gray-50', !n.read_at && 'bg-brand-50')}>
                   <div className={cx('font-medium', ['atrasada', 'seguranca_critica', 'escalonamento', 'os_aberta', 'os_cobranca'].includes(n.type) && 'text-red-700')}>{n.title}</div>
                   {n.body && <div className="line-clamp-2 text-gray-600">{n.body}</div>}

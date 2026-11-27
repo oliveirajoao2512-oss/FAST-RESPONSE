@@ -93,9 +93,9 @@ export async function deliverPush(limit = 50) {
          FROM notifications n LEFT JOIN work_orders w ON w.id = n.work_order_id WHERE n.id = $1`, [r.notification_id]))[0];
     try {
       if (!n) throw new Error('notificação não encontrada');
-      const url = n.work_order_id ? `${n.domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}` : n.issue_id ? `/pendencias/${n.issue_id}` : '/notificacoes';
+      const url = n.type === 'producao_hora' ? '/producao' : n.work_order_id ? `${n.domain === 'ajuste' ? '/ajustes' : '/os'}?id=${n.work_order_id}` : n.issue_id ? `/pendencias/${n.issue_id}` : '/notificacoes';
       const res = await pushToUser(n.user_id, {
-        title: n.title, body: n.body, url, tag: n.work_order_id ?? n.issue_id ?? undefined, urgent: URGENT_TYPES.has(n.type),
+        title: n.title, body: n.body, url, tag: n.work_order_id ?? n.issue_id ?? (n.type === 'producao_hora' ? 'producao_hora' : undefined), urgent: URGENT_TYPES.has(n.type),
       });
       const ok = res.sent > 0 || res.failed === 0;
       await q(`UPDATE notification_deliveries SET status = $2, sent_at = now(), last_error = $3 WHERE id = $1`,

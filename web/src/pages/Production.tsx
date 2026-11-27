@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Download, Factory, HelpCircle, Info, Pencil, Save, Upload } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock, Download, Factory, HelpCircle, Info, Pencil, Save, Upload } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -70,10 +70,11 @@ export function ProductionPage() {
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900"><Factory className="h-5 w-5 text-brand-600" />Produção</h1>
-          <p className="text-sm text-gray-500">Aponte as peças de cada máquina. O sistema compara com o ciclo padrão e com as paradas já registradas (OS, OA e setup).</p>
+          <p className="text-sm text-gray-500">A cada hora, as máquinas e os PNs já vêm do planejamento do PCP e dos setups: o líder só digita as peças. O sistema compara com a meta e com as paradas já registradas (OS, OA e setup).</p>
         </div>
       </header>
-      <ReportForm o={o} onSaved={(d) => setDay(d)} />
+      <HourRound o={o} />
+      <ManualReport o={o} onSaved={(d) => setDay(d)} />
       <ConferenceView day={day} setDay={setDay} machines={o.machines} options={o} />
       <StandardsSection o={o} />
     </div>
@@ -105,7 +106,20 @@ function periodOf(f: Pick<FormState, 'date' | 'from' | 'to'>) {
   return { start: a, end: b };
 }
 
-function ReportForm({ o, onSaved }: { o: Options; onSaved: (day: string) => void }) {
+/** reporting outside the hour round: a machine that is not in the plan, or another period */
+function ManualReport({ o, onSaved }: { o: Options; onSaved: (day: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="flex w-full items-center justify-between rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3 text-left text-sm text-gray-600 hover:border-brand-400">
+        <span><b className="text-gray-800">Apontamento avulso</b> · máquina fora do planejamento ou outro horário</span><ChevronDown className="h-4 w-4" />
+      </button>
+    );
+  }
+  return <ReportForm o={o} onSaved={onSaved} onClose={() => setOpen(false)} />;
+}
+
+function ReportForm({ o, onSaved, onClose }: { o: Options; onSaved: (day: string) => void; onClose?: () => void }) {
   const qc = useQueryClient();
   const blank = (machine = ''): FormState => ({ machine, pn: '', ...suggestPeriod(o, machine), quantity: '', breakMin: '', note: '' });
   const [f, setF] = useState<FormState>(() => blank());
@@ -150,7 +164,7 @@ function ReportForm({ o, onSaved }: { o: Options; onSaved: (day: string) => void
 
   const ready = f.machine && pn && period && qty != null && Number.isInteger(qty) && qty >= 0;
   return (
-    <Card title="Apontar produção">
+    <Card title="Apontamento avulso" actions={onClose && <Button size="sm" kind="ghost" onClick={onClose}>Fechar</Button>}>
       <div className="space-y-3">
         <div>
           <div className="mb-1 text-sm font-medium text-gray-700">Máquina</div>
@@ -295,8 +309,8 @@ function PeriodBar({ e }: { e: Entry }) {
   );
 }
 
-function EntryCard({ e, options }: { e: Entry; options: Options }) {
-  const [open, setOpen] = useState(e.status === 'divergencia');
+function EntryCard({ e, options, compact }: { e: Entry; options: Options; compact?: boolean }) {
+  const [open, setOpen] = useState(e.status === 'divergencia' && (!compact || !e.reason));
   const [editing, setEditing] = useState(false);
   return (
     <li className={cx('rounded-xl border bg-white', e.status === 'divergencia' && !e.reason ? 'border-red-300' : 'border-gray-200')}>
@@ -307,6 +321,7 @@ function EntryCard({ e, options }: { e: Entry; options: Options }) {
         <span className="text-sm text-gray-500">{e.leader}</span>
         <span className="ml-auto flex items-center gap-3">
           <span className="text-sm tabular text-gray-700"><b className="text-gray-900">{n0(e.quantity)}</b> / {n0(e.expected)} pç</span>
+          {e.aboveStandard && <span className="whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-300" title="Produção acima do que o ciclo padrão permite">acima do ciclo</span>}
           <StatusTag s={e.status} />
           <ChevronDown className={cx('h-4 w-4 text-gray-400 transition-transform', open && 'rotate-180')} />
         </span>
@@ -565,6 +580,203 @@ function PcpImportModal({ onClose }: { onClose: () => void }) {
             {p.outside.length > 0 && (
               <p className="text-xs text-gray-500">Fora das máquinas cadastradas (não entram): {p.outside.map((o) => `${o.machine} (${o.n})`).join(', ')}.</p>
             )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ rodada da hora */
+
+interface RoundRow {
+  machine: string; pn: string; source: 'plano' | 'setup'; op: string | null;
+  setup: { status: string; startedAt: string; user: string | null } | null;
+  cycleSeconds: number | null; cavities: number | null; perHour: number | null; entry: Entry | null;
+}
+interface Round {
+  start: string; end: string; shift: { name: string; index: number; date: string } | null;
+  plan: { date: string; uploadedAt: string; by: string; sameDay: boolean } | null;
+  setup: { ok: boolean; error: string | null } | null;
+  rows: RoundRow[]; extra: Entry[]; pending: number; isLatest: boolean;
+}
+const BREAKS = [0, 30, 60];
+const rowKey = (r: { machine: string; pn: string }) => `${r.machine}|${r.pn}`;
+
+function HourRound({ o }: { o: Options }) {
+  const qc = useQueryClient();
+  const [end, setEnd] = useState<string | null>(null);
+  const [upload, setUpload] = useState(false);
+  const [vals, setVals] = useState<Record<string, { qty: string; brk: number }>>({});
+  const [result, setResult] = useState<{ saved: number; errors: { machine: string; pn: string; erro: string }[] } | null>(null);
+  const round = useQuery<Round>({
+    queryKey: ['producao', 'rodada', end],
+    queryFn: () => get(`/api/producao/rodada${qs({ end: end ?? undefined })}`),
+    refetchInterval: 60_000,
+  });
+  const d = round.data;
+  const go = (hours: number) => {
+    if (!d) return;
+    setVals({}); setResult(null);
+    setEnd(DateTime.fromISO(d.end, { zone: zone() }).plus({ hours }).toISO());
+  };
+  const filled = (d?.rows ?? []).filter((r) => !r.entry && (vals[rowKey(r)]?.qty ?? '') !== '');
+  const save = useMutation({
+    mutationFn: () => post<{ saved: number; errors: { machine: string; pn: string; erro: string }[] }>('/api/producao/rodada', {
+      start: d!.start, end: d!.end,
+      items: filled.map((r) => ({ machine: r.machine, pn: r.pn, quantity: Number(vals[rowKey(r)].qty), breakMinutes: vals[rowKey(r)].brk ?? 0 })),
+    }),
+    onSuccess: (r) => {
+      setResult(r);
+      // keep what failed on screen so the leader can fix it
+      setVals((v) => Object.fromEntries(Object.entries(v).filter(([k]) => r.errors.some((x) => rowKey(x) === k))));
+      qc.invalidateQueries({ queryKey: ['producao'] });
+    },
+  });
+  const set = (r: RoundRow, p: Partial<{ qty: string; brk: number }>) =>
+    setVals((v) => ({ ...v, [rowKey(r)]: { qty: v[rowKey(r)]?.qty ?? '', brk: v[rowKey(r)]?.brk ?? 0, ...p } }));
+
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-brand-600" />
+          {d ? <>Hora {hm(d.start)}–{hm(d.end)}{d.shift ? ` · ${d.shift.name}` : ''}</> : 'Rodada da hora'}
+        </span>
+      }
+      actions={
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" onClick={() => go(-1)} disabled={!d} aria-label="Hora anterior"><ChevronLeft className="h-4 w-4" /></Button>
+          <Button size="sm" onClick={() => go(1)} disabled={!d || d.isLatest} aria-label="Próxima hora"><ChevronRight className="h-4 w-4" /></Button>
+          <Button size="sm" onClick={() => setUpload(true)}><Upload className="h-3.5 w-3.5" />Planejamento do PCP</Button>
+        </div>
+      }>
+      {upload && <PlanUploadModal onClose={() => setUpload(false)} />}
+      {round.isLoading ? <Spinner /> : round.error ? <ErrorBox error={round.error} onRetry={() => round.refetch()} /> : d && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            {!d.shift ? <span className="text-gray-500">Fora do horário dos turnos.</span>
+              : d.plan ? (
+                <span className={d.plan.sameDay ? 'text-gray-500' : 'text-amber-700'}>
+                  {d.plan.sameDay ? 'Planejamento' : 'Sem planejamento deste dia: usando o'} de {DateTime.fromISO(d.plan.date).toFormat('dd/MM')}, enviado por {d.plan.by} às {DateTime.fromISO(d.plan.uploadedAt, { zone: zone() }).toFormat('dd/MM HH:mm')}
+                </span>
+              ) : <span className="flex items-center gap-1.5 text-amber-700"><AlertTriangle className="h-4 w-4" />Nenhum planejamento enviado. Suba a planilha do PCP para as máquinas virem preenchidas.</span>}
+            {d.setup && !d.setup.ok && <span className="text-amber-700">Controle de Setup sem resposta: PNs só do planejamento.</span>}
+            {d.rows.length > 0 && <span className="ml-auto text-gray-600">{d.rows.length - d.pending} de {d.rows.length} apontadas</span>}
+          </div>
+
+          {d.rows.length > 0 && (
+            <ul className="space-y-2">
+              {d.rows.map((r) => r.entry ? (
+                <EntryCard key={rowKey(r)} e={r.entry} options={o} compact />
+              ) : (
+                <li key={rowKey(r)} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-gray-200 px-3 py-2.5">
+                  <div className="min-w-[9rem] flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-base font-bold text-gray-900">Máq. {r.machine}</span>
+                      <span className="text-sm text-gray-700">{r.pn}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-2 text-xs text-gray-500">
+                      {r.perHour != null ? <span>meta {n0(r.perHour)} pç/h</span> : <span className="text-amber-700">sem ciclo padrão</span>}
+                      {r.source === 'setup' && <span className="rounded bg-violet-100 px-1 font-semibold text-violet-800">PN do último setup</span>}
+                      {r.setup && r.setup.status !== 'Finalizado' && <span className="rounded bg-violet-100 px-1 font-semibold text-violet-800">em setup desde {hm(r.setup.startedAt)}</span>}
+                      {r.op && <span>OP {r.op}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1" role="group" aria-label={`Refeição na máquina ${r.machine}`}>
+                    <span className="mr-1 text-xs text-gray-500">refeição</span>
+                    {BREAKS.map((b) => (
+                      <button key={b} onClick={() => set(r, { brk: b })}
+                        className={cx('rounded-md border px-2 py-1 text-xs font-semibold', (vals[rowKey(r)]?.brk ?? 0) === b ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-gray-700')}>
+                        {b === 0 ? 'não' : `${b} min`}
+                      </button>
+                    ))}
+                  </div>
+                  <Input type="number" inputMode="numeric" min={0} aria-label={`Peças da máquina ${r.machine} PN ${r.pn}`} placeholder="peças"
+                    value={vals[rowKey(r)]?.qty ?? ''} onChange={(e) => set(r, { qty: e.target.value })} className="!w-28 text-lg font-semibold" />
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
+          {result && result.errors.length > 0 && (
+            <ul className="space-y-0.5 text-sm text-red-700">{result.errors.map((x) => <li key={x.machine + x.pn}>Máq. {x.machine} · {x.pn}: {x.erro}</li>)}</ul>
+          )}
+          {result && result.saved > 0 && (
+            <p className="flex items-center gap-1.5 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />{result.saved} apontamento(s) salvos. O resultado de cada máquina está na lista acima.</p>
+          )}
+          {d.rows.some((r) => !r.entry) && (
+            <div className="flex justify-end">
+              <Button kind="primary" disabled={!filled.length} loading={save.isPending} onClick={() => save.mutate()}>
+                <Save className="h-4 w-4" />{filled.length ? `Salvar ${filled.length} máquina${filled.length > 1 ? 's' : ''}` : 'Digite as peças'}
+              </Button>
+            </div>
+          )}
+
+          {d.extra.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Outros apontamentos desta hora</div>
+              <ul className="space-y-2">{d.extra.map((e) => <EntryCard key={e.id} e={e} options={o} compact />)}</ul>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+interface PlanPreview {
+  date: string; fileName: string; machinesPerShift: number[];
+  running: { machine: string; pn: string; shifts: number[] }[]; stopped: string[]; outside: string[];
+  cycles: { added: number; updated: number; same: number; manual: number; mismatches: { machine: string; pn: string }[] };
+}
+function PlanUploadModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [date, setDate] = useState('');
+  const [preview, setPreview] = useState<PlanPreview | null>(null);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const send = async (commit: boolean) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    setBusy(true); setError(null);
+    try {
+      const r = await post<PlanPreview>(`/api/producao/planejamento${qs({ commit: commit ? 1 : 0, date: date || undefined })}`, fd);
+      setPreview(r);
+      if (!date) setDate(r.date);
+      if (commit) { setDone(true); qc.invalidateQueries({ queryKey: ['producao'] }); }
+    } catch (e) { setError(errorMessage(e)); setPreview(null); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open onClose={onClose} title="Planejamento do dia (PCP)" wide
+      footer={done ? <Button kind="primary" onClick={onClose}>Fechar</Button> : <>
+        <Button onClick={onClose}>Cancelar</Button>
+        {preview ? <Button kind="primary" loading={busy} onClick={() => send(true)}>Usar este planejamento</Button>
+          : <Button kind="primary" loading={busy} disabled={!file} onClick={() => send(false)}>Conferir planilha</Button>}
+      </>}>
+      <div className="space-y-3 text-sm">
+        <p className="text-gray-600">Envie a planilha "PLANEJAMENTO APONTAMENTO" do dia (.xlsm). A aba PLANEJAMENTO diz o PN de cada máquina em cada turno (T1, T2, T3; "X" = não roda). Pode enviar de novo quando o plano mudar: vale o último envio do dia. Os ciclos e cavidades também são atualizados.</p>
+        {!done && (
+          <div className="flex flex-wrap items-end gap-3">
+            <input type="file" accept=".xlsx,.xlsm" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); setDate(''); }} />
+            <Field label="Dia do planejamento" hint="Lido do nome do arquivo; troque se precisar"><Input type="date" value={date} onChange={(e) => { setDate(e.target.value); setPreview(null); }} /></Field>
+          </div>
+        )}
+        {error && <p className="text-red-700">{error}</p>}
+        {preview && (
+          <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            {done && <p className="flex items-center gap-1.5 font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />Planejamento de {DateTime.fromISO(preview.date).toFormat('dd/MM/yyyy')} em uso.</p>}
+            <p>Dia <b>{DateTime.fromISO(preview.date).toFormat('dd/MM/yyyy')}</b>: {preview.machinesPerShift.map((n, i) => `${n} máquinas no ${i + 1}º turno`).join(' · ')}.</p>
+            <ul className="grid gap-x-4 text-xs sm:grid-cols-2">
+              {preview.running.map((x) => <li key={x.machine + x.pn}>Máq. <b>{x.machine}</b> · {x.pn} · T{x.shifts.join(', T')}</li>)}
+            </ul>
+            {preview.stopped.length > 0 && <p className="text-xs text-gray-500">Paradas no plano (X): {preview.stopped.join(', ')}.</p>}
+            {preview.outside.length > 0 && <p className="text-xs text-gray-500">Fora das máquinas cadastradas: {preview.outside.join(', ')}.</p>}
+            <p className="text-xs text-gray-600">Ciclos: {preview.cycles.added} novos, {preview.cycles.updated} atualizados, {preview.cycles.same} iguais{preview.cycles.manual ? `, ${preview.cycles.manual} digitados à mão mantidos` : ''}.</p>
           </div>
         )}
       </div>

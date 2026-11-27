@@ -71,3 +71,58 @@ export function parsePlanCycles(wb: Workbook) {
     .map((i) => ({ machine: i.machine, pn: i.pn, cycleSeconds: i.cycleSeconds, cavities: i.cavities, perHour: Math.round(i.perHour! * 10) / 10 }));
   return { items: [...byKey.values()], sheets: found.map((f) => f.sheet), mismatches };
 }
+
+export interface PlanItem { machine: string; pn: string; shifts: number[]; cycleSeconds: number | null; cavities: number; op: string | null }
+
+/**
+ * The day's plan from the "PLANEJAMENTO" sheet: which PN each machine runs in each shift. A shift column (T1, T2, T3)
+ * with "X" or empty, or its hours column ("HRS T1") at 0, means the machine does not run that PN in that shift.
+ */
+export function parseDailyPlan(wb: Workbook): { sheet: string | null; items: PlanItem[] } {
+  for (const sh of wb.sheets) {
+    if (!/PLANEJAMENTO/i.test(sh.name)) continue;
+    for (const r of [...sh.rows.keys()].sort((a, b) => a - b).slice(0, 15)) {
+      const cols: Record<string, number> = {};
+      for (const [c, v] of sh.rows.get(r)!) {
+        const h = norm(v).replace(/\s+/g, ' ');
+        if (cols.machine == null && /^MAQUINA/.test(h)) cols.machine = c;
+        else if (cols.pn == null && /^PART ?NUMBER/.test(h)) cols.pn = c;
+        else if (cols.cycle == null && /^(TEMPO ?)?CICLO/.test(h)) cols.cycle = c;
+        else if (cols.cav == null && /^CAV/.test(h)) cols.cav = c;
+        else if (cols.op == null && /^NUMERO DA OP|^OP$/.test(h)) cols.op = c;
+        else if (/^T[123]$/.test(h)) cols[h] ??= c;
+        else if (/^HRS ?T[123]$/.test(h)) cols[`H${h.slice(-1)}`] ??= c;
+      }
+      if (cols.machine == null || cols.pn == null || cols.T1 == null) continue;
+      const items: PlanItem[] = [];
+      for (const [row, cells] of sh.rows) {
+        if (row <= r) continue;
+        const machine = text(cells.get(cols.machine));
+        const pn = normalizePn(text(cells.get(cols.pn)));
+        if (!machine || !pn || !/\d/.test(pn)) continue;
+        const shifts = [1, 2, 3].filter((t) => {
+          const v = cols[`T${t}`] == null ? '' : norm(cells.get(cols[`T${t}`]));
+          const hrs = cols[`H${t}`] == null ? null : cells.get(cols[`H${t}`]);
+          return v !== '' && v !== 'X' && v !== '0' && !(typeof hrs === 'number' && hrs <= 0);
+        });
+        const cycle = cols.cycle == null ? NaN : num(cells.get(cols.cycle));
+        const cav = cols.cav == null ? 1 : num(cells.get(cols.cav));
+        const op = cols.op == null ? '' : text(cells.get(cols.op));
+        items.push({
+          machine, pn, shifts,
+          cycleSeconds: cycle > 0 && cycle <= 3600 ? Math.round(cycle * 100) / 100 : null,
+          cavities: Number.isInteger(cav) && cav >= 1 && cav <= 64 ? cav : 1,
+          op: op && /\d/.test(op) ? op : null,
+        });
+      }
+      return { sheet: sh.name, items };
+    }
+  }
+  return { sheet: null, items: [] };
+}
+
+/** "…APONTAMENTO 27112026 SEX…" → "2026-11-27" */
+export function planDateFromName(name: string): string | null {
+  const m = /(?:^|\D)(\d{2})(\d{2})(20\d{2})(?:\D|$)/.exec(name);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}

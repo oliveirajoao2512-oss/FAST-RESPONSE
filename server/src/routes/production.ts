@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { normalizePn } from '../../../shared/maintenance.js';
@@ -28,7 +28,7 @@ import { placeLists } from './workOrders.js';
 
 const areaSlugOf = async (u: SessionUser) =>
   u.areaId == null ? null : (await one<{ slug: string }>('SELECT slug FROM areas WHERE id = $1', [u.areaId]))?.slug ?? null;
-async function guard(u: SessionUser) {
+export async function guard(u: SessionUser) {
   const slug = await areaSlugOf(u);
   if (!canReportProduction(u, slug)) throw forbidden('O apontamento de produção é dos líderes e gestores de Produção, do plant manager e do administrador.');
   return slug;
@@ -52,7 +52,7 @@ const standardSchema = z.object({
 });
 
 /** the standard for machine + PN; when that machine has none, the one of another machine running the same PN */
-async function findStandard(machine: string, pn: string, db?: Db) {
+export async function findStandard(machine: string, pn: string, db?: Db) {
   const rows = await q<{ machine: string; cycle_seconds: number; cavities: number }>(
     `SELECT machine, cycle_seconds::float AS cycle_seconds, cavities FROM production_standards WHERE upper(pn) = upper($1)
       ORDER BY (upper(replace(machine, ' ', '')) = $2) DESC, updated_at DESC`, [pn, machineKey(machine)], db);
@@ -61,25 +61,29 @@ async function findStandard(machine: string, pn: string, db?: Db) {
   return { cycleSeconds: r.cycle_seconds, cavities: r.cavities, sameMachine: machineKey(r.machine) === machineKey(machine), machine: r.machine };
 }
 
-async function validMachine(code: string) {
+export async function validMachine(code: string) {
   const { maquina } = await placeLists(['maquina']);
   const m = maquina.find((p) => machineKey(p.code) === machineKey(code));
   if (!m) throw badRequest('Escolha uma máquina da lista.', { machine: 'fora do cadastro' });
   return m.code;
 }
 
-async function checkPeriod(machine: string, start: Date, end: Date, exceptId: string | null) {
+/**
+ * Same machine and same PN cannot be reported twice for the same time. Different PNs at once are fine: several
+ * machines blow two or three PNs together (left/right parts, family molds).
+ */
+export async function checkPeriod(machine: string, pn: string, start: Date, end: Date, exceptId: string | null) {
   if (end <= start) throw badRequest('O fim do período precisa ser depois do início.', { end: 'antes do início' });
   if (end.getTime() - start.getTime() > PRODUCTION_MAX_HOURS * 3600_000) throw badRequest(`Um apontamento cobre no máximo ${PRODUCTION_MAX_HOURS} horas.`, { end: 'período longo demais' });
   if (end.getTime() > Date.now() + 10 * 60_000) throw badRequest('O período não pode terminar no futuro.', { end: 'no futuro' });
   const clash = await one<{ pn: string; period_start: Date; period_end: Date }>(
     `SELECT pn, period_start, period_end FROM production_entries
-      WHERE upper(replace(machine, ' ', '')) = $1 AND period_start < $3 AND period_end > $2 AND ($4::uuid IS NULL OR id <> $4) LIMIT 1`,
-    [machineKey(machine), start, end, exceptId]);
+      WHERE upper(replace(machine, ' ', '')) = $1 AND upper(pn) = upper($5) AND period_start < $3 AND period_end > $2 AND ($4::uuid IS NULL OR id <> $4) LIMIT 1`,
+    [machineKey(machine), start, end, exceptId, pn]);
   if (clash) {
     const { timezone: zone } = await getConfig();
     const hm = (d: Date) => DateTime.fromJSDate(d).setZone(zone).toFormat('dd/MM HH:mm');
-    throw conflict(`A máquina ${machine} já tem apontamento de ${hm(clash.period_start)} a ${hm(clash.period_end)} (PN ${clash.pn}). Ajuste o período.`, 'periodo_sobreposto');
+    throw conflict(`A máquina ${machine} já tem apontamento do PN ${clash.pn} de ${hm(clash.period_start)} a ${hm(clash.period_end)}. Ajuste o período.`, 'periodo_sobreposto');
   }
 }
 
@@ -114,6 +118,98 @@ async function loadStops(machines: string[], from: Date, to: Date) {
   return { byMachine, setup: snap ? { ok: snap.ok, error: snap.error ?? null } : null };
 }
 
+
+export const ENTRY_SQL = `SELECT e.*, e.cycle_seconds::float AS cycle, l.name AS leader, r.name AS reason_by
+  FROM production_entries e JOIN users l ON l.id = e.leader_id LEFT JOIN users r ON r.id = e.gap_reason_by`;
+
+/** each report with its meta × real and the stops that explain the difference (read now, never copied) */
+export async function evaluateEntries(rows: any[], userId: string, manager: boolean) {
+    // a report saved before its standard existed uses today's standard (and says so)
+    const missing = rows.filter((r) => r.cycle == null);
+    const late = new Map<string, Awaited<ReturnType<typeof findStandard>>>();
+    for (const r of missing) late.set(r.id, await findStandard(r.machine, r.pn));
+
+    const span = rows.length
+      ? { a: new Date(Math.min(...rows.map((r) => +new Date(r.period_start)))), b: new Date(Math.max(...rows.map((r) => +new Date(r.period_end)))) }
+      : null;
+    const { byMachine, setup } = span ? await loadStops(rows.map((r) => r.machine), span.a, span.b) : { byMachine: new Map(), setup: null };
+
+    const entries = rows.map((r) => {
+      const lateStd = late.get(r.id) ?? null;
+      const cycle = r.cycle ?? lateStd?.cycleSeconds ?? null;
+      const cavities = r.cavities ?? lateStd?.cavities ?? null;
+      const c = checkProduction({
+        start: +new Date(r.period_start), end: +new Date(r.period_end), quantity: r.quantity,
+        cycleSeconds: cycle, cavities, breakMin: r.break_minutes, stops: byMachine.get(machineKey(r.machine)) ?? [],
+      });
+      return {
+        id: r.id, machine: r.machine, pn: r.pn, shift: r.shift, start: r.period_start, end: r.period_end,
+        leader: r.leader, leaderId: r.leader_id, note: r.note, createdAt: r.created_at, updatedAt: r.updated_at,
+        cycleSeconds: cycle, cavities,
+        standardFrom: r.cycle != null ? (r.standard_machine ? 'outra_maquina' : 'maquina') : lateStd ? 'atual' : null,
+        standardMachine: r.standard_machine ?? (lateStd && !lateStd.sameMachine ? lateStd.machine : null),
+        reason: r.gap_reason, reasonBy: r.reason_by, reasonAt: r.gap_reason_at,
+        message: c.status === 'divergencia' && !r.gap_reason ? UNJUSTIFIED_MESSAGE : null,
+        canEdit: r.leader_id === userId || manager,
+        ...c,
+        stops: c.stops.map((s) => ({ ...s, sourceLabel: STOP_SOURCE_LABEL[s.source], start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() })),
+      };
+    });
+  return { entries, setup };
+}
+
+/** the single .xlsx/.xlsm file of a multipart request */
+export async function readUpload(req: FastifyRequest) {
+  let buf: Buffer | null = null;
+  let name = '';
+  for await (const part of req.parts()) {
+    if (part.type !== 'file') continue;
+    if (!/\.(xlsx|xlsm)$/i.test(part.filename)) throw badRequest('Envie a planilha no formato Excel (.xlsx ou .xlsm).');
+    buf = await part.toBuffer();
+    name = part.filename;
+  }
+  if (!buf) throw badRequest('Selecione a planilha.');
+  return { buf, name };
+}
+
+/**
+ * Standard cycles from the PCP spreadsheet. A cycle typed by hand is never overwritten; one that came from the
+ * Controle de Ciclo is replaced, since the spreadsheet has cavities. commit=false only says what would change.
+ */
+export async function applyPlanCycles(parsed: ReturnType<typeof parsePlanCycles>, userId: string, commit: boolean) {
+  const { maquina } = await placeLists(['maquina']);
+  const codes = new Map(maquina.map((m) => [planMachineKey(m.code), m.code]));
+  const current = new Map((await q<any>(`SELECT machine, pn, cycle_seconds::float AS cycle, cavities, source FROM production_standards`))
+    .map((r) => [`${machineKey(r.machine)}|${r.pn}`, r]));
+  const outside = new Map<string, number>();
+  const changes: { machine: string; pn: string; cycleSeconds: number; cavities: number; before: { cycleSeconds: number; cavities: number; source: string } | null }[] = [];
+  let same = 0, manual = 0;
+  for (const it of parsed.items) {
+    const machine = codes.get(planMachineKey(it.machine));
+    if (!machine) { outside.set(it.machine, (outside.get(it.machine) ?? 0) + 1); continue; }
+    const cur = current.get(`${machineKey(machine)}|${it.pn}`);
+    if (cur?.source === 'manual') { manual++; continue; }
+    if (cur && cur.cycle === it.cycleSeconds && cur.cavities === it.cavities) { same++; continue; }
+    changes.push({ machine, pn: it.pn, cycleSeconds: it.cycleSeconds, cavities: it.cavities, before: cur ? { cycleSeconds: cur.cycle, cavities: cur.cavities, source: cur.source } : null });
+  }
+  if (commit) {
+    for (const c of changes) {
+      await q(
+        `INSERT INTO production_standards (machine, pn, cycle_seconds, cavities, source, updated_by) VALUES ($1,$2,$3,$4,'planilha_pcp',$5)
+         ON CONFLICT (upper(machine), upper(pn)) DO UPDATE SET cycle_seconds = EXCLUDED.cycle_seconds, cavities = EXCLUDED.cavities,
+           source = 'planilha_pcp', updated_by = EXCLUDED.updated_by, updated_at = now()
+           WHERE production_standards.source <> 'manual'`, [c.machine, c.pn, c.cycleSeconds, c.cavities, userId]);
+    }
+  }
+  return {
+    sheets: parsed.sheets, total: parsed.items.length,
+    added: changes.filter((c) => !c.before).length, updated: changes.filter((c) => c.before).length, same, manual,
+    outside: [...outside.entries()].map(([machine, n]) => ({ machine, n })).sort((a, b) => b.n - a.n),
+    mismatches: parsed.mismatches,
+    examples: changes.filter((c) => c.before).slice(0, 10),
+  };
+}
+
 export async function productionRoutes(app: FastifyInstance) {
   app.get('/api/producao/opcoes', async (req) => {
     const u = requireUser(req);
@@ -140,7 +236,7 @@ export async function productionRoutes(app: FastifyInstance) {
     const machine = await validMachine(b.machine);
     const pn = normalizePn(b.pn)!;
     if (b.breakMinutes * 60_000 >= b.end.getTime() - b.start.getTime()) throw badRequest('A pausa de refeição precisa ser menor que o período.', { breakMinutes: 'maior que o período' });
-    await checkPeriod(machine, b.start, b.end, null);
+    await checkPeriod(machine, pn, b.start, b.end, null);
     const std = await findStandard(machine, pn);
     const { shifts, timezone } = await getConfig();
     const row = await one<{ id: string }>(
@@ -165,7 +261,7 @@ export async function productionRoutes(app: FastifyInstance) {
     const machine = await validMachine(b.machine);
     const pn = normalizePn(b.pn)!;
     if (b.breakMinutes * 60_000 >= b.end.getTime() - b.start.getTime()) throw badRequest('A pausa de refeição precisa ser menor que o período.', { breakMinutes: 'maior que o período' });
-    await checkPeriod(machine, b.start, b.end, id);
+    await checkPeriod(machine, pn, b.start, b.end, id);
     const sameStd = machineKey(machine) === machineKey(old.machine) && pn === old.pn;
     const std = sameStd ? null : await findStandard(machine, pn);
     const { shifts, timezone } = await getConfig();
@@ -209,42 +305,12 @@ export async function productionRoutes(app: FastifyInstance) {
     const from = (f.from ? DateTime.fromISO(f.from, { zone }) : today).startOf('day');
     const to = (f.to ? DateTime.fromISO(f.to, { zone }) : from).endOf('day');
     const rows = await q<any>(
-      `SELECT e.*, e.cycle_seconds::float AS cycle, l.name AS leader, r.name AS reason_by
-         FROM production_entries e JOIN users l ON l.id = e.leader_id LEFT JOIN users r ON r.id = e.gap_reason_by
+      `${ENTRY_SQL}
         WHERE e.period_start >= $1 AND e.period_start <= $2 AND ($3::text IS NULL OR upper(replace(e.machine, ' ', '')) = $3)
         ORDER BY e.period_start DESC, e.machine`,
       [from.toJSDate(), to.toJSDate(), f.machine ? machineKey(f.machine) : null]);
-    // a report saved before its standard existed uses today's standard (and says so)
-    const missing = rows.filter((r) => r.cycle == null);
-    const late = new Map<string, Awaited<ReturnType<typeof findStandard>>>();
-    for (const r of missing) late.set(r.id, await findStandard(r.machine, r.pn));
-
-    const span = rows.length
-      ? { a: new Date(Math.min(...rows.map((r) => +new Date(r.period_start)))), b: new Date(Math.max(...rows.map((r) => +new Date(r.period_end)))) }
-      : null;
-    const { byMachine, setup } = span ? await loadStops(rows.map((r) => r.machine), span.a, span.b) : { byMachine: new Map(), setup: null };
-
-    const entries = rows.map((r) => {
-      const lateStd = late.get(r.id) ?? null;
-      const cycle = r.cycle ?? lateStd?.cycleSeconds ?? null;
-      const cavities = r.cavities ?? lateStd?.cavities ?? null;
-      const c = checkProduction({
-        start: +new Date(r.period_start), end: +new Date(r.period_end), quantity: r.quantity,
-        cycleSeconds: cycle, cavities, breakMin: r.break_minutes, stops: byMachine.get(machineKey(r.machine)) ?? [],
-      });
-      return {
-        id: r.id, machine: r.machine, pn: r.pn, shift: r.shift, start: r.period_start, end: r.period_end,
-        leader: r.leader, leaderId: r.leader_id, note: r.note, createdAt: r.created_at, updatedAt: r.updated_at,
-        cycleSeconds: cycle, cavities,
-        standardFrom: r.cycle != null ? (r.standard_machine ? 'outra_maquina' : 'maquina') : lateStd ? 'atual' : null,
-        standardMachine: r.standard_machine ?? (lateStd && !lateStd.sameMachine ? lateStd.machine : null),
-        reason: r.gap_reason, reasonBy: r.reason_by, reasonAt: r.gap_reason_at,
-        message: c.status === 'divergencia' && !r.gap_reason ? UNJUSTIFIED_MESSAGE : null,
-        canEdit: r.leader_id === u.id || manager,
-        ...c,
-        stops: c.stops.map((s) => ({ ...s, sourceLabel: STOP_SOURCE_LABEL[s.source], start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() })),
-      };
-    }).filter((e) => !f.status || e.status === f.status);
+    const { entries: all, setup } = await evaluateEntries(rows, u.id, manager);
+    const entries = all.filter((e) => !f.status || e.status === f.status);
 
     const sum = (k: 'expected' | 'quantity' | 'lossMin' | 'stopMin' | 'justifiedMin' | 'unjustifiedMin' | 'unjustifiedPieces') =>
       Math.round(entries.reduce((n, e) => n + ((e[k] as number | null) ?? 0), 0) * 10) / 10;
@@ -287,50 +353,15 @@ export async function productionRoutes(app: FastifyInstance) {
     const slug = await guard(u);
     if (!canEditStandards(u, slug)) throw forbidden('Os ciclos padrão são editados pelo gestor de Produção, plant manager ou administrador.');
     const { commit } = parse(z.object({ commit: z.enum(['0', '1']).default('0') }), req.query);
-    let buf: Buffer | null = null;
-    for await (const part of req.parts()) {
-      if (part.type !== 'file') continue;
-      if (!/\.(xlsx|xlsm)$/i.test(part.filename)) throw badRequest('Envie a planilha no formato Excel (.xlsx ou .xlsm).');
-      buf = await part.toBuffer();
-    }
-    if (!buf) throw badRequest('Selecione a planilha.');
+    const { buf } = await readUpload(req);
     let parsed;
     try { parsed = parsePlanCycles(readXlsx(buf)); } catch (e) {
       if (e instanceof XlsxError) throw badRequest(e.message);
       throw e;
     }
     if (!parsed.items.length) throw badRequest('Nenhuma aba com colunas de máquina, part number e ciclo foi encontrada.');
-    const { maquina } = await placeLists(['maquina']);
-    const codes = new Map(maquina.map((m) => [planMachineKey(m.code), m.code]));
-    const current = new Map((await q<any>(`SELECT machine, pn, cycle_seconds::float AS cycle, cavities, source FROM production_standards`))
-      .map((r) => [`${machineKey(r.machine)}|${r.pn}`, r]));
-    const outside = new Map<string, number>();
-    const changes: { machine: string; pn: string; cycleSeconds: number; cavities: number; before: { cycleSeconds: number; cavities: number; source: string } | null }[] = [];
-    let same = 0, manual = 0;
-    for (const it of parsed.items) {
-      const machine = codes.get(planMachineKey(it.machine));
-      if (!machine) { outside.set(it.machine, (outside.get(it.machine) ?? 0) + 1); continue; }
-      const cur = current.get(`${machineKey(machine)}|${it.pn}`);
-      if (cur?.source === 'manual') { manual++; continue; }
-      if (cur && cur.cycle === it.cycleSeconds && cur.cavities === it.cavities) { same++; continue; }
-      changes.push({ machine, pn: it.pn, cycleSeconds: it.cycleSeconds, cavities: it.cavities, before: cur ? { cycleSeconds: cur.cycle, cavities: cur.cavities, source: cur.source } : null });
-    }
-    const summary = {
-      sheets: parsed.sheets, total: parsed.items.length,
-      added: changes.filter((c) => !c.before).length, updated: changes.filter((c) => c.before).length, same, manual,
-      outside: [...outside.entries()].map(([machine, n]) => ({ machine, n })).sort((a, b) => b.n - a.n),
-      mismatches: parsed.mismatches,
-      examples: changes.filter((c) => c.before).slice(0, 10),
-    };
-    if (commit !== '1') return summary;
-    for (const c of changes) {
-      await q(
-        `INSERT INTO production_standards (machine, pn, cycle_seconds, cavities, source, updated_by) VALUES ($1,$2,$3,$4,'planilha_pcp',$5)
-         ON CONFLICT (upper(machine), upper(pn)) DO UPDATE SET cycle_seconds = EXCLUDED.cycle_seconds, cavities = EXCLUDED.cavities,
-           source = 'planilha_pcp', updated_by = EXCLUDED.updated_by, updated_at = now()
-           WHERE production_standards.source <> 'manual'`, [c.machine, c.pn, c.cycleSeconds, c.cavities, u.id]);
-    }
-    await audit(pool, { actorId: u.id, action: 'producao.importar_planilha', entityType: 'production_standard', data: { added: summary.added, updated: summary.updated, abas: parsed.sheets } });
+    const summary = await applyPlanCycles(parsed, u.id, commit === '1');
+    if (commit === '1') await audit(pool, { actorId: u.id, action: 'producao.importar_planilha', entityType: 'production_standard', data: { added: summary.added, updated: summary.updated, abas: parsed.sheets } });
     return summary;
   });
 

@@ -7,6 +7,7 @@ import { publish, type RealtimeEvent } from '../realtime.js';
 import { getConfig } from '../settings.js';
 import { deliverPush } from '../push.js';
 import { runOrderAlerts } from './orderAlerts.js';
+import { runProductionRoundNotice } from '../routes/productionRound.js';
 import { fmt } from './issues.js';
 
 const ACTIVE = `('aberta','aguardando_responsavel','planejada','em_andamento','bloqueada')`;
@@ -117,6 +118,7 @@ export function startJobs(log: { error: (o: unknown, m: string) => void }) {
     try {
       await runDeadlineJobs();
       await runOrderAlerts();
+      await runProductionRoundNotice();
       await deliverPush();
       await deliverEmails();
     } catch (e) {
