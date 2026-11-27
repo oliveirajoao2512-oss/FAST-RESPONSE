@@ -93,3 +93,19 @@ API: `POST /api/producao/planejamento?commit&date` (multipart), `GET /api/produc
 ## Tela do tablet (27/11/2026)
 
 A aba **Apontar** mostra uma máquina + PN por vez, sem lista: o sistema traz a máquina e o PN da hora (planejamento do PCP ou último setup), o líder digita as peças no teclado numérico, e a tela já compara com a meta e com as paradas registradas na hora (OS/OA com máquina parada e setups). OS/OA abertas com a máquina rodando aparecem, mas não contam como parada. Ao salvar, aparece o resultado; se houver tempo não justificado, o líder informa o motivo antes de seguir para a próxima máquina. **Pular** deixa a máquina para o fim. No computador dá para digitar pelo teclado: Enter salva e, no resultado, Enter vai para a próxima máquina. O apontamento avulso foi para a aba **Conferência**; a importação do planejamento e os ciclos ficam na aba **Planejamento**.
+
+## Refugo e OEE (27/11/2026)
+
+Quando faltam peças e nenhuma parada registrada explica (tempo não justificado), o líder informa o que aconteceu antes de seguir:
+- **Foi refugo**: quantas peças (vem preenchido com as peças que faltaram, pode alterar) e o defeito (Rebarba, Falha de injeção, Chupado, Mancha / contaminação, Bolha, Dimensional, Quebrada / trincada, Partida de máquina, ou texto livre).
+- **Não foram produzidas**: o motivo (Falta de M.O, Falta de embalagem, Falta de componente, Microparadas, Ciclo acima do padrão, Refeição, ou texto livre).
+
+Gravado em `production_entries.gap_kind` / `scrap_pieces` (migração 023), com o histórico na auditoria.
+
+A aba **OEE** (GET /api/producao/oee?from&to&shift&machine) mostra, por período, turno e máquina:
+- **Disponibilidade** = (tempo planejado − paradas registradas) / tempo planejado. O tempo planejado é o período menos a refeição. As paradas são OS/OA com máquina parada e setups, sem contar sobreposição duas vezes.
+- **Performance** = (peças boas + refugo) no ciclo padrão / tempo rodando.
+- **Qualidade** = peças boas / (boas + refugo).
+- **OEE** = D × P × Q = peças boas no ciclo padrão / tempo planejado, limitado a 100% (apontamentos acima do ciclo aparecem num aviso).
+
+O painel mostra para onde foi o tempo planejado (produção boa, paradas por origem, refugo, ritmo, sem motivo), a evolução hora a hora ou dia a dia, um gráfico por máquina e por turno, o refugo por defeito, as peças não produzidas por motivo e os PNs que mais perderam tempo. Apontamentos sem ciclo padrão ficam fora do OEE e são contados no aviso.

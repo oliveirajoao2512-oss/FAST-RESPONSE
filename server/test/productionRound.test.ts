@@ -138,6 +138,34 @@ describe('rodada da hora', () => {
     expect(dup.body.errors[0].erro).toMatch(/já tem apontamento/);
   });
 
+  it('peças faltando sem parada: o líder informa refugo e o OEE sai com disponibilidade, performance e qualidade', async () => {
+    const r = (await lider.get(`/api/producao/rodada?end=${encodeURIComponent(wed.plus({ hours: 1 }).toISO()!)}`)).body;
+    const gap = r.rows.find((x: any) => x.machine === '4' && x.pn === '10007770003').entry;
+    expect(gap).toMatchObject({ status: 'divergencia', unjustifiedPieces: 120, gapKind: null });
+    expect((await lider.post(`/api/producao/apontamentos/${gap.id}/motivo`, { reason: 'Rebarba', kind: 'refugo' })).status).toBe(400);
+    expect((await lider.post(`/api/producao/apontamentos/${gap.id}/motivo`, { reason: 'Rebarba', kind: 'refugo', scrapPieces: 120 })).status).toBe(200);
+
+    const o = (await lider.get(`/api/producao/oee?from=${wed.toISODate()}&to=${wed.toISODate()}`)).body;
+    // planned 60 + 30 (half hour of lunch) + 60 = 150 min; 15 min of OS on machine 12; 120 bad pieces = 30 min at 4 pç/min
+    expect(o.totals).toMatchObject({ plannedMin: 150, good: 195, scrap: 120, entries: 3, pendingReason: 0 });
+    expect(o.totals.availability).toBeCloseTo(0.9);
+    expect(o.totals.performance).toBeCloseTo(1);
+    expect(o.totals.quality).toBeCloseTo(105 / 135);
+    expect(o.totals.oee).toBeCloseTo(0.7);
+    expect(o.losses.find((l: any) => l.key === 'manutencao').min).toBe(15);
+    expect(o.losses.find((l: any) => l.key === 'refugo').min).toBe(30);
+    expect(o.scrapByReason).toEqual([{ reason: 'Rebarba', pieces: 120 }]);
+    expect(o.byMachine.map((m: any) => m.key)).toEqual(['4', '12']);
+    expect(o.series).toHaveLength(24);
+    // the same hour told as pieces not made: no scrap, the loss goes to the Performance
+    await lider.post(`/api/producao/apontamentos/${gap.id}/motivo`, { reason: 'Falta de M.O', kind: 'ritmo' });
+    const o2 = (await lider.get(`/api/producao/oee?from=${wed.toISODate()}`)).body;
+    expect(o2.totals).toMatchObject({ scrap: 0, quality: 1 });
+    expect(o2.totals.performance).toBeCloseTo(105 / 135);
+    expect(o2.rhythmByReason).toEqual([{ reason: 'Falta de M.O', min: 30 }]);
+    expect((await operador.get(`/api/producao/oee`)).status).toBe(403);
+  });
+
   it('aviso de hora fechada vai para quem aponta, uma vez por hora', async () => {
     // a plan for today makes the hour that just closed have machines, if it is a working hour
     const now = DateTime.now().setZone(ZONE);

@@ -1,15 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock, Download, Factory, HelpCircle, Info, Pencil, Save, Upload } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock, Download, Factory, Info, Pencil, Save, Upload } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, STOP_SOURCE_LABEL, checkProduction, machineKey, type CheckStatus, type StopSource,
+  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, RHYTHM_REASONS, SCRAP_REASONS, STOP_SOURCE_LABEL, checkProduction, type GapKind, machineKey, type CheckStatus, type StopSource,
 } from '@shared/production';
 import { normalizePn } from '@shared/maintenance';
 import { shiftOf } from '@shared/shifts';
 import { errorMessage, get, patch, post, put, qs } from '../lib/api';
 import { tz } from '../lib/format';
-import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Segmented, Select, Spinner, Textarea } from '../components/ui';
+import { OeeDashboard } from './ProductionOee';
+import { Button, Card, cx, Empty, ErrorBox, Field, Input, Modal, Segmented, Select, Spinner } from '../components/ui';
 
 /**
  * Produção (stage 1, João 27/11/2026): the leader reports pieces per machine and period, and the conferência shows
@@ -26,6 +27,7 @@ interface Entry {
   id: string; machine: string; pn: string; shift: string | null; start: string; end: string; leader: string; note: string | null;
   cycleSeconds: number | null; cavities: number | null; standardFrom: 'maquina' | 'outra_maquina' | 'atual' | null; standardMachine: string | null;
   reason: string | null; reasonBy: string | null; reasonAt: string | null; message: string | null; canEdit: boolean;
+  gapKind: GapKind | null; scrapPieces: number | null;
   status: CheckStatus; periodMin: number; breakMin: number; plannedMin: number; ratePerHour: number | null; expected: number | null; quantity: number;
   lossPieces: number | null; lossMin: number | null; stopMin: number; justifiedMin: number | null; unjustifiedMin: number | null;
   unjustifiedPieces: number | null; aboveStandard: boolean; stopsExceedLoss: boolean; stops: Stop[];
@@ -59,7 +61,7 @@ function StatusTag({ s }: { s: CheckStatus }) {
   return <span className={cx('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ring-1', TONE[c.tone])}>{c.label}</span>;
 }
 
-type Tab = 'apontar' | 'conferencia' | 'planejamento';
+type Tab = 'apontar' | 'conferencia' | 'oee' | 'planejamento';
 const TAB_KEY = 'fr-producao-aba';
 
 export function ProductionPage() {
@@ -79,6 +81,7 @@ export function ProductionPage() {
         <Segmented<Tab> value={tab} onChange={setTab} options={[
           { value: 'apontar', label: 'Apontar' },
           { value: 'conferencia', label: 'Conferência' },
+          { value: 'oee', label: 'OEE' },
           { value: 'planejamento', label: 'Planejamento' },
         ]} />
       </header>
@@ -89,6 +92,7 @@ export function ProductionPage() {
           <ManualReport o={o} onSaved={(d) => setDay(d)} />
         </>
       )}
+      {tab === 'oee' && <OeeDashboard machines={o.machines} />}
       {tab === 'planejamento' && (
         <>
           <PlanningPanel />
@@ -381,7 +385,7 @@ function EntryCard({ e, options, compact }: { e: Entry; options: Options; compac
             )}
           </div>
           {e.note && <p className="text-sm text-gray-600"><b>Observação:</b> {e.note}</p>}
-          {(e.status === 'divergencia' || e.reason) && <ReasonBox e={e} />}
+          {(e.status === 'divergencia' || e.reason) && <GapReason e={e} />}
           {e.canEdit && (
             <div className="flex justify-end">
               <Button size="sm" kind="ghost" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" />Corrigir apontamento</Button>
@@ -400,39 +404,6 @@ function Item({ k, v, hint, strong }: { k: string; v: string; hint?: string; str
       <dt className="text-xs text-gray-500">{k}</dt>
       <dd className={cx('font-semibold tabular', strong ? 'text-red-700' : 'text-gray-900')}>{v}</dd>
       {hint && <dd className="text-xs text-gray-500">{hint}</dd>}
-    </div>
-  );
-}
-
-function ReasonBox({ e }: { e: Entry }) {
-  const qc = useQueryClient();
-  const [text, setText] = useState(e.reason ?? '');
-  const [edit, setEdit] = useState(!e.reason);
-  const save = useMutation({
-    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text }),
-    onSuccess: () => { setEdit(false); qc.invalidateQueries({ queryKey: ['producao', 'conferencia'] }); },
-  });
-  if (!edit) {
-    return (
-      <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Motivo informado pelo líder</span>
-          <Button size="sm" kind="ghost" onClick={() => setEdit(true)}>Alterar</Button>
-        </div>
-        <p className="text-gray-900">{e.reason}</p>
-        <p className="text-xs text-gray-500">{e.reasonBy}{e.reasonAt ? ` · ${DateTime.fromISO(e.reasonAt, { zone: zone() }).toFormat('dd/MM HH:mm')}` : ''}</p>
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/50 p-3">
-      <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-800"><HelpCircle className="h-4 w-4" />O que aconteceu nos {min(e.unjustifiedMin)} sem justificativa?</label>
-      <Textarea value={text} onChange={(x) => setText(x.target.value)} placeholder="Ex.: falta de operador, aguardando embalagem, máquina parada sem OS aberta…" maxLength={1000} />
-      {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
-      <div className="flex justify-end gap-2">
-        {e.reason && <Button size="sm" onClick={() => { setText(e.reason ?? ''); setEdit(false); }}>Cancelar</Button>}
-        <Button size="sm" kind="primary" disabled={text.trim().length < 3} loading={save.isPending} onClick={() => save.mutate()}>Salvar motivo</Button>
-      </div>
     </div>
   );
 }
@@ -919,40 +890,66 @@ function MachineResult({ e }: { e: Entry }) {
             ))}
           </ul>
         )}
-        {e.status === 'divergencia' && <QuickReason e={e} />}
+        {(e.status === 'divergencia' || e.reason) && <GapReason e={e} big />}
       </div>
     </div>
   );
 }
 
-function QuickReason({ e }: { e: Entry }) {
+/**
+ * Pieces missing with no registered stop (João, 27/11/2026): by default they are scrap, and the leader tells how many
+ * and why; if they were not made at all, he says so and gives the reason. Nothing is filled in for him.
+ */
+function GapReason({ e, big }: { e: Entry; big?: boolean }) {
   const qc = useQueryClient();
+  const [kind, setKind] = useState<GapKind>(e.gapKind ?? 'refugo');
   const [text, setText] = useState(e.reason ?? '');
+  const [pieces, setPieces] = useState(String(e.scrapPieces ?? e.unjustifiedPieces ?? ''));
   const [edit, setEdit] = useState(!e.reason);
   const save = useMutation({
-    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text }),
+    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text, kind, ...(kind === 'refugo' ? { scrapPieces: Number(pieces) } : {}) }),
     onSuccess: () => { setEdit(false); qc.invalidateQueries({ queryKey: ['producao'] }); },
   });
   if (!edit) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
-        <span><b>Motivo:</b> {e.reason ?? text}</span>
-        <Button size="sm" kind="ghost" onClick={() => setEdit(true)}>Alterar</Button>
+        <div className="min-w-0">
+          <b>{e.gapKind === 'refugo' ? `Refugo: ${n0(e.scrapPieces)} pç` : e.gapKind === 'ritmo' ? 'Peças não produzidas' : 'Motivo'}</b> · {e.reason ?? text}
+          {e.reasonBy && <span className="block text-xs text-gray-500">{e.reasonBy}{e.reasonAt ? ` · ${DateTime.fromISO(e.reasonAt, { zone: zone() }).toFormat('dd/MM HH:mm')}` : ''}</span>}
+        </div>
+        {e.canEdit && <Button size="sm" kind="ghost" onClick={() => setEdit(true)}>Alterar</Button>}
       </div>
     );
   }
+  const reasons = kind === 'refugo' ? SCRAP_REASONS : RHYTHM_REASONS;
+  const ok = text.trim().length >= 3 && (kind === 'ritmo' || Number(pieces) > 0);
+  const chip = (on: boolean) => cx('rounded-full border-2 font-semibold', big ? 'px-3 py-2 text-sm' : 'px-2.5 py-1 text-xs', on ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-800');
   return (
-    <div className="space-y-2 rounded-xl border-2 border-red-200 bg-red-50 p-3">
-      <p className="font-semibold text-red-800">{min(e.unjustifiedMin)} sem justificativa ({n0(e.unjustifiedPieces)} peças). O que aconteceu?</p>
-      <div className="flex flex-wrap gap-2">
-        {QUICK_REASONS.map((r) => (
-          <button key={r} onClick={() => setText(r)}
-            className={cx('rounded-full border-2 px-3 py-2 text-sm font-semibold', text === r ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-800')}>{r}</button>
+    <div className="space-y-2.5 rounded-xl border-2 border-red-200 bg-red-50 p-3">
+      <p className={cx('font-semibold text-red-800', big ? 'text-base' : 'text-sm')}>
+        Faltaram {n0(e.unjustifiedPieces)} peças sem parada registrada ({min(e.unjustifiedMin)}).
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {([['refugo', 'Foi refugo'], ['ritmo', 'Não foram produzidas']] as [GapKind, string][]).map(([k, l]) => (
+          <button key={k} onClick={() => { setKind(k); setText(''); }}
+            className={cx('rounded-lg border-2 py-2 text-sm font-semibold', kind === k ? 'border-red-600 bg-white text-red-800 shadow-sm' : 'border-transparent text-red-700/70')}>{l}</button>
         ))}
       </div>
-      <Input value={text} onChange={(x) => setText(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && text.trim().length >= 3) save.mutate(); }} placeholder="Ou escreva o motivo" className="text-base" />
+      {kind === 'refugo' && (
+        <label className="flex items-center gap-2 text-sm text-red-900">Peças refugadas
+          <Input inputMode="numeric" value={pieces} onChange={(x) => setPieces(x.target.value.replace(/\D/g, '').slice(0, 6))} className="!w-28 text-right text-base font-semibold" />
+        </label>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {reasons.map((r) => <button key={r} onClick={() => setText(r)} className={chip(text === r)}>{r}</button>)}
+      </div>
+      <Input value={text} onChange={(x) => setText(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && ok) save.mutate(); }}
+        placeholder={kind === 'refugo' ? 'Ou escreva o defeito' : 'Ou escreva o motivo'} maxLength={1000} className="text-base" />
       {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
-      <div className="flex justify-end"><Button kind="primary" disabled={text.trim().length < 3} loading={save.isPending} onClick={() => save.mutate()}>Salvar motivo</Button></div>
+      <div className="flex justify-end gap-2">
+        {e.reason && <Button size="sm" onClick={() => setEdit(false)}>Cancelar</Button>}
+        <Button kind="primary" disabled={!ok} loading={save.isPending} onClick={() => save.mutate()}>{kind === 'refugo' ? 'Salvar refugo' : 'Salvar motivo'}</Button>
+      </div>
     </div>
   );
 }

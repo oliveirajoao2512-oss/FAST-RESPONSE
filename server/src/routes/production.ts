@@ -3,8 +3,8 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { normalizePn } from '../../../shared/maintenance.js';
 import {
-  canEditStandards, canReportProduction, checkProduction, machineKey, PRODUCTION_MAX_HOURS, STOP_SOURCE_LABEL, UNJUSTIFIED_MESSAGE,
-  type StopInput,
+  addOee, canEditStandards, canReportProduction, checkProduction, emptyOee, LOSS_LABEL, machineKey, oeeOf, oeeParts, PRODUCTION_MAX_HOURS,
+  STOP_SOURCE_LABEL, UNJUSTIFIED_MESSAGE, type GapKind, type LossKey, type OeeSum, type StopInput,
 } from '../../../shared/production.js';
 import { shiftOf } from '../../../shared/shifts.js';
 import { audit } from '../audit.js';
@@ -149,6 +149,8 @@ export async function evaluateEntries(rows: any[], userId: string, manager: bool
         standardFrom: r.cycle != null ? (r.standard_machine ? 'outra_maquina' : 'maquina') : lateStd ? 'atual' : null,
         standardMachine: r.standard_machine ?? (lateStd && !lateStd.sameMachine ? lateStd.machine : null),
         reason: r.gap_reason, reasonBy: r.reason_by, reasonAt: r.gap_reason_at,
+        gapKind: (r.gap_kind ?? null) as GapKind | null, scrapPieces: r.scrap_pieces ?? null,
+        oee: oeeParts(c, { kind: r.gap_kind ?? null, scrap: r.scrap_pieces ?? null, reason: r.gap_reason }),
         message: c.status === 'divergencia' && !r.gap_reason ? UNJUSTIFIED_MESSAGE : null,
         canEdit: r.leader_id === userId || manager,
         ...c,
@@ -284,11 +286,20 @@ export async function productionRoutes(app: FastifyInstance) {
     const u = requireUser(req);
     await guard(u);
     const { id } = parse(z.object({ id: z.string().uuid() }), req.params);
-    const { reason } = parse(z.object({ reason: z.string().trim().min(3, 'Descreva o motivo.').max(1000) }), req.body);
-    const old = await one<{ gap_reason: string | null }>('SELECT gap_reason FROM production_entries WHERE id = $1', [id]);
+    const b = parse(z.object({
+      reason: z.string().trim().min(3, 'Descreva o motivo.').max(1000),
+      // refugo = bad pieces (Qualidade of the OEE); ritmo = pieces not made (Performance)
+      kind: z.enum(['refugo', 'ritmo']).optional(),
+      scrapPieces: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    }), req.body);
+    if (b.kind === 'refugo' && !(b.scrapPieces! > 0)) throw badRequest('Informe quantas peças foram refugadas.');
+    const old = await one<{ gap_reason: string | null; gap_kind: string | null; scrap_pieces: number | null; quantity: number }>(
+      'SELECT gap_reason, gap_kind, scrap_pieces, quantity FROM production_entries WHERE id = $1', [id]);
     if (!old) throw notFound();
-    await q('UPDATE production_entries SET gap_reason = $2, gap_reason_by = $3, gap_reason_at = now() WHERE id = $1', [id, reason, u.id]);
-    await audit(pool, { actorId: u.id, action: 'producao.motivo', entityType: 'production_entry', entityId: id, data: { antes: old.gap_reason, motivo: reason } });
+    await q('UPDATE production_entries SET gap_reason = $2, gap_reason_by = $3, gap_reason_at = now(), gap_kind = $4, scrap_pieces = $5 WHERE id = $1',
+      [id, b.reason, u.id, b.kind ?? null, b.kind === 'refugo' ? b.scrapPieces : null]);
+    await audit(pool, { actorId: u.id, action: 'producao.motivo', entityType: 'production_entry', entityId: id,
+      data: { antes: { motivo: old.gap_reason, tipo: old.gap_kind, refugo: old.scrap_pieces }, motivo: b.reason, tipo: b.kind ?? null, refugo: b.kind === 'refugo' ? b.scrapPieces : null } });
     return { ok: true };
   });
 
@@ -324,6 +335,81 @@ export async function productionRoutes(app: FastifyInstance) {
         pendingReason: entries.filter((e) => e.status === 'divergencia' && !e.reason).length,
       },
       entries,
+    };
+  });
+
+  /**
+   * OEE of the reported production: Disponibilidade (registered stops), Performance (rhythm) and Qualidade (scrap told
+   * by the leader), by period, shift and machine. Only reports with a standard cycle count.
+   */
+  app.get('/api/producao/oee', async (req) => {
+    const u = requireUser(req);
+    const slug = await guard(u);
+    const f = parse(z.object({
+      from: day.optional(), to: day.optional(), machine: z.string().trim().max(40).optional(), shift: z.string().trim().max(40).optional(),
+    }), req.query);
+    const { timezone: zone, shifts } = await getConfig();
+    const today = DateTime.now().setZone(zone);
+    const from = (f.from ? DateTime.fromISO(f.from, { zone }) : today).startOf('day');
+    let to = (f.to ? DateTime.fromISO(f.to, { zone }) : from).endOf('day');
+    if (to < from) to = from.endOf('day');
+    if (to.diff(from, 'days').days > 92) throw badRequest('Escolha um período de até 3 meses.');
+    const rows = await q<any>(
+      `${ENTRY_SQL}
+        WHERE e.period_start >= $1 AND e.period_start <= $2 AND ($3::text IS NULL OR upper(replace(e.machine, ' ', '')) = $3)
+          AND ($4::text IS NULL OR e.shift = $4)
+        ORDER BY e.period_start`,
+      [from.toJSDate(), to.toJSDate(), f.machine ? machineKey(f.machine) : null, f.shift || null]);
+    const { entries, setup } = await evaluateEntries(rows, u.id, canEditStandards(u, slug));
+
+    const hourly = from.hasSame(to, 'day');
+    const bucketOf = (iso: string | Date) => {
+      const d = DateTime.fromJSDate(new Date(iso)).setZone(zone);
+      return hourly ? d.toFormat('HH:00') : d.toISODate()!;
+    };
+    const total = emptyOee();
+    const groups = { machine: new Map<string, OeeSum>(), shift: new Map<string, OeeSum>(), bucket: new Map<string, OeeSum>(), pn: new Map<string, OeeSum>() };
+    const add = (m: Map<string, OeeSum>, k: string, p: NonNullable<typeof entries[number]['oee']>) => addOee(m.get(k) ?? m.set(k, emptyOee()).get(k)!, p);
+    const scrapBy = new Map<string, number>();
+    const rhythmBy = new Map<string, number>();
+    let noStandard = 0;
+    for (const e of entries) {
+      if (!e.oee) { noStandard++; continue; }
+      addOee(total, e.oee);
+      add(groups.machine, e.machine, e.oee);
+      add(groups.shift, e.shift ?? 'Fora do turno', e.oee);
+      add(groups.bucket, bucketOf(e.start), e.oee);
+      add(groups.pn, e.pn, e.oee);
+      if (e.gapKind === 'refugo' && e.scrapPieces) scrapBy.set(e.reason ?? 'Sem motivo', (scrapBy.get(e.reason ?? 'Sem motivo') ?? 0) + e.scrapPieces);
+      if (e.gapKind !== 'refugo' && e.reason && e.status === 'divergencia') rhythmBy.set(e.reason, (rhythmBy.get(e.reason) ?? 0) + (e.unjustifiedMin ?? 0));
+    }
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+    const pack = (k: string, t: OeeSum) => ({
+      key: k, ...oeeOf(t), plannedMin: r1(t.plannedMin), good: t.good, scrap: t.scrap, entries: t.entries,
+      lossMin: r1(t.plannedMin - t.goodMin),
+    });
+    const losses = (t: OeeSum) => ([
+      ['manutencao', t.stop.manutencao], ['ajuste', t.stop.ajuste], ['setup', t.stop.setup],
+      ['refugo', t.scrapMin], ['ritmo', t.rhythmMin], ['pendente', t.pendingMin],
+    ] as [LossKey, number][]).map(([key, m]) => ({ key, label: LOSS_LABEL[key], min: r1(m) }));
+    // every hour (or day) of the period, even the ones without reports, so the trend shows the gaps
+    const buckets: string[] = [];
+    if (hourly) for (let h = 0; h < 24; h++) buckets.push(`${String(h).padStart(2, '0')}:00`);
+    else for (let d = from; d <= to; d = d.plus({ days: 1 })) buckets.push(d.toISODate()!);
+    const sortMachines = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { numeric: true });
+    return {
+      from: from.toISODate(), to: to.toISODate(), bucket: hourly ? 'hora' : 'dia', setup,
+      shifts: shifts.map((s) => s.name),
+      totals: { ...pack('total', total), stopMin: r1(total.stop.manutencao + total.stop.ajuste + total.stop.setup), noStandard,
+        pendingReason: entries.filter((e) => e.status === 'divergencia' && !e.reason).length,
+        aboveStandard: entries.filter((e) => e.aboveStandard).length },
+      losses: losses(total),
+      series: buckets.map((k) => groups.bucket.has(k) ? pack(k, groups.bucket.get(k)!) : { key: k, oee: null, availability: null, performance: null, quality: null, plannedMin: 0, good: 0, scrap: 0, entries: 0, lossMin: 0 }),
+      byMachine: [...groups.machine].sort((a, b) => sortMachines(a[0], b[0])).map(([k, t]) => ({ ...pack(k, t), losses: losses(t) })),
+      byShift: [...groups.shift].sort((a, b) => a[0].localeCompare(b[0])).map(([k, t]) => ({ ...pack(k, t), losses: losses(t) })),
+      byPn: [...groups.pn].map(([k, t]) => pack(k, t)).sort((a, b) => b.lossMin - a.lossMin).slice(0, 15),
+      scrapByReason: [...scrapBy].map(([reason, pieces]) => ({ reason, pieces })).sort((a, b) => b.pieces - a.pieces),
+      rhythmByReason: [...rhythmBy].map(([reason, min]) => ({ reason, min: r1(min) })).sort((a, b) => b.min - a.min),
     };
   });
 

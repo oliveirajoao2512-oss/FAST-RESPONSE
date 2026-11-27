@@ -131,3 +131,81 @@ export function checkProduction(i: CheckInput): CheckResult {
     stopsExceedLoss: totalMin > lossMin + tol,
   };
 }
+
+/* ------------------------------------------------------------------ refugo e OEE (João, 27/11/2026) */
+
+/**
+ * Pieces missing with no registered stop: the leader says whether they were scrap (bad pieces, how many and why) or
+ * pieces not made (rhythm: no operator, no packaging…). Scrap is the Quality of the OEE; rhythm is its Performance.
+ */
+export type GapKind = 'refugo' | 'ritmo';
+export const SCRAP_REASONS = ['Rebarba', 'Falha de injeção', 'Chupado', 'Mancha / contaminação', 'Bolha', 'Dimensional', 'Quebrada / trincada', 'Partida de máquina'];
+export const RHYTHM_REASONS = ['Falta de M.O', 'Falta de embalagem', 'Falta de componente', 'Microparadas', 'Ciclo acima do padrão', 'Refeição'];
+
+export type LossKey = StopSource | 'refugo' | 'ritmo' | 'pendente';
+export const LOSS_LABEL: Record<LossKey, string> = {
+  manutencao: 'Parada: manutenção', ajuste: 'Parada: ajuste de processo', setup: 'Parada: setup',
+  refugo: 'Refugo', ritmo: 'Perda de ritmo', pendente: 'Sem motivo informado',
+};
+
+/** one report split into the OEE times, all in minutes of the standard cycle */
+export interface OeeParts {
+  plannedMin: number;
+  /** stop minutes by source, overlaps counted once */
+  stop: Record<StopSource, number>;
+  runMin: number;
+  /** minutes the good pieces and the scrap take at the standard cycle */
+  goodMin: number; scrapMin: number;
+  /** running but slower than the standard; `pendingMin` is the part still without a reason */
+  rhythmMin: number; pendingMin: number;
+  good: number; scrap: number;
+}
+
+/**
+ * OEE = Disponibilidade × Performance × Qualidade, from one checked report:
+ * - Disponibilidade: (planned − registered stops) / planned;
+ * - Performance: (good + scrap) at the standard cycle / running time;
+ * - Qualidade: good / (good + scrap).
+ * So the OEE is the good pieces at the standard cycle over the planned time. A report with no standard cycle is left out.
+ */
+export function oeeParts(c: CheckResult, gap: { kind: GapKind | null; scrap: number | null; reason: string | null }): OeeParts | null {
+  if (!c.ratePerHour || c.plannedMin <= 0) return null;
+  const perMin = c.ratePerHour / 60;
+  const planned = c.plannedMin;
+  const good = c.quantity;
+  const scrap = gap.kind === 'refugo' ? Math.max(0, gap.scrap ?? 0) : 0;
+  // more pieces than the standard allows (wrong cycle or count): capped at the planned time, never above 100%
+  const goodMin = Math.min(planned, good / perMin), scrapMin = Math.min(planned - goodMin, scrap / perMin);
+  const stop: Record<StopSource, number> = { manutencao: 0, ajuste: 0, setup: 0 };
+  for (const s of c.stops) stop[s.source] += Math.max(0, s.minutes - s.overlapMinutes);
+  let stopTotal = Math.min(planned, c.stopMin);
+  // made more pieces than the running time allows: part of the "stop" was running (an OS open with production going on)
+  const room = planned - (goodMin + scrapMin);
+  if (stopTotal > room) stopTotal = Math.max(0, room);
+  const raw = stop.manutencao + stop.ajuste + stop.setup;
+  if (raw > 0) for (const k of Object.keys(stop) as StopSource[]) stop[k] = (stop[k] / raw) * stopTotal;
+  const runMin = planned - stopTotal;
+  const rhythmAll = Math.max(0, runMin - goodMin - scrapMin);
+  const pendingMin = c.status === 'divergencia' && !gap.reason ? Math.min(rhythmAll, c.unjustifiedMin ?? 0) : 0;
+  return { plannedMin: planned, stop, runMin, goodMin, scrapMin, rhythmMin: rhythmAll - pendingMin, pendingMin, good, scrap };
+}
+
+export interface OeeSum { plannedMin: number; runMin: number; goodMin: number; scrapMin: number; good: number; scrap: number; stop: Record<StopSource, number>; rhythmMin: number; pendingMin: number; entries: number }
+export const emptyOee = (): OeeSum => ({ plannedMin: 0, runMin: 0, goodMin: 0, scrapMin: 0, good: 0, scrap: 0, stop: { manutencao: 0, ajuste: 0, setup: 0 }, rhythmMin: 0, pendingMin: 0, entries: 0 });
+export function addOee(t: OeeSum, p: OeeParts) {
+  t.plannedMin += p.plannedMin; t.runMin += p.runMin; t.goodMin += p.goodMin; t.scrapMin += p.scrapMin;
+  t.good += p.good; t.scrap += p.scrap; t.rhythmMin += p.rhythmMin; t.pendingMin += p.pendingMin; t.entries++;
+  for (const k of Object.keys(p.stop) as StopSource[]) t.stop[k] += p.stop[k];
+  return t;
+}
+/** the four indicators of a sum, 0–1 (null when there is no planned time) */
+export function oeeOf(t: OeeSum) {
+  if (t.plannedMin <= 0) return { oee: null, availability: null, performance: null, quality: null };
+  const made = t.goodMin + t.scrapMin;
+  return {
+    availability: t.runMin / t.plannedMin,
+    performance: t.runMin > 0 ? Math.min(1, made / t.runMin) : null,
+    quality: made > 0 ? t.goodMin / made : null,
+    oee: t.goodMin / t.plannedMin,
+  };
+}
