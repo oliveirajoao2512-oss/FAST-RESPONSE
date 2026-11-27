@@ -150,6 +150,7 @@ export async function evaluateEntries(rows: any[], userId: string, manager: bool
         standardMachine: r.standard_machine ?? (lateStd && !lateStd.sameMachine ? lateStd.machine : null),
         reason: r.gap_reason, reasonBy: r.reason_by, reasonAt: r.gap_reason_at,
         gapKind: (r.gap_kind ?? null) as GapKind | null, scrapPieces: r.scrap_pieces ?? null,
+        breakStart: r.break_start ?? null, breakEnd: r.break_end ?? null,
         oee: oeeParts(c, { kind: r.gap_kind ?? null, scrap: r.scrap_pieces ?? null, reason: r.gap_reason }),
         message: c.status === 'divergencia' && !r.gap_reason ? UNJUSTIFIED_MESSAGE : null,
         canEdit: r.leader_id === userId || manager,
@@ -380,6 +381,7 @@ export async function productionRoutes(app: FastifyInstance) {
       add(groups.shift, e.shift ?? 'Fora do turno', e.oee);
       add(groups.bucket, bucketOf(e.start), e.oee);
       add(groups.pn, e.pn, e.oee);
+      if (e.status === 'divergencia' && !e.reason && !e.gapKind && e.unjustifiedPieces) scrapBy.set('Sem defeito informado', (scrapBy.get('Sem defeito informado') ?? 0) + e.unjustifiedPieces);
       if (e.gapKind === 'refugo' && e.scrapPieces) scrapBy.set(e.reason ?? 'Sem motivo', (scrapBy.get(e.reason ?? 'Sem motivo') ?? 0) + e.scrapPieces);
       if (e.gapKind !== 'refugo' && e.reason && e.status === 'divergencia') rhythmBy.set(e.reason, (rhythmBy.get(e.reason) ?? 0) + (e.unjustifiedMin ?? 0));
     }

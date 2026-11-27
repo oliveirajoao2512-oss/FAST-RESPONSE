@@ -109,3 +109,7 @@ A aba **OEE** (GET /api/producao/oee?from&to&shift&machine) mostra, por período
 - **OEE** = D × P × Q = peças boas no ciclo padrão / tempo planejado, limitado a 100% (apontamentos acima do ciclo aparecem num aviso). Meta da planta: 85% (`OEE_TARGET`), marcada no gráfico; máquinas abaixo da meta ficam em vermelho.
 
 O painel mostra para onde foi o tempo planejado (produção boa, paradas por origem, refugo, ritmo, sem motivo), a evolução hora a hora ou dia a dia, um gráfico por máquina e por turno, o refugo por defeito, as peças não produzidas por motivo e os PNs que mais perderam tempo. Apontamentos sem ciclo padrão ficam fora do OEE e são contados no aviso.
+
+### Ajuste 27/11/2026 (tarde)
+- O tempo sem parada registrada vira **refugo automaticamente**: os minutos são convertidos em peças pelo ciclo padrão (ex.: 16 min = 19 pç) e o líder só informa o defeito antes de seguir. Antes da resposta, essas peças já contam no OEE como "Refugo sem motivo informado".
+- **Refeição por horário**: o líder marca "Sim" e informa início e fim (ex.: 11:40–12:10). Cada hora conta só os minutos que caem nela; a hora seguinte da mesma máquina já vem com a refeição preenchida (migração 024: `break_start`, `break_end`).

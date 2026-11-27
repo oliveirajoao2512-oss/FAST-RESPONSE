@@ -147,10 +147,10 @@ export const RHYTHM_REASONS = ['Falta de M.O', 'Falta de embalagem', 'Falta de c
 export type LossKey = StopSource | 'refugo' | 'ritmo' | 'pendente';
 export const LOSS_LABEL: Record<LossKey, string> = {
   manutencao: 'Parada: manutenção', ajuste: 'Parada: ajuste de processo', setup: 'Parada: setup',
-  refugo: 'Refugo', ritmo: 'Perda de ritmo', pendente: 'Sem motivo informado',
+  refugo: 'Refugo', ritmo: 'Perda de ritmo', pendente: 'Refugo sem motivo informado',
 };
 
-/** one report split into the OEE times, all in minutes of the standard cycle */
+/** one report split into the OEE times, all in minutes of the standard cycle (`scrapMin` + `pendingMin` = all the scrap) */
 export interface OeeParts {
   plannedMin: number;
   /** stop minutes by source, overlaps counted once */
@@ -158,7 +158,7 @@ export interface OeeParts {
   runMin: number;
   /** minutes the good pieces and the scrap take at the standard cycle */
   goodMin: number; scrapMin: number;
-  /** running but slower than the standard; `pendingMin` is the part still without a reason */
+  /** running but slower than the standard; `pendingMin` is scrap still without its defect */
   rhythmMin: number; pendingMin: number;
   good: number; scrap: number;
 }
@@ -175,7 +175,9 @@ export function oeeParts(c: CheckResult, gap: { kind: GapKind | null; scrap: num
   const perMin = c.ratePerHour / 60;
   const planned = c.plannedMin;
   const good = c.quantity;
-  const scrap = gap.kind === 'refugo' ? Math.max(0, gap.scrap ?? 0) : 0;
+  // time with no stop and no answer yet is scrap too (João, 27/11/2026): its pieces wait for the defect
+  const pending = c.status === 'divergencia' && !gap.reason && gap.kind == null ? Math.max(0, c.unjustifiedPieces ?? 0) : 0;
+  const scrap = (gap.kind === 'refugo' ? Math.max(0, gap.scrap ?? 0) : 0) + pending;
   // more pieces than the standard allows (wrong cycle or count): capped at the planned time, never above 100%
   const goodMin = Math.min(planned, good / perMin), scrapMin = Math.min(planned - goodMin, scrap / perMin);
   const stop: Record<StopSource, number> = { manutencao: 0, ajuste: 0, setup: 0 };
@@ -187,9 +189,9 @@ export function oeeParts(c: CheckResult, gap: { kind: GapKind | null; scrap: num
   const raw = stop.manutencao + stop.ajuste + stop.setup;
   if (raw > 0) for (const k of Object.keys(stop) as StopSource[]) stop[k] = (stop[k] / raw) * stopTotal;
   const runMin = planned - stopTotal;
-  const rhythmAll = Math.max(0, runMin - goodMin - scrapMin);
-  const pendingMin = c.status === 'divergencia' && !gap.reason ? Math.min(rhythmAll, c.unjustifiedMin ?? 0) : 0;
-  return { plannedMin: planned, stop, runMin, goodMin, scrapMin, rhythmMin: rhythmAll - pendingMin, pendingMin, good, scrap };
+  const rhythmMin = Math.max(0, runMin - goodMin - scrapMin);
+  const pendingMin = Math.min(scrapMin, pending / perMin);
+  return { plannedMin: planned, stop, runMin, goodMin, scrapMin: scrapMin - pendingMin, rhythmMin, pendingMin, good, scrap };
 }
 
 export interface OeeSum { plannedMin: number; runMin: number; goodMin: number; scrapMin: number; good: number; scrap: number; stop: Record<StopSource, number>; rhythmMin: number; pendingMin: number; entries: number }
@@ -203,7 +205,7 @@ export function addOee(t: OeeSum, p: OeeParts) {
 /** the four indicators of a sum, 0–1 (null when there is no planned time) */
 export function oeeOf(t: OeeSum) {
   if (t.plannedMin <= 0) return { oee: null, availability: null, performance: null, quality: null };
-  const made = t.goodMin + t.scrapMin;
+  const made = t.goodMin + t.scrapMin + t.pendingMin;
   return {
     availability: t.runMin / t.plannedMin,
     performance: t.runMin > 0 ? Math.min(1, made / t.runMin) : null,

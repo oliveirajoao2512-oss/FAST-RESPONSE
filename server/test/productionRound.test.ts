@@ -142,6 +142,11 @@ describe('rodada da hora', () => {
     const r = (await lider.get(`/api/producao/rodada?end=${encodeURIComponent(wed.plus({ hours: 1 }).toISO()!)}`)).body;
     const gap = r.rows.find((x: any) => x.machine === '4' && x.pn === '10007770003').entry;
     expect(gap).toMatchObject({ status: 'divergencia', unjustifiedPieces: 120, gapKind: null });
+    // before the leader answers, the time with no stop already counts as scrap (without its defect)
+    const before = (await lider.get(`/api/producao/oee?from=${wed.toISODate()}`)).body;
+    expect(before.totals).toMatchObject({ scrap: 120, pendingReason: 1 });
+    expect(before.losses.find((l: any) => l.key === 'pendente').min).toBe(30);
+    expect(before.scrapByReason).toEqual([{ reason: 'Sem defeito informado', pieces: 120 }]);
     expect((await lider.post(`/api/producao/apontamentos/${gap.id}/motivo`, { reason: 'Rebarba', kind: 'refugo' })).status).toBe(400);
     expect((await lider.post(`/api/producao/apontamentos/${gap.id}/motivo`, { reason: 'Rebarba', kind: 'refugo', scrapPieces: 120 })).status).toBe(200);
 
@@ -164,6 +169,19 @@ describe('rodada da hora', () => {
     expect(o2.totals.performance).toBeCloseTo(105 / 135);
     expect(o2.rhythmByReason).toEqual([{ reason: 'Falta de M.O', min: 30 }]);
     expect((await operador.get(`/api/producao/oee`)).status).toBe(403);
+  });
+
+  it('refeição por horário: conta os minutos de cada hora e a hora seguinte já vem com ela', async () => {
+    const h1 = wed.plus({ hours: 1 }), h2 = wed.plus({ hours: 2 }), h3 = wed.plus({ hours: 3 });
+    const meal = { breakStart: h1.plus({ minutes: 40 }).toISO(), breakEnd: h2.plus({ minutes: 10 }).toISO() };
+    const a = await lider.post('/api/producao/rodada', { start: h1.toISO(), end: h2.toISO(), items: [{ machine: '20', pn: '10007770005', quantity: 40, ...meal }] });
+    expect(a.body.entries[0]).toMatchObject({ breakMin: 20, expected: 40, status: 'meta' });
+    const next = (await lider.get(`/api/producao/rodada?end=${encodeURIComponent(h3.toISO()!)}`)).body;
+    expect(next.rows.find((x: any) => x.machine === '20').meal).toEqual({ start: new Date(meal.breakStart!).toISOString(), end: new Date(meal.breakEnd!).toISOString() });
+    const b = await lider.post('/api/producao/rodada', { start: h2.toISO(), end: h3.toISO(), items: [{ machine: '20', pn: '10007770005', quantity: 50, ...meal }] });
+    expect(b.body.entries[0]).toMatchObject({ breakMin: 10, expected: 50 });
+    const bad = await lider.post('/api/producao/rodada', { start: h2.toISO(), end: h3.toISO(), items: [{ machine: '12', pn: '10007770001', quantity: 50, breakStart: meal.breakEnd, breakEnd: meal.breakStart }] });
+    expect(bad.body.errors[0].erro).toMatch(/início e o fim/);
   });
 
   it('aviso de hora fechada vai para quem aponta, uma vez por hora', async () => {

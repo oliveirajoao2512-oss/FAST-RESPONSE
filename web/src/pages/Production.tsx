@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cl
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, RHYTHM_REASONS, SCRAP_REASONS, STOP_SOURCE_LABEL, checkProduction, type GapKind, machineKey, type CheckStatus, type StopSource,
+  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, SCRAP_REASONS, STOP_SOURCE_LABEL, checkProduction, type GapKind, machineKey, type CheckStatus, type StopSource,
 } from '@shared/production';
 import { normalizePn } from '@shared/maintenance';
 import { shiftOf } from '@shared/shifts';
@@ -586,6 +586,8 @@ interface RoundRow {
   stops?: { source: StopSource; ref: string; label: string; start: number; end: number }[];
   /** OS/OA in the hour with the machine running: they do not explain lost pieces */
   running?: { source: StopSource; ref: string; label: string; start: number; end: number }[];
+  /** meal told in an earlier hour of the machine that reaches into this one */
+  meal?: { start: string; end: string } | null;
 }
 interface Round {
   start: string; end: string; shift: { name: string; index: number; date: string } | null;
@@ -593,7 +595,23 @@ interface Round {
   setup: { ok: boolean; error: string | null } | null;
   rows: RoundRow[]; extra: Entry[]; pending: number; isLatest: boolean;
 }
-const BREAKS = [0, 30, 60];
+/** "11:40"–"12:10" told in the hour that starts at `ref` → real instants (the 3º turno crosses midnight) */
+function mealInterval(m: { from: string; to: string }, ref: string) {
+  const base = DateTime.fromISO(ref, { zone: zone() });
+  const at = (t: string) => {
+    const [h, mi] = t.split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(mi)) return null;
+    let d = base.set({ hour: h, minute: mi, second: 0, millisecond: 0 });
+    if (d < base.minus({ hours: 12 })) d = d.plus({ days: 1 });
+    if (d > base.plus({ hours: 12 })) d = d.minus({ days: 1 });
+    return d;
+  };
+  const a = at(m.from), b0 = at(m.to);
+  if (!a || !b0) return null;
+  const b = b0 <= a ? b0.plus({ days: 1 }) : b0;
+  if (b.diff(a, 'hours').hours > 4) return null;
+  return { start: a.toJSDate(), end: b.toJSDate() };
+}
 const rowKey = (r: { machine: string; pn: string }) => `${r.machine}|${r.pn}`;
 
 interface PlanPreview {
@@ -740,13 +758,17 @@ function TabletRound({ onNeedPlan }: { onNeedPlan: () => void }) {
 function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: RoundRow; round: Round; position: number; total: number; onNext: () => void; onBack?: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
   const [qty, setQty] = useState('');
-  const [brk, setBrk] = useState(0);
+  // meal by its times (it does not always start on the hour); one told in the previous hour comes filled in
+  const [meal, setMeal] = useState<{ from: string; to: string } | null>(() =>
+    r.meal ? { from: hm(r.meal.start), to: hm(r.meal.end) } : null);
+  const mealIso = meal ? mealInterval(meal, round.start) : null;
+  const brk = mealIso ? Math.round(Math.max(0, Math.min(+mealIso.end, +new Date(round.end)) - Math.max(+mealIso.start, +new Date(round.start))) / 60_000) : 0;
   const [err, setErr] = useState<string | null>(null);
   const e = r.entry;
   const press = (k: string) => setQty((cur) => (k === '⌫' ? cur.slice(0, -1) : k === 'C' ? '' : (cur + k).replace(/^0+(?=\d)/, '').slice(0, 6)));
   const save = useMutation({
     mutationFn: () => post<{ saved: number; errors: { erro: string }[] }>('/api/producao/rodada', {
-      start: round.start, end: round.end, items: [{ machine: r.machine, pn: r.pn, quantity: Number(qty), breakMinutes: brk }],
+      start: round.start, end: round.end, items: [{ machine: r.machine, pn: r.pn, quantity: Number(qty), breakMinutes: brk, ...(mealIso ? { breakStart: mealIso.start.toISOString(), breakEnd: mealIso.end.toISOString() } : {}) }],
     }),
     onSuccess: async (x) => { setErr(x.errors[0]?.erro ?? null); onSaved(); await qc.invalidateQueries({ queryKey: ['producao'] }); },
   });
@@ -790,14 +812,24 @@ function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: Round
             {qty !== '' && <LivePreview r={r} round={round} qty={qty} brk={brk} />}
             <div>
               <div className="mb-1.5 text-sm font-medium text-gray-700">Parou para refeição nesta hora?</div>
-              <div className="grid grid-cols-3 gap-2">
-                {BREAKS.map((b) => (
-                  <button key={b} onClick={() => setBrk(b)}
-                    className={cx('rounded-xl border-2 py-3 text-lg font-semibold', brk === b ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-800')}>
-                    {b === 0 ? 'Não' : `${b} min`}
+              <div className="grid grid-cols-2 gap-2">
+                {[false, true].map((on) => (
+                  <button key={String(on)} onClick={() => setMeal(on ? (meal ?? { from: hm(round.start), to: DateTime.fromISO(round.start, { zone: zone() }).plus({ minutes: 30 }).toFormat('HH:mm') }) : null)}
+                    className={cx('rounded-xl border-2 py-3 text-lg font-semibold', !!meal === on ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-800')}>
+                    {on ? 'Sim' : 'Não'}
                   </button>
                 ))}
               </div>
+              {meal && (
+                <div className="mt-2 flex flex-wrap items-end gap-3 rounded-xl bg-gray-50 p-3">
+                  <label className="text-sm text-gray-600">Início<Input type="time" value={meal.from} onChange={(x) => setMeal({ ...meal, from: x.target.value })} className="mt-0.5 !w-32 text-lg font-semibold" /></label>
+                  <label className="text-sm text-gray-600">Fim<Input type="time" value={meal.to} onChange={(x) => setMeal({ ...meal, to: x.target.value })} className="mt-0.5 !w-32 text-lg font-semibold" /></label>
+                  <p className="pb-2 text-sm text-gray-700">
+                    {mealIso ? <>conta <b>{brk} min</b> nesta hora{+mealIso.end > +new Date(round.end) ? '; o resto vai para a próxima hora' : ''}</> : <span className="text-red-700">o fim precisa ser depois do início</span>}
+                    {r.meal && <span className="block text-xs text-gray-500">informada na hora anterior</span>}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-2">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
@@ -841,7 +873,7 @@ function LivePreview({ r, round, qty, brk }: { r: RoundRow; round: Round; qty: s
       {c && c.status !== 'sem_padrao' && (
         <p className="font-semibold">
           {c.status === 'meta' ? `Na meta: ${n0(c.quantity)} de ${n0(c.expected)} pç.`
-            : `Faltaram ${n0(c.lossPieces)} pç (${min(c.lossMin)}). ` + (c.justifiedMin ? `Paradas explicam ${min(c.justifiedMin)}` : 'Nenhuma parada registrada explica') + (c.status === 'divergencia' ? `; ${min(c.unjustifiedMin)} sem justificativa.` : '.')}
+            : `Faltaram ${n0(c.lossPieces)} pç (${min(c.lossMin)}). ` + (c.justifiedMin ? `Paradas explicam ${min(c.justifiedMin)}` : 'Nenhuma parada registrada explica') + (c.status === 'divergencia' ? `; ${min(c.unjustifiedMin)} sem parada = ${n0(c.unjustifiedPieces)} pç de refugo.` : '.')}
         </p>
       )}
       {clipped.length > 0 ? (
@@ -902,12 +934,12 @@ function MachineResult({ e }: { e: Entry }) {
  */
 function GapReason({ e, big }: { e: Entry; big?: boolean }) {
   const qc = useQueryClient();
-  const [kind, setKind] = useState<GapKind>(e.gapKind ?? 'refugo');
   const [text, setText] = useState(e.reason ?? '');
-  const [pieces, setPieces] = useState(String(e.scrapPieces ?? e.unjustifiedPieces ?? ''));
   const [edit, setEdit] = useState(!e.reason);
+  // the time with no registered stop, turned into pieces at the standard cycle: that is the scrap (João, 27/11/2026)
+  const pieces = e.gapKind === 'refugo' && e.scrapPieces ? e.scrapPieces : e.unjustifiedPieces ?? 0;
   const save = useMutation({
-    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text, kind, ...(kind === 'refugo' ? { scrapPieces: Number(pieces) } : {}) }),
+    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text, kind: 'refugo', scrapPieces: pieces }),
     onSuccess: () => { setEdit(false); qc.invalidateQueries({ queryKey: ['producao'] }); },
   });
   if (!edit) {
@@ -921,34 +953,23 @@ function GapReason({ e, big }: { e: Entry; big?: boolean }) {
       </div>
     );
   }
-  const reasons = kind === 'refugo' ? SCRAP_REASONS : RHYTHM_REASONS;
-  const ok = text.trim().length >= 3 && (kind === 'ritmo' || Number(pieces) > 0);
+  const ok = text.trim().length >= 3 && pieces > 0;
   const chip = (on: boolean) => cx('rounded-full border-2 font-semibold', big ? 'px-3 py-2 text-sm' : 'px-2.5 py-1 text-xs', on ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-800');
   return (
     <div className="space-y-2.5 rounded-xl border-2 border-red-200 bg-red-50 p-3">
-      <p className={cx('font-semibold text-red-800', big ? 'text-base' : 'text-sm')}>
-        Faltaram {n0(e.unjustifiedPieces)} peças sem parada registrada ({min(e.unjustifiedMin)}).
-      </p>
-      <div className="grid grid-cols-2 gap-2">
-        {([['refugo', 'Foi refugo'], ['ritmo', 'Não foram produzidas']] as [GapKind, string][]).map(([k, l]) => (
-          <button key={k} onClick={() => { setKind(k); setText(''); }}
-            className={cx('rounded-lg border-2 py-2 text-sm font-semibold', kind === k ? 'border-red-600 bg-white text-red-800 shadow-sm' : 'border-transparent text-red-700/70')}>{l}</button>
-        ))}
+      <div className={cx('text-red-800', big ? 'text-base' : 'text-sm')}>
+        <p className="font-semibold">{min(e.unjustifiedMin)} sem parada registrada = <span className="whitespace-nowrap">{n0(pieces)} peças de refugo</span></p>
+        <p className={cx('text-red-700', big ? 'text-sm' : 'text-xs')}>Qual foi o defeito?</p>
       </div>
-      {kind === 'refugo' && (
-        <label className="flex items-center gap-2 text-sm text-red-900">Peças refugadas
-          <Input inputMode="numeric" value={pieces} onChange={(x) => setPieces(x.target.value.replace(/\D/g, '').slice(0, 6))} className="!w-28 text-right text-base font-semibold" />
-        </label>
-      )}
       <div className="flex flex-wrap gap-2">
-        {reasons.map((r) => <button key={r} onClick={() => setText(r)} className={chip(text === r)}>{r}</button>)}
+        {SCRAP_REASONS.map((r) => <button key={r} onClick={() => setText(r)} className={chip(text === r)}>{r}</button>)}
       </div>
       <Input value={text} onChange={(x) => setText(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && ok) save.mutate(); }}
-        placeholder={kind === 'refugo' ? 'Ou escreva o defeito' : 'Ou escreva o motivo'} maxLength={1000} className="text-base" />
+        placeholder="Ou escreva o defeito" maxLength={1000} className="text-base" />
       {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
       <div className="flex justify-end gap-2">
         {e.reason && <Button size="sm" onClick={() => setEdit(false)}>Cancelar</Button>}
-        <Button kind="primary" disabled={!ok} loading={save.isPending} onClick={() => save.mutate()}>{kind === 'refugo' ? 'Salvar refugo' : 'Salvar motivo'}</Button>
+        <Button kind="primary" disabled={!ok} loading={save.isPending} onClick={() => save.mutate()}>Salvar refugo</Button>
       </div>
     </div>
   );

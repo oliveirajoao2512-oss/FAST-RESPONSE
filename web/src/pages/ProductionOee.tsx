@@ -32,7 +32,7 @@ interface Oee {
 // one fixed color per kind of time, in this order everywhere (never by rank)
 const C_GOOD = '#0f9d8a';
 const LOSS_COLOR: Record<LossKey, string> = {
-  manutencao: '#2a78d6', ajuste: '#ea6a1f', setup: '#7c5cd6', refugo: '#d6458b', ritmo: '#c99a1a', pendente: '#c4c9d1',
+  manutencao: '#2a78d6', ajuste: '#ea6a1f', setup: '#7c5cd6', refugo: '#d6458b', ritmo: '#c99a1a', pendente: '#f0a9c9',
 };
 const IND = [
   { k: 'oee', label: 'OEE', color: '#1f2937', width: 3 },
@@ -91,7 +91,7 @@ export function OeeDashboard({ machines }: { machines: string[] }) {
         <>
           {(d.totals.pendingReason > 0 || d.totals.noStandard > 0 || d.totals.aboveStandard > 0 || d.setup?.ok === false) && (
             <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-xl bg-amber-50 px-4 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
-              {d.totals.pendingReason > 0 && <span className="flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" />{d.totals.pendingReason} apontamentos ainda sem motivo: a perda deles está em "Sem motivo informado".</span>}
+              {d.totals.pendingReason > 0 && <span className="flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" />{d.totals.pendingReason} apontamentos com refugo ainda sem defeito informado (contam como "Refugo sem motivo informado").</span>}
               {d.totals.aboveStandard > 0 && <span>{d.totals.aboveStandard} apontamentos acima do ciclo padrão (contados até 100%): confira o ciclo ou a quantidade.</span>}
               {d.totals.noStandard > 0 && <span>{d.totals.noStandard} apontamentos sem ciclo padrão ficaram fora do OEE.</span>}
               {d.setup?.ok === false && <span>Controle de Setup fora do ar: as paradas de setup podem estar faltando.</span>}
