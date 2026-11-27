@@ -686,6 +686,8 @@ function PlanUploadModal({ onClose }: { onClose: () => void }) {
 /* ------------------------------------------------------------------ tablet: a hora, máquina por máquina */
 
 /** quick answers, the same the Controle de Setup offers for a stop after the setup */
+/** a mouse means a computer with a keyboard: there the field takes focus; on the tablet the on-screen keypad is used */
+const hasKeyboard = () => { try { return window.matchMedia('(pointer: fine)').matches; } catch { return false; } };
 const QUICK_REASONS = ['Falta de M.O', 'Falta de embalagem', 'Falta de componente', 'Refeição', 'Manutenção', 'Ajuste de processo'];
 
 /**
@@ -757,14 +759,14 @@ function TabletRound({ onNeedPlan }: { onNeedPlan: () => void }) {
           {done < rows.length && <Button kind="primary" onClick={() => setCur(null)}>Continuar apontando</Button>}
         </div>
       ) : (
-        <Step key={rowKey(row) + d.end} r={row} round={d} position={index + 1} total={rows.length} onNext={next} onBack={index > 0 ? back : undefined} />
+        <Step key={rowKey(row) + d.end} r={row} round={d} position={index + 1} total={rows.length} onNext={next} onBack={index > 0 ? back : undefined} onSaved={() => setCur(rowKey(row))} />
       )}
     </section>
   );
 }
 
 /** one machine + PN: type the pieces, see the comparison, save, answer the reason, next */
-function Step({ r, round, position, total, onNext, onBack }: { r: RoundRow; round: Round; position: number; total: number; onNext: () => void; onBack?: () => void }) {
+function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: RoundRow; round: Round; position: number; total: number; onNext: () => void; onBack?: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
   const [qty, setQty] = useState('');
   const [brk, setBrk] = useState(0);
@@ -775,11 +777,17 @@ function Step({ r, round, position, total, onNext, onBack }: { r: RoundRow; roun
     mutationFn: () => post<{ saved: number; errors: { erro: string }[] }>('/api/producao/rodada', {
       start: round.start, end: round.end, items: [{ machine: r.machine, pn: r.pn, quantity: Number(qty), breakMinutes: brk }],
     }),
-    onSuccess: async (x) => { setErr(x.errors[0]?.erro ?? null); await qc.invalidateQueries({ queryKey: ['producao'] }); },
+    onSuccess: async (x) => { setErr(x.errors[0]?.erro ?? null); onSaved(); await qc.invalidateQueries({ queryKey: ['producao'] }); },
   });
   const meta = r.perHour != null ? Math.floor((r.perHour * (60 - brk)) / 60) : null;
   // the procedure: an unjustified time needs its reason before moving on
   const blocked = !!e && e.status === 'divergencia' && !e.reason;
+  useEffect(() => {
+    if (!e || blocked) return;
+    const onKey = (x: KeyboardEvent) => { if (x.key === 'Enter' && !(x.target instanceof HTMLInputElement)) onNext(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [e, blocked, onNext]);
 
   return (
     <div className="overflow-hidden rounded-xl border-2 border-gray-200 bg-white">
@@ -801,10 +809,13 @@ function Step({ r, round, position, total, onNext, onBack }: { r: RoundRow; roun
           <MachineResult e={e} />
         ) : (
           <>
-            <div className="flex items-baseline justify-between rounded-xl border-2 border-brand-600 px-4 py-3">
+            <label className="flex items-center justify-between gap-3 rounded-xl border-2 border-brand-600 px-4 py-3 focus-within:ring-4 focus-within:ring-brand-100">
               <span className="text-base text-gray-600">Peças produzidas</span>
-              <span className={cx('text-5xl font-bold tabular', qty ? 'text-gray-900' : 'text-gray-300')}>{qty || '0'}</span>
-            </div>
+              <input autoFocus={hasKeyboard()} inputMode="numeric" pattern="[0-9]*" autoComplete="off" aria-label="Peças produzidas" placeholder="0"
+                value={qty} onChange={(x) => setQty(x.target.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 6))}
+                onKeyDown={(x) => { if (x.key === 'Enter' && qty !== '' && !save.isPending) save.mutate(); }}
+                className="w-40 min-w-0 bg-transparent text-right text-5xl font-bold tabular text-gray-900 outline-none placeholder:text-gray-300" />
+            </label>
             {qty !== '' && <LivePreview r={r} round={round} qty={qty} brk={brk} />}
             <div>
               <div className="mb-1.5 text-sm font-medium text-gray-700">Parou para refeição nesta hora?</div>
@@ -939,7 +950,7 @@ function QuickReason({ e }: { e: Entry }) {
             className={cx('rounded-full border-2 px-3 py-2 text-sm font-semibold', text === r ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-800')}>{r}</button>
         ))}
       </div>
-      <Input value={text} onChange={(x) => setText(x.target.value)} placeholder="Ou escreva o motivo" className="text-base" />
+      <Input value={text} onChange={(x) => setText(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && text.trim().length >= 3) save.mutate(); }} placeholder="Ou escreva o motivo" className="text-base" />
       {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
       <div className="flex justify-end"><Button kind="primary" disabled={text.trim().length < 3} loading={save.isPending} onClick={() => save.mutate()}>Salvar motivo</Button></div>
     </div>
