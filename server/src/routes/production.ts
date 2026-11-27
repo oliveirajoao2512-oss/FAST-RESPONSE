@@ -141,6 +141,7 @@ export async function evaluateEntries(rows: any[], userId: string, manager: bool
       const c = checkProduction({
         start: +new Date(r.period_start), end: +new Date(r.period_end), quantity: r.quantity,
         cycleSeconds: cycle, cavities, breakMin: r.break_minutes, stops: byMachine.get(machineKey(r.machine)) ?? [],
+        otherStop: r.other_stop_minutes ? { minutes: r.other_stop_minutes, reason: r.other_stop_reason ?? 'Parada sem OS', ref: `informada-${r.id}` } : null,
       });
       return {
         id: r.id, machine: r.machine, pn: r.pn, shift: r.shift, start: r.period_start, end: r.period_end,
@@ -151,6 +152,7 @@ export async function evaluateEntries(rows: any[], userId: string, manager: bool
         reason: r.gap_reason, reasonBy: r.reason_by, reasonAt: r.gap_reason_at,
         gapKind: (r.gap_kind ?? null) as GapKind | null, scrapPieces: r.scrap_pieces ?? null,
         breakStart: r.break_start ?? null, breakEnd: r.break_end ?? null,
+        otherStopMinutes: r.other_stop_minutes ?? null, otherStopReason: r.other_stop_reason ?? null,
         oee: oeeParts(c, { kind: r.gap_kind ?? null, scrap: r.scrap_pieces ?? null, reason: r.gap_reason }),
         message: c.status === 'divergencia' && !r.gap_reason ? UNJUSTIFIED_MESSAGE : null,
         canEdit: r.leader_id === userId || manager,
@@ -288,19 +290,31 @@ export async function productionRoutes(app: FastifyInstance) {
     await guard(u);
     const { id } = parse(z.object({ id: z.string().uuid() }), req.params);
     const b = parse(z.object({
-      reason: z.string().trim().min(3, 'Descreva o motivo.').max(1000),
+      // the defect of the scrap (or, for old reports, the reason told)
+      reason: z.string().trim().max(1000).optional().nullable(),
       // refugo = bad pieces (Qualidade of the OEE); ritmo = pieces not made (Performance)
       kind: z.enum(['refugo', 'ritmo']).optional(),
       scrapPieces: z.coerce.number().int().min(0).max(1_000_000).optional(),
+      // a stop with no OS/OA/setup: no raw material, packaging, components…
+      stopMinutes: z.coerce.number().int().min(0).max(720).optional(),
+      stopReason: z.string().trim().max(200).optional().nullable(),
     }), req.body);
-    if (b.kind === 'refugo' && !(b.scrapPieces! > 0)) throw badRequest('Informe quantas peças foram refugadas.');
-    const old = await one<{ gap_reason: string | null; gap_kind: string | null; scrap_pieces: number | null; quantity: number }>(
-      'SELECT gap_reason, gap_kind, scrap_pieces, quantity FROM production_entries WHERE id = $1', [id]);
+    const stopMin = b.stopMinutes ?? 0;
+    if (stopMin > 0 && !(b.stopReason && b.stopReason.length >= 3)) throw badRequest('Informe o motivo da parada.');
+    if (b.kind === 'refugo' && !(b.scrapPieces! > 0) && stopMin === 0) throw badRequest('Informe quantas peças foram refugadas.');
+    const scrap = b.kind === 'refugo' && b.scrapPieces! > 0 ? b.scrapPieces! : null;
+    if (scrap && !(b.reason && b.reason.length >= 3)) throw badRequest('Informe o defeito do refugo.');
+    if (!scrap && stopMin === 0 && !(b.reason && b.reason.length >= 3)) throw badRequest('Descreva o motivo.');
+    const old = await one<{ gap_reason: string | null; gap_kind: string | null; scrap_pieces: number | null; other_stop_minutes: number | null; other_stop_reason: string | null }>(
+      'SELECT gap_reason, gap_kind, scrap_pieces, other_stop_minutes, other_stop_reason FROM production_entries WHERE id = $1', [id]);
     if (!old) throw notFound();
-    await q('UPDATE production_entries SET gap_reason = $2, gap_reason_by = $3, gap_reason_at = now(), gap_kind = $4, scrap_pieces = $5 WHERE id = $1',
-      [id, b.reason, u.id, b.kind ?? null, b.kind === 'refugo' ? b.scrapPieces : null]);
+    const reason = scrap || !stopMin ? b.reason! : b.stopReason!;
+    await q(`UPDATE production_entries SET gap_reason = $2, gap_reason_by = $3, gap_reason_at = now(), gap_kind = $4, scrap_pieces = $5,
+               other_stop_minutes = $6, other_stop_reason = $7 WHERE id = $1`,
+      [id, reason, u.id, scrap ? 'refugo' : b.kind === 'ritmo' ? 'ritmo' : null, scrap, stopMin || null, stopMin ? b.stopReason : null]);
     await audit(pool, { actorId: u.id, action: 'producao.motivo', entityType: 'production_entry', entityId: id,
-      data: { antes: { motivo: old.gap_reason, tipo: old.gap_kind, refugo: old.scrap_pieces }, motivo: b.reason, tipo: b.kind ?? null, refugo: b.kind === 'refugo' ? b.scrapPieces : null } });
+      data: { antes: { motivo: old.gap_reason, tipo: old.gap_kind, refugo: old.scrap_pieces, parada: old.other_stop_minutes, motivoParada: old.other_stop_reason },
+        motivo: reason, refugo: scrap, parada: stopMin || null, motivoParada: stopMin ? b.stopReason : null } });
     return { ok: true };
   });
 
@@ -373,6 +387,7 @@ export async function productionRoutes(app: FastifyInstance) {
     const add = (m: Map<string, OeeSum>, k: string, p: NonNullable<typeof entries[number]['oee']>) => addOee(m.get(k) ?? m.set(k, emptyOee()).get(k)!, p);
     const scrapBy = new Map<string, number>();
     const rhythmBy = new Map<string, number>();
+    const otherBy = new Map<string, number>();
     let noStandard = 0;
     for (const e of entries) {
       if (!e.oee) { noStandard++; continue; }
@@ -381,6 +396,7 @@ export async function productionRoutes(app: FastifyInstance) {
       add(groups.shift, e.shift ?? 'Fora do turno', e.oee);
       add(groups.bucket, bucketOf(e.start), e.oee);
       add(groups.pn, e.pn, e.oee);
+      if (e.otherStopMinutes) { const s = e.stops.find((x) => x.source === 'outro'); otherBy.set(e.otherStopReason ?? 'Sem motivo', (otherBy.get(e.otherStopReason ?? 'Sem motivo') ?? 0) + (s?.minutes ?? 0)); }
       if (e.status === 'divergencia' && !e.reason && !e.gapKind && e.unjustifiedPieces) scrapBy.set('Sem defeito informado', (scrapBy.get('Sem defeito informado') ?? 0) + e.unjustifiedPieces);
       if (e.gapKind === 'refugo' && e.scrapPieces) scrapBy.set(e.reason ?? 'Sem motivo', (scrapBy.get(e.reason ?? 'Sem motivo') ?? 0) + e.scrapPieces);
       if (e.gapKind !== 'refugo' && e.reason && e.status === 'divergencia') rhythmBy.set(e.reason, (rhythmBy.get(e.reason) ?? 0) + (e.unjustifiedMin ?? 0));
@@ -391,7 +407,7 @@ export async function productionRoutes(app: FastifyInstance) {
       lossMin: r1(t.plannedMin - t.goodMin),
     });
     const losses = (t: OeeSum) => ([
-      ['manutencao', t.stop.manutencao], ['ajuste', t.stop.ajuste], ['setup', t.stop.setup],
+      ['manutencao', t.stop.manutencao], ['ajuste', t.stop.ajuste], ['setup', t.stop.setup], ['outro', t.stop.outro],
       ['refugo', t.scrapMin], ['ritmo', t.rhythmMin], ['pendente', t.pendingMin],
     ] as [LossKey, number][]).map(([key, m]) => ({ key, label: LOSS_LABEL[key], min: r1(m) }));
     // every hour (or day) of the period, even the ones without reports, so the trend shows the gaps
@@ -402,7 +418,7 @@ export async function productionRoutes(app: FastifyInstance) {
     return {
       from: from.toISODate(), to: to.toISODate(), bucket: hourly ? 'hora' : 'dia', setup,
       shifts: shifts.map((s) => s.name),
-      totals: { ...pack('total', total), stopMin: r1(total.stop.manutencao + total.stop.ajuste + total.stop.setup), noStandard,
+      totals: { ...pack('total', total), stopMin: r1(total.stop.manutencao + total.stop.ajuste + total.stop.setup + total.stop.outro), noStandard,
         pendingReason: entries.filter((e) => e.status === 'divergencia' && !e.reason).length,
         aboveStandard: entries.filter((e) => e.aboveStandard).length },
       losses: losses(total),
@@ -411,6 +427,7 @@ export async function productionRoutes(app: FastifyInstance) {
       byShift: [...groups.shift].sort((a, b) => a[0].localeCompare(b[0])).map(([k, t]) => ({ ...pack(k, t), losses: losses(t) })),
       byPn: [...groups.pn].map(([k, t]) => pack(k, t)).sort((a, b) => b.lossMin - a.lossMin).slice(0, 15),
       scrapByReason: [...scrapBy].map(([reason, pieces]) => ({ reason, pieces })).sort((a, b) => b.pieces - a.pieces),
+      otherStopByReason: [...otherBy].map(([reason, min]) => ({ reason, min: r1(min) })).sort((a, b) => b.min - a.min),
       rhythmByReason: [...rhythmBy].map(([reason, min]) => ({ reason, min: r1(min) })).sort((a, b) => b.min - a.min),
     };
   });

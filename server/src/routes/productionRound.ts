@@ -227,6 +227,9 @@ export async function productionRoundRoutes(app: FastifyInstance) {
         // the meal told by its times: the minutes inside the hour are counted here (they win over breakMinutes)
         breakStart: z.coerce.date().optional().nullable(),
         breakEnd: z.coerce.date().optional().nullable(),
+        // the machine stopped part of the hour for a reason with no OS/OA/setup (code + minutes)
+        otherStopMinutes: z.coerce.number().int().min(0).max(720).optional(),
+        otherStopReason: z.string().trim().max(200).optional().nullable(),
         note: z.string().trim().max(500).optional().nullable(),
       })).min(1, 'Informe a quantidade de pelo menos uma máquina.').max(200),
     }), req.body);
@@ -244,13 +247,16 @@ export async function productionRoundRoutes(app: FastifyInstance) {
           breakMin = Math.round(Math.max(0, Math.min(it.breakEnd.getTime(), b.end.getTime()) - Math.max(it.breakStart.getTime(), b.start.getTime())) / 60_000);
         }
         if (breakMin * 60_000 >= b.end.getTime() - b.start.getTime()) throw badRequest('A refeição precisa ser menor que o período.');
+        const otherMin = it.otherStopMinutes ?? 0;
+        if (otherMin > 0 && !(it.otherStopReason && it.otherStopReason.length >= 3)) throw badRequest('Informe o motivo da parada.');
+        if (otherMin + breakMin > (b.end.getTime() - b.start.getTime()) / 60_000) throw badRequest('Parada e refeição passam do tempo da hora.');
         await checkPeriod(machine, pn, b.start, b.end, null);
         const std = await findStandard(machine, pn);
         const row = await one<{ id: string }>(
-          `INSERT INTO production_entries (machine, pn, shift, period_start, period_end, quantity, cycle_seconds, cavities, standard_machine, note, leader_id, break_minutes, break_start, break_end)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+          `INSERT INTO production_entries (machine, pn, shift, period_start, period_end, quantity, cycle_seconds, cavities, standard_machine, note, leader_id, break_minutes, break_start, break_end, other_stop_minutes, other_stop_reason)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
           [machine, pn, shiftOf(b.start, shifts, timezone), b.start, b.end, it.quantity, std?.cycleSeconds ?? null, std?.cavities ?? null,
-            std && !std.sameMachine ? std.machine : null, it.note || null, u.id, breakMin, it.breakStart ?? null, it.breakEnd ?? null]);
+            std && !std.sameMachine ? std.machine : null, it.note || null, u.id, breakMin, it.breakStart ?? null, it.breakEnd ?? null, otherMin || null, otherMin ? it.otherStopReason : null]);
         ids.push(row!.id);
       } catch (e) {
         errors.push({ machine: it.machine, pn: it.pn, erro: e instanceof AppError ? e.message : 'Não foi possível salvar.' });

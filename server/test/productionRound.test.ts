@@ -184,6 +184,29 @@ describe('rodada da hora', () => {
     expect(bad.body.errors[0].erro).toMatch(/início e o fim/);
   });
 
+  it('parada informada pelo líder (falta de MP…) explica o tempo antes de virar refugo', async () => {
+    const h3 = wed.plus({ hours: 3 }), h4 = wed.plus({ hours: 4 });
+    const noReason = await lider.post('/api/producao/rodada', { start: h3.toISO(), end: h4.toISO(), items: [{ machine: '20', pn: '10007770005', quantity: 30, otherStopMinutes: 20 }] });
+    expect(noReason.body.errors[0].erro).toMatch(/motivo da parada/);
+    const r = await lider.post('/api/producao/rodada', { start: h3.toISO(), end: h4.toISO(), items: [{ machine: '20', pn: '10007770005', quantity: 30, otherStopMinutes: 20, otherStopReason: '11 Falta matéria-prima' }] });
+    const e = r.body.entries[0];
+    expect(e).toMatchObject({ expected: 60, lossMin: 30, stopMin: 20, unjustifiedMin: 10, unjustifiedPieces: 10, status: 'divergencia', otherStopMinutes: 20 });
+    expect(e.stops).toMatchObject([{ source: 'outro', label: '11 Falta matéria-prima', minutes: 20 }]);
+    // the leader adds the rest: 10 pieces of scrap with its defect
+    expect((await lider.post(`/api/producao/apontamentos/${e.id}/motivo`, { stopMinutes: 20, stopReason: '11 Falta matéria-prima', kind: 'refugo', scrapPieces: 10 })).status).toBe(400);
+    expect((await lider.post(`/api/producao/apontamentos/${e.id}/motivo`, { stopMinutes: 20, stopReason: '11 Falta matéria-prima', kind: 'refugo', scrapPieces: 10, reason: '01 Contaminação' })).status).toBe(200);
+    let o = (await lider.get(`/api/producao/oee?from=${wed.toISODate()}&machine=20`)).body;
+    expect(o.losses.find((l: any) => l.key === 'outro').min).toBe(20);
+    expect(o.otherStopByReason).toEqual([{ reason: '11 Falta matéria-prima', min: 20 }]);
+    expect(o.scrapByReason).toEqual([{ reason: '01 Contaminação', pieces: 10 }]);
+    // or the stop was the whole half hour: nothing becomes scrap
+    expect((await lider.post(`/api/producao/apontamentos/${e.id}/motivo`, { stopMinutes: 30, stopReason: '13 Falta de embalagem', kind: 'refugo', scrapPieces: 0 })).status).toBe(200);
+    o = (await lider.get(`/api/producao/oee?from=${wed.toISODate()}&machine=20`)).body;
+    expect(o.totals.scrap).toBe(0);
+    const again = (await lider.get(`/api/producao/rodada?end=${encodeURIComponent(h4.toISO()!)}`)).body.rows.find((x: any) => x.machine === '20').entry;
+    expect(again).toMatchObject({ status: 'justificada', stopMin: 30, unjustifiedMin: 0 });
+  });
+
   it('aviso de hora fechada vai para quem aponta, uma vez por hora', async () => {
     // a plan for today makes the hour that just closed have machines, if it is a working hour
     const now = DateTime.now().setZone(ZONE);

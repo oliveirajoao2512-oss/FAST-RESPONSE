@@ -27,12 +27,13 @@ interface Oee {
   byPn: Ind[];
   scrapByReason: { reason: string; pieces: number }[];
   rhythmByReason: { reason: string; min: number }[];
+  otherStopByReason: { reason: string; min: number }[];
 }
 
 // one fixed color per kind of time, in this order everywhere (never by rank)
 const C_GOOD = '#0f9d8a';
 const LOSS_COLOR: Record<LossKey, string> = {
-  manutencao: '#2a78d6', ajuste: '#ea6a1f', setup: '#7c5cd6', refugo: '#d6458b', ritmo: '#c99a1a', pendente: '#f0a9c9',
+  manutencao: '#2a78d6', ajuste: '#ea6a1f', setup: '#7c5cd6', outro: '#0e7490', refugo: '#d6458b', ritmo: '#c99a1a', pendente: '#f0a9c9',
 };
 const IND = [
   { k: 'oee', label: 'OEE', color: '#1f2937', width: 3 },
@@ -118,8 +119,8 @@ export function OeeDashboard({ machines }: { machines: string[] }) {
             <Panel title="Refugo por defeito" sub={`${n0(d.totals.scrap)} peças refugadas no período`}>
               <Bars color={LOSS_COLOR.refugo} rows={d.scrapByReason.map((x) => ({ key: x.reason, v: x.pieces, text: `${n0(x.pieces)} pç` }))} empty="Nenhum refugo informado." />
             </Panel>
-            <Panel title="Peças não produzidas, por motivo" sub="Perda de ritmo explicada pelo líder">
-              <Bars color={LOSS_COLOR.ritmo} rows={d.rhythmByReason.map((x) => ({ key: x.reason, v: x.min, text: hm(x.min) }))} empty="Nenhum motivo de ritmo informado." />
+            <Panel title="Paradas informadas pelo líder" sub="Áreas de apoio e ajustes sem OA, por código">
+              <Bars color={LOSS_COLOR.outro} rows={d.otherStopByReason.map((x) => ({ key: x.reason, v: x.min, text: hm(x.min) }))} empty="Nenhuma parada informada." />
             </Panel>
             <Panel title="PNs que mais perderam tempo" sub="Tempo planejado que não virou peça boa">
               <Bars color="#64748b" rows={d.byPn.filter((x) => x.lossMin > 0).map((x) => ({ key: x.key, v: x.lossMin, text: hm(x.lossMin), note: `OEE ${pct(x.oee)}` }))} empty="Sem perdas." />

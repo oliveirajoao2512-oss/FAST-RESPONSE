@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cl
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, SCRAP_REASONS, STOP_SOURCE_LABEL, checkProduction, type GapKind, machineKey, type CheckStatus, type StopSource,
+  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, OTHER_STOP_GROUPS, SCRAP_REASONS, STOP_SOURCE_LABEL, checkProduction, type GapKind, machineKey, type CheckStatus, type StopSource,
 } from '@shared/production';
 import { normalizePn } from '@shared/maintenance';
 import { shiftOf } from '@shared/shifts';
@@ -27,7 +27,7 @@ interface Entry {
   id: string; machine: string; pn: string; shift: string | null; start: string; end: string; leader: string; note: string | null;
   cycleSeconds: number | null; cavities: number | null; standardFrom: 'maquina' | 'outra_maquina' | 'atual' | null; standardMachine: string | null;
   reason: string | null; reasonBy: string | null; reasonAt: string | null; message: string | null; canEdit: boolean;
-  gapKind: GapKind | null; scrapPieces: number | null;
+  gapKind: GapKind | null; scrapPieces: number | null; otherStopMinutes: number | null; otherStopReason: string | null;
   status: CheckStatus; periodMin: number; breakMin: number; plannedMin: number; ratePerHour: number | null; expected: number | null; quantity: number;
   lossPieces: number | null; lossMin: number | null; stopMin: number; justifiedMin: number | null; unjustifiedMin: number | null;
   unjustifiedPieces: number | null; aboveStandard: boolean; stopsExceedLoss: boolean; stops: Stop[];
@@ -375,7 +375,7 @@ function EntryCard({ e, options, compact }: { e: Entry; options: Options; compac
               <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 text-sm">
                 {e.stops.map((s) => (
                   <li key={s.source + s.ref} className="flex flex-wrap items-baseline gap-x-3 px-3 py-1.5">
-                    <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800')}>{s.sourceLabel}</span>
+                    <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : s.source === 'outro' ? 'bg-cyan-100 text-cyan-800' : 'bg-blue-100 text-blue-800')}>{s.sourceLabel}</span>
                     <span className="min-w-0 flex-1 break-words text-gray-800">{s.label}</span>
                     <span className="tabular text-gray-500">{dm(s.start)} {hm(s.start)}–{hm(s.end)}</span>
                     <span className="tabular font-semibold text-gray-900">{min(s.minutes)} no período{s.overlapMinutes > 0 ? ` (${min(s.overlapMinutes)} simultâneos)` : ''}</span>
@@ -385,7 +385,7 @@ function EntryCard({ e, options, compact }: { e: Entry; options: Options; compac
             )}
           </div>
           {e.note && <p className="text-sm text-gray-600"><b>Observação:</b> {e.note}</p>}
-          {(e.status === 'divergencia' || e.reason) && <GapReason e={e} />}
+          {(e.status === 'divergencia' || e.reason || e.otherStopMinutes) && <GapReason e={e} />}
           {e.canEdit && (
             <div className="flex justify-end">
               <Button size="sm" kind="ghost" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" />Corrigir apontamento</Button>
@@ -762,13 +762,16 @@ function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: Round
   const [meal, setMeal] = useState<{ from: string; to: string } | null>(() =>
     r.meal ? { from: hm(r.meal.start), to: hm(r.meal.end) } : null);
   const mealIso = meal ? mealInterval(meal, round.start) : null;
+  // the machine stood still part of the hour for a reason with no OS/OA/setup (João: it can produce some and stop)
+  const [stop, setStop] = useState<{ reason: string; min: string } | null>(null);
+  const stopMinN = stop && stop.reason ? Number(stop.min) || 0 : 0;
   const brk = mealIso ? Math.round(Math.max(0, Math.min(+mealIso.end, +new Date(round.end)) - Math.max(+mealIso.start, +new Date(round.start))) / 60_000) : 0;
   const [err, setErr] = useState<string | null>(null);
   const e = r.entry;
   const press = (k: string) => setQty((cur) => (k === '⌫' ? cur.slice(0, -1) : k === 'C' ? '' : (cur + k).replace(/^0+(?=\d)/, '').slice(0, 6)));
   const save = useMutation({
     mutationFn: () => post<{ saved: number; errors: { erro: string }[] }>('/api/producao/rodada', {
-      start: round.start, end: round.end, items: [{ machine: r.machine, pn: r.pn, quantity: Number(qty), breakMinutes: brk, ...(mealIso ? { breakStart: mealIso.start.toISOString(), breakEnd: mealIso.end.toISOString() } : {}) }],
+      start: round.start, end: round.end, items: [{ machine: r.machine, pn: r.pn, quantity: Number(qty), breakMinutes: brk, ...(mealIso ? { breakStart: mealIso.start.toISOString(), breakEnd: mealIso.end.toISOString() } : {}), ...(stopMinN > 0 ? { otherStopMinutes: stopMinN, otherStopReason: stop!.reason } : {}) }],
     }),
     onSuccess: async (x) => { setErr(x.errors[0]?.erro ?? null); onSaved(); await qc.invalidateQueries({ queryKey: ['producao'] }); },
   });
@@ -806,10 +809,10 @@ function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: Round
               <span className="text-base text-gray-600">Peças produzidas</span>
               <input autoFocus={hasKeyboard()} inputMode="numeric" pattern="[0-9]*" autoComplete="off" aria-label="Peças produzidas" placeholder="0"
                 value={qty} onChange={(x) => setQty(x.target.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 6))}
-                onKeyDown={(x) => { if (x.key === 'Enter' && qty !== '' && !save.isPending) save.mutate(); }}
+                onKeyDown={(x) => { if (x.key === 'Enter' && qty !== '' && !save.isPending && (!stop || (stop.reason && Number(stop.min) > 0))) save.mutate(); }}
                 className="w-40 min-w-0 bg-transparent text-right text-5xl font-bold tabular text-gray-900 outline-none placeholder:text-gray-300" />
             </label>
-            {qty !== '' && <LivePreview r={r} round={round} qty={qty} brk={brk} />}
+            {qty !== '' && <LivePreview r={r} round={round} qty={qty} brk={brk} other={stopMinN > 0 ? { minutes: stopMinN, reason: stop!.reason, ref: 'novo' } : null} />}
             <div>
               <div className="mb-1.5 text-sm font-medium text-gray-700">Parou para refeição nesta hora?</div>
               <div className="grid grid-cols-2 gap-2">
@@ -831,6 +834,18 @@ function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: Round
                 </div>
               )}
             </div>
+            <div>
+              <div className="mb-1.5 text-sm font-medium text-gray-700">Parou por falta de algo ou ajuste sem OA nesta hora?</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[false, true].map((on) => (
+                  <button key={String(on)} onClick={() => setStop(on ? (stop ?? { reason: '', min: '' }) : null)}
+                    className={cx('rounded-xl border-2 py-3 text-lg font-semibold', !!stop === on ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-800')}>
+                    {on ? 'Sim' : 'Não'}
+                  </button>
+                ))}
+              </div>
+              {stop && <div className="mt-2"><StopPicker reason={stop.reason} setReason={(x) => setStop({ ...stop, reason: x })} minutes={stop.min} setMinutes={(x) => setStop({ ...stop, min: x })} big /></div>}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
                 <button key={k} onClick={() => press(k)} aria-label={k === '⌫' ? 'Apagar' : k === 'C' ? 'Limpar' : k}
@@ -851,7 +866,7 @@ function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: Round
         ) : (
           <>
             <Button onClick={onNext} className="!py-4">Pular</Button>
-            <Button kind="primary" disabled={qty === ''} loading={save.isPending} onClick={() => save.mutate()} className="flex-1 !py-4 text-lg">
+            <Button kind="primary" disabled={qty === '' || (!!stop && !(stop.reason && Number(stop.min) > 0))} loading={save.isPending} onClick={() => save.mutate()} className="flex-1 !py-4 text-lg">
               <Save className="h-5 w-5" />Salvar e comparar
             </Button>
           </>
@@ -862,10 +877,10 @@ function Step({ r, round, position, total, onNext, onBack, onSaved }: { r: Round
 }
 
 /** while the leader types: meta × real against the stops already registered in the hour, before saving */
-function LivePreview({ r, round, qty, brk }: { r: RoundRow; round: Round; qty: string | undefined; brk: number }) {
+function LivePreview({ r, round, qty, brk, other }: { r: RoundRow; round: Round; qty: string | undefined; brk: number; other?: { minutes: number; reason: string; ref: string } | null }) {
   const start = DateTime.fromISO(round.start).toMillis(), end = DateTime.fromISO(round.end).toMillis();
   const stops = r.stops ?? [];
-  const c = qty ? checkProduction({ start, end, quantity: Number(qty), cycleSeconds: r.cycleSeconds, cavities: r.cavities, stops, breakMin: brk }) : null;
+  const c = qty ? checkProduction({ start, end, quantity: Number(qty), cycleSeconds: r.cycleSeconds, cavities: r.cavities, stops, breakMin: brk, otherStop: other }) : null;
   const clipped = c?.stops ?? checkProduction({ start, end, quantity: 0, cycleSeconds: null, cavities: null, stops }).stops;
   const tone = c ? { meta: 'bg-emerald-50 text-emerald-900 ring-emerald-300', justificada: 'bg-sky-50 text-sky-900 ring-sky-300', divergencia: 'bg-red-50 text-red-900 ring-red-300', sem_padrao: 'bg-gray-50 text-gray-700 ring-gray-200' }[c.status] : 'bg-white text-gray-700 ring-gray-200';
   return (
@@ -880,7 +895,7 @@ function LivePreview({ r, round, qty, brk }: { r: RoundRow; round: Round; qty: s
         <ul className="mt-0.5 space-y-0.5">
           {clipped.map((s) => (
             <li key={s.source + s.ref} className="flex gap-2">
-              <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800')}>{STOP_SOURCE_LABEL[s.source]}</span>
+              <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : s.source === 'outro' ? 'bg-cyan-100 text-cyan-800' : 'bg-blue-100 text-blue-800')}>{STOP_SOURCE_LABEL[s.source]}</span>
               <span className="min-w-0 flex-1 truncate">{s.label}</span><span className="tabular">{min(s.minutes)} parada</span>
             </li>
           ))}
@@ -915,61 +930,121 @@ function MachineResult({ e }: { e: Entry }) {
           <ul className="space-y-1 text-sm">
             {e.stops.map((s) => (
               <li key={s.source + s.ref} className="flex gap-2">
-                <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800')}>{s.sourceLabel}</span>
+                <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : s.source === 'outro' ? 'bg-cyan-100 text-cyan-800' : 'bg-blue-100 text-blue-800')}>{s.sourceLabel}</span>
                 <span className="min-w-0 flex-1 truncate text-gray-700">{s.label}</span>
                 <span className="font-semibold tabular">{min(s.minutes)}</span>
               </li>
             ))}
           </ul>
         )}
-        {(e.status === 'divergencia' || e.reason) && <GapReason e={e} big />}
+        {(e.status === 'divergencia' || e.reason || e.otherStopMinutes) && <GapReason e={e} big />}
       </div>
     </div>
   );
 }
 
+/** the plant's stop codes (áreas de apoio, ajustes) and how many minutes the machine stood still */
+function StopPicker({ reason, setReason, minutes, setMinutes, all, big }: { reason: string; setReason: (r: string) => void; minutes: string; setMinutes: (m: string) => void; all?: number; big?: boolean }) {
+  const chip = (on: boolean) => cx('rounded-lg border-2 text-left font-semibold leading-tight', big ? 'px-2.5 py-2 text-sm' : 'px-2 py-1 text-xs', on ? 'border-sky-700 bg-sky-700 text-white' : 'border-sky-200 bg-white text-sky-900');
+  return (
+    <div className="space-y-2 rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
+      {OTHER_STOP_GROUPS.map((g) => (
+        <div key={g.group}>
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{g.group}</div>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {g.reasons.map((r) => <button key={r} onClick={() => setReason(r)} className={chip(reason === r)}>{r}</button>)}
+          </div>
+        </div>
+      ))}
+      <label className="flex flex-wrap items-center gap-2 text-sm text-gray-700">Ficou parada
+        <Input inputMode="numeric" value={minutes} onChange={(x) => setMinutes(x.target.value.replace(/\D/g, '').slice(0, 3))} className="!w-20 text-right text-base font-semibold" />
+        min
+        {all != null && all > 0 && <button onClick={() => setMinutes(String(Math.round(all)))} className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700">todo o tempo ({Math.round(all)} min)</button>}
+      </label>
+    </div>
+  );
+}
+
 /**
- * Pieces missing with no registered stop (João, 27/11/2026): by default they are scrap, and the leader tells how many
- * and why; if they were not made at all, he says so and gives the reason. Nothing is filled in for him.
+ * Time lost with no registered stop (João, 27/11/2026). First the leader says whether the machine stopped for
+ * something with no OS/OA/setup (no raw material, packaging, an adjustment…), with its code and minutes; what is
+ * left is turned into pieces at the standard cycle and becomes scrap, with its defect code.
  */
 function GapReason({ e, big }: { e: Entry; big?: boolean }) {
   const qc = useQueryClient();
-  const [text, setText] = useState(e.reason ?? '');
   const [edit, setEdit] = useState(!e.reason);
-  // the time with no registered stop, turned into pieces at the standard cycle: that is the scrap (João, 27/11/2026)
-  const pieces = e.gapKind === 'refugo' && e.scrapPieces ? e.scrapPieces : e.unjustifiedPieces ?? 0;
+  // the gap before any told stop: what the leader is explaining now
+  const told = e.stops.find((s) => s.source === 'outro')?.minutes ?? 0;
+  const gapMin = (e.unjustifiedMin ?? 0) + told;
+  const perMin = (e.ratePerHour ?? 0) / 60;
+  const [stopped, setStopped] = useState<boolean>(!!e.otherStopMinutes);
+  const [stopReason, setStopReason] = useState(e.otherStopReason ?? '');
+  const [stopMin, setStopMin] = useState(String(e.otherStopMinutes ?? ''));
+  const [defect, setDefect] = useState(e.gapKind === 'refugo' ? e.reason ?? '' : '');
+  const usedStop = stopped ? Math.min(gapMin, Number(stopMin) || 0) : 0;
+  const leftMin = Math.max(0, gapMin - usedStop);
+  const needsScrap = leftMin > PRODUCTION_TOLERANCE_MIN;
+  const scrapPieces = needsScrap ? Math.round(leftMin * perMin) : 0;
   const save = useMutation({
-    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text, kind: 'refugo', scrapPieces: pieces }),
+    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, {
+      stopMinutes: usedStop > 0 ? Math.round(usedStop) : 0, stopReason: usedStop > 0 ? stopReason : null,
+      kind: 'refugo', scrapPieces, reason: needsScrap ? defect : null,
+    }),
     onSuccess: () => { setEdit(false); qc.invalidateQueries({ queryKey: ['producao'] }); },
   });
   if (!edit) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
-        <div className="min-w-0">
-          <b>{e.gapKind === 'refugo' ? `Refugo: ${n0(e.scrapPieces)} pç` : e.gapKind === 'ritmo' ? 'Peças não produzidas' : 'Motivo'}</b> · {e.reason ?? text}
+        <div className="min-w-0 space-y-0.5">
+          {e.otherStopMinutes ? <div><b>Parada:</b> {e.otherStopReason} · {min(told || e.otherStopMinutes)}</div> : null}
+          {e.gapKind === 'refugo' && e.scrapPieces ? <div><b>Refugo: {n0(e.scrapPieces)} pç</b> · {e.reason}</div> : null}
+          {!e.otherStopMinutes && e.gapKind !== 'refugo' && <div><b>{e.gapKind === 'ritmo' ? 'Peças não produzidas' : 'Motivo'}</b> · {e.reason}</div>}
           {e.reasonBy && <span className="block text-xs text-gray-500">{e.reasonBy}{e.reasonAt ? ` · ${DateTime.fromISO(e.reasonAt, { zone: zone() }).toFormat('dd/MM HH:mm')}` : ''}</span>}
         </div>
         {e.canEdit && <Button size="sm" kind="ghost" onClick={() => setEdit(true)}>Alterar</Button>}
       </div>
     );
   }
-  const ok = text.trim().length >= 3 && pieces > 0;
-  const chip = (on: boolean) => cx('rounded-full border-2 font-semibold', big ? 'px-3 py-2 text-sm' : 'px-2.5 py-1 text-xs', on ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-800');
+  const ok = (!stopped || (stopReason.length >= 3 && usedStop > 0)) && (!needsScrap || defect.trim().length >= 3);
+  const chip = (on: boolean) => cx('rounded-lg border-2 text-left font-semibold leading-tight', big ? 'px-2.5 py-2 text-sm' : 'px-2 py-1 text-xs', on ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-900');
   return (
-    <div className="space-y-2.5 rounded-xl border-2 border-red-200 bg-red-50 p-3">
-      <div className={cx('text-red-800', big ? 'text-base' : 'text-sm')}>
-        <p className="font-semibold">{min(e.unjustifiedMin)} sem parada registrada = <span className="whitespace-nowrap">{n0(pieces)} peças de refugo</span></p>
-        <p className={cx('text-red-700', big ? 'text-sm' : 'text-xs')}>Qual foi o defeito?</p>
+    <div className="space-y-3 rounded-xl border-2 border-red-200 bg-red-50 p-3">
+      <p className={cx('font-semibold text-red-800', big ? 'text-base' : 'text-sm')}>
+        {min(gapMin)} sem OS, OA ou setup registrado ({n0(Math.round(gapMin * perMin))} peças).
+      </p>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-gray-800">A máquina parou por algum destes motivos?</p>
+        <div className="grid grid-cols-2 gap-2">
+          {[false, true].map((on) => (
+            <button key={String(on)} onClick={() => setStopped(on)}
+              className={cx('rounded-lg border-2 py-2 text-sm font-semibold', stopped === on ? 'border-red-600 bg-white text-red-800 shadow-sm' : 'border-transparent text-red-700/70')}>
+              {on ? 'Sim, parou' : 'Não parou'}
+            </button>
+          ))}
+        </div>
+        {stopped && <StopPicker reason={stopReason} setReason={setStopReason} minutes={stopMin} setMinutes={setStopMin} all={gapMin} big={big} />}
       </div>
-      <div className="flex flex-wrap gap-2">
-        {SCRAP_REASONS.map((r) => <button key={r} onClick={() => setText(r)} className={chip(text === r)}>{r}</button>)}
-      </div>
-      <Input value={text} onChange={(x) => setText(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && ok) save.mutate(); }}
-        placeholder="Ou escreva o defeito" maxLength={1000} className="text-base" />
+
+      {needsScrap ? (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-red-800">
+            {stopped && usedStop > 0 ? `Restam ${min(leftMin)}` : `${min(leftMin)}`} = <span className="whitespace-nowrap">{n0(scrapPieces)} peças de refugo.</span> Qual foi o defeito?
+          </p>
+          <div className={cx('grid grid-cols-2 gap-1.5 overflow-y-auto rounded-lg bg-white p-2 sm:grid-cols-3', big ? 'max-h-72' : 'max-h-56')}>
+            {SCRAP_REASONS.map((r) => <button key={r} onClick={() => setDefect(r)} className={chip(defect === r)}>{r}</button>)}
+          </div>
+          <Input value={defect} onChange={(x) => setDefect(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && ok) save.mutate(); }}
+            placeholder="Ou escreva o defeito" maxLength={1000} className="text-base" />
+        </div>
+      ) : stopped && usedStop > 0 ? (
+        <p className="text-sm font-semibold text-sky-800">A parada explica o tempo: não vira refugo.</p>
+      ) : null}
+
       {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
       <div className="flex justify-end gap-2">
         {e.reason && <Button size="sm" onClick={() => setEdit(false)}>Cancelar</Button>}
-        <Button kind="primary" disabled={!ok} loading={save.isPending} onClick={() => save.mutate()}>Salvar refugo</Button>
+        <Button kind="primary" disabled={!ok} loading={save.isPending} onClick={() => save.mutate()}>Salvar</Button>
       </div>
     </div>
   );

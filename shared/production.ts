@@ -24,8 +24,18 @@ export const canEditStandards = (a: { role: string }, areaSlug: string | null | 
 
 export const machineKey = (code: string) => code.trim().toUpperCase().replace(/\s+/g, '');
 
-export type StopSource = 'manutencao' | 'ajuste' | 'setup';
-export const STOP_SOURCE_LABEL: Record<StopSource, string> = { manutencao: 'Manutenção', ajuste: 'Ajuste de processo', setup: 'Setup' };
+/** `outro`: a stop the leader tells when reporting (no MP, packaging, components…), with no OS/OA/setup behind it */
+export type StopSource = 'manutencao' | 'ajuste' | 'setup' | 'outro';
+export const STOP_SOURCE_LABEL: Record<StopSource, string> = { manutencao: 'Manutenção', ajuste: 'Ajuste de processo', setup: 'Setup', outro: 'Parada informada' };
+/** the plant's stop codes that can explain a missed target before it becomes scrap (João, 27/11/2026) */
+export const OTHER_STOP_GROUPS: { group: string; reasons: string[] }[] = [
+  { group: 'Áreas de apoio', reasons: [
+    '09 Falta energia elétrica', '11 Falta matéria-prima', '13 Falta de embalagem', '15 Ajuste no Injet', '22 Falta de componente',
+    '26 Aguardando processo', '32 Falta água / ar comprimido', '34 Falta peça de reposição', '41 Falta rebitadeira', '42 Falta dispositivo',
+  ] },
+  { group: 'Ajustes', reasons: ['06 Ajuste início de produção', '16 Ajuste de processo', '20 Fechador de parison', '31 Ajuste molde / ferramenta', '37 Ajuste após manutenção'] },
+];
+export const OTHER_STOP_REASONS = OTHER_STOP_GROUPS.flatMap((g) => g.reasons);
 
 export interface StopInput { source: StopSource; ref: string; label: string; start: number; end: number }
 export interface StopInPeriod extends StopInput {
@@ -51,6 +61,8 @@ export interface CheckInput {
   toleranceMin?: number;
   /** meal break inside the period, told by the leader (the time is not standard: it depends on who covers) */
   breakMin?: number;
+  /** stop told by the leader with no OS/OA/setup behind it (minutes inside the period, with its reason) */
+  otherStop?: { minutes: number; reason: string; ref: string } | null;
 }
 export interface CheckResult {
   status: CheckStatus;
@@ -99,9 +111,17 @@ export function clipStops(stops: StopInput[], start: number, end: number): { sto
 export function checkProduction(i: CheckInput): CheckResult {
   const tol = i.toleranceMin ?? PRODUCTION_TOLERANCE_MIN;
   const periodMin = Math.max(0, (i.end - i.start) / 60000);
-  const { stops, totalMin } = clipStops(i.stops, i.start, i.end);
-  const stopMin = round1(totalMin);
+  const clipped = clipStops(i.stops, i.start, i.end);
+  const stops = clipped.stops;
+  let totalMin = clipped.totalMin;
   const breakMin = Math.min(periodMin, Math.max(0, i.breakMin ?? 0));
+  // the told stop adds to the registered ones, never beyond the time the machine should have run
+  if (i.otherStop && i.otherStop.minutes > 0) {
+    const add = Math.max(0, Math.min(i.otherStop.minutes, periodMin - breakMin - totalMin));
+    totalMin += add;
+    stops.push({ source: 'outro', ref: i.otherStop.ref, label: i.otherStop.reason, start: i.end, end: i.end, minutes: round1(add), overlapMinutes: 0 });
+  }
+  const stopMin = round1(totalMin);
   const plannedMin = periodMin - breakMin;
   const base = { periodMin: round1(periodMin), breakMin: round1(breakMin), plannedMin: round1(plannedMin), quantity: i.quantity, stopMin, stops };
   if (!i.cycleSeconds || i.cycleSeconds <= 0) {
@@ -141,12 +161,21 @@ export function checkProduction(i: CheckInput): CheckResult {
 export type GapKind = 'refugo' | 'ritmo';
 /** OEE target of the plant (João, 27/11/2026) */
 export const OEE_TARGET = 0.85;
-export const SCRAP_REASONS = ['Rebarba', 'Falha de injeção', 'Chupado', 'Mancha / contaminação', 'Bolha', 'Dimensional', 'Quebrada / trincada', 'Partida de máquina'];
+/** the plant's scrap codes (Consulta Coletor Injet + Alerta Manual, sent by João 27/11/2026) */
+export const SCRAP_REASONS = [
+  '01 Contaminação', '02 Excesso de material interno', '03 Dimensões fora do especificado', '04 Deformação de peças',
+  '05 Corte de faca pelo operador', '06 Danificadas pelo trim die', '07 Contração excessiva', '08 Parison grudando na peça',
+  '09 Riscos externos excessivos', '10 Apresentando colapso', '11 Excesso de rebarba/bocal', '12 Peso fora do especificado',
+  '13 Problemas com molde', '14 Datadores ilegíveis', '15 Falha no sopro/murcha/peça', '16 Abrindo na linha de fechamento',
+  '17 Rachadura externa no bocal menor', '18 Marcas pelo dispositivo/acabamento', '19 Corte irregular', '20 Danificado pelo dispositivo',
+  '21 Falha na região da solda', '22 Reprovado na estanqueidade', '23 Furo/estampo fora de posição', '24 Rebarbas excessivas nos estampos',
+  '25 Problemas com componentes', '26 Teste de qualidade', '27 Ajuste de processo/manutenção', '28 Aguardando operação posterior', '29 Ajuste de saldo',
+];
 export const RHYTHM_REASONS = ['Falta de M.O', 'Falta de embalagem', 'Falta de componente', 'Microparadas', 'Ciclo acima do padrão', 'Refeição'];
 
 export type LossKey = StopSource | 'refugo' | 'ritmo' | 'pendente';
 export const LOSS_LABEL: Record<LossKey, string> = {
-  manutencao: 'Parada: manutenção', ajuste: 'Parada: ajuste de processo', setup: 'Parada: setup',
+  manutencao: 'Parada: manutenção', ajuste: 'Parada: ajuste de processo', setup: 'Parada: setup', outro: 'Parada informada (apoio / ajuste sem OA)',
   refugo: 'Refugo', ritmo: 'Perda de ritmo', pendente: 'Refugo sem motivo informado',
 };
 
@@ -180,13 +209,13 @@ export function oeeParts(c: CheckResult, gap: { kind: GapKind | null; scrap: num
   const scrap = (gap.kind === 'refugo' ? Math.max(0, gap.scrap ?? 0) : 0) + pending;
   // more pieces than the standard allows (wrong cycle or count): capped at the planned time, never above 100%
   const goodMin = Math.min(planned, good / perMin), scrapMin = Math.min(planned - goodMin, scrap / perMin);
-  const stop: Record<StopSource, number> = { manutencao: 0, ajuste: 0, setup: 0 };
+  const stop: Record<StopSource, number> = { manutencao: 0, ajuste: 0, setup: 0, outro: 0 };
   for (const s of c.stops) stop[s.source] += Math.max(0, s.minutes - s.overlapMinutes);
   let stopTotal = Math.min(planned, c.stopMin);
   // made more pieces than the running time allows: part of the "stop" was running (an OS open with production going on)
   const room = planned - (goodMin + scrapMin);
   if (stopTotal > room) stopTotal = Math.max(0, room);
-  const raw = stop.manutencao + stop.ajuste + stop.setup;
+  const raw = stop.manutencao + stop.ajuste + stop.setup + stop.outro;
   if (raw > 0) for (const k of Object.keys(stop) as StopSource[]) stop[k] = (stop[k] / raw) * stopTotal;
   const runMin = planned - stopTotal;
   const rhythmMin = Math.max(0, runMin - goodMin - scrapMin);
@@ -195,7 +224,7 @@ export function oeeParts(c: CheckResult, gap: { kind: GapKind | null; scrap: num
 }
 
 export interface OeeSum { plannedMin: number; runMin: number; goodMin: number; scrapMin: number; good: number; scrap: number; stop: Record<StopSource, number>; rhythmMin: number; pendingMin: number; entries: number }
-export const emptyOee = (): OeeSum => ({ plannedMin: 0, runMin: 0, goodMin: 0, scrapMin: 0, good: 0, scrap: 0, stop: { manutencao: 0, ajuste: 0, setup: 0 }, rhythmMin: 0, pendingMin: 0, entries: 0 });
+export const emptyOee = (): OeeSum => ({ plannedMin: 0, runMin: 0, goodMin: 0, scrapMin: 0, good: 0, scrap: 0, stop: { manutencao: 0, ajuste: 0, setup: 0, outro: 0 }, rhythmMin: 0, pendingMin: 0, entries: 0 });
 export function addOee(t: OeeSum, p: OeeParts) {
   t.plannedMin += p.plannedMin; t.runMin += p.runMin; t.goodMin += p.goodMin; t.scrapMin += p.scrapMin;
   t.good += p.good; t.scrap += p.scrap; t.rhythmMin += p.rhythmMin; t.pendingMin += p.pendingMin; t.entries++;
