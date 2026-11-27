@@ -127,6 +127,9 @@ describe('rodada da hora', () => {
 
     const again = (await lider.get(`/api/producao/rodada?end=${encodeURIComponent(end!)}`)).body;
     expect(again.pending).toBe(1);
+    // the stops of the hour come with the row, so the tablet compares while the leader types
+    expect(again.rows.find((x: any) => x.machine === '12').stops).toMatchObject([{ source: 'manutencao' }]);
+    expect(again.rows.find((x: any) => x.machine === '20').stops).toEqual([]);
     expect(again.rows.find((x: any) => x.machine === '12').entry).toMatchObject({ quantity: 45, status: 'justificada' });
     // the same machine + PN cannot be reported twice for the hour
     const dup = await lider.post('/api/producao/rodada', { start, end, items: [{ machine: '12', pn: '10007770001', quantity: 1 }] });

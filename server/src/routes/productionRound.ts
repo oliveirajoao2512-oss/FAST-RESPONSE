@@ -15,7 +15,7 @@ import { setupSnapshot, type SetupRow } from '../services/setups.js';
 import { getConfig } from '../settings.js';
 import { parse } from '../validation.js';
 import { readXlsx, XlsxError } from '../services/xlsx.js';
-import { applyPlanCycles, checkPeriod, ENTRY_SQL, evaluateEntries, findStandard, guard, readUpload, validMachine } from './production.js';
+import { applyPlanCycles, loadStops, checkPeriod, ENTRY_SQL, evaluateEntries, findStandard, guard, readUpload, validMachine } from './production.js';
 import { placeLists } from './workOrders.js';
 
 /**
@@ -179,7 +179,24 @@ export async function productionRoundRoutes(app: FastifyInstance) {
     const { entries, setup } = await evaluateEntries(done, u.id, canEditStandards(u, slug));
     const key = (m: string, pn: string) => `${machineKey(m)}|${pn}`;
     const byKey = new Map(entries.map((e) => [key(e.machine, e.pn), e]));
-    const rows = r.rows.map((row) => ({ ...row, entry: byKey.get(key(row.machine, row.pn)) ?? null }));
+    // the stops already registered in the hour, so the tablet compares while the leader types
+    const machines = [...new Set(r.rows.map((x) => x.machine))];
+    const { byMachine } = await loadStops(machines, r.start.toJSDate(), r.end.toJSDate());
+    // OS/OA opened in the hour with the machine running: shown, but they do not explain lost pieces
+    const running = machines.length ? await q<any>(
+      `SELECT w.code, w.domain, w.asset_ref, w.opened_at, w.finished_at, left(w.description, 80) AS description
+         FROM work_orders w
+        WHERE NOT w.machine_stopped AND w.location_type = 'maquina' AND upper(replace(w.asset_ref, ' ', '')) = ANY($1)
+          AND w.status NOT IN ('cancelada', 'recusada') AND w.opened_at < $3 AND COALESCE(w.finished_at, now()) > $2`,
+      [machines.map(machineKey), r.start.toJSDate(), r.end.toJSDate()]) : [];
+    const rows = r.rows.map((row) => ({
+      ...row, entry: byKey.get(key(row.machine, row.pn)) ?? null,
+      stops: byMachine.get(machineKey(row.machine)) ?? [],
+      running: running.filter((o) => machineKey(o.asset_ref) === machineKey(row.machine)).map((o) => ({
+        ref: o.code, source: o.domain === 'ajuste' ? 'ajuste' : 'manutencao', label: `${o.code} · ${o.description ?? ''}`.trim(),
+        start: new Date(o.opened_at).getTime(), end: o.finished_at ? new Date(o.finished_at).getTime() : Date.now(),
+      })),
+    }));
     const extra = entries.filter((e) => !r.rows.some((row) => key(row.machine, row.pn) === key(e.machine, e.pn)));
     return {
       start: r.start.toISO(), end: r.end.toISO(), shift: r.shift,

@@ -88,7 +88,7 @@ export async function checkPeriod(machine: string, pn: string, start: Date, end:
 }
 
 /** every registered stop on these machines that touches [from, to] */
-async function loadStops(machines: string[], from: Date, to: Date) {
+export async function loadStops(machines: string[], from: Date, to: Date) {
   const keys = [...new Set(machines.map(machineKey))];
   const byMachine = new Map<string, StopInput[]>(keys.map((k) => [k, []]));
   if (!keys.length) return { byMachine, setup: null as null | { ok: boolean; error: string | null } };

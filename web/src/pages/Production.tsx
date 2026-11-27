@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cl
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, checkProduction, machineKey, type CheckStatus, type StopSource,
+  CHECK_STATUS, PRODUCTION_TOLERANCE_MIN, STOP_SOURCE_LABEL, checkProduction, machineKey, type CheckStatus, type StopSource,
 } from '@shared/production';
 import { normalizePn } from '@shared/maintenance';
 import { shiftOf } from '@shared/shifts';
@@ -59,24 +59,42 @@ function StatusTag({ s }: { s: CheckStatus }) {
   return <span className={cx('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ring-1', TONE[c.tone])}>{c.label}</span>;
 }
 
+type Tab = 'apontar' | 'conferencia' | 'planejamento';
+const TAB_KEY = 'fr-producao-aba';
+
 export function ProductionPage() {
   const opts = useQuery<Options>({ queryKey: ['producao', 'opcoes'], queryFn: () => get('/api/producao/opcoes') });
   const [day, setDay] = useState(() => DateTime.now().setZone(zone()).toISODate()!);
+  const [tab, setTabState] = useState<Tab>(() => {
+    try { return (localStorage.getItem(TAB_KEY) as Tab) || 'apontar'; } catch { return 'apontar'; }
+  });
+  const setTab = (t: Tab) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* private mode */ } };
   if (opts.isLoading) return <Spinner />;
   if (opts.error) return <ErrorBox error={opts.error} onRetry={() => opts.refetch()} />;
   const o = opts.data!;
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900"><Factory className="h-5 w-5 text-brand-600" />Produção</h1>
-          <p className="text-sm text-gray-500">A cada hora, as máquinas e os PNs já vêm do planejamento do PCP e dos setups: o líder só digita as peças. O sistema compara com a meta e com as paradas já registradas (OS, OA e setup).</p>
-        </div>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900"><Factory className="h-5 w-5 text-brand-600" />Produção</h1>
+        <Segmented<Tab> value={tab} onChange={setTab} options={[
+          { value: 'apontar', label: 'Apontar' },
+          { value: 'conferencia', label: 'Conferência' },
+          { value: 'planejamento', label: 'Planejamento' },
+        ]} />
       </header>
-      <HourRound o={o} />
-      <ManualReport o={o} onSaved={(d) => setDay(d)} />
-      <ConferenceView day={day} setDay={setDay} machines={o.machines} options={o} />
-      <StandardsSection o={o} />
+      {tab === 'apontar' && <TabletRound onNeedPlan={() => setTab('planejamento')} />}
+      {tab === 'conferencia' && (
+        <>
+          <ConferenceView day={day} setDay={setDay} machines={o.machines} options={o} />
+          <ManualReport o={o} onSaved={(d) => setDay(d)} />
+        </>
+      )}
+      {tab === 'planejamento' && (
+        <>
+          <PlanningPanel />
+          <StandardsSection o={o} />
+        </>
+      )}
     </div>
   );
 }
@@ -593,6 +611,10 @@ interface RoundRow {
   machine: string; pn: string; source: 'plano' | 'setup'; op: string | null;
   setup: { status: string; startedAt: string; user: string | null } | null;
   cycleSeconds: number | null; cavities: number | null; perHour: number | null; entry: Entry | null;
+  /** stops already registered on the machine in the hour (OS/OA with the machine stopped, setups) */
+  stops?: { source: StopSource; ref: string; label: string; start: number; end: number }[];
+  /** OS/OA in the hour with the machine running: they do not explain lost pieces */
+  running?: { source: StopSource; ref: string; label: string; start: number; end: number }[];
 }
 interface Round {
   start: string; end: string; shift: { name: string; index: number; date: string } | null;
@@ -602,129 +624,6 @@ interface Round {
 }
 const BREAKS = [0, 30, 60];
 const rowKey = (r: { machine: string; pn: string }) => `${r.machine}|${r.pn}`;
-
-function HourRound({ o }: { o: Options }) {
-  const qc = useQueryClient();
-  const [end, setEnd] = useState<string | null>(null);
-  const [upload, setUpload] = useState(false);
-  const [vals, setVals] = useState<Record<string, { qty: string; brk: number }>>({});
-  const [result, setResult] = useState<{ saved: number; errors: { machine: string; pn: string; erro: string }[] } | null>(null);
-  const round = useQuery<Round>({
-    queryKey: ['producao', 'rodada', end],
-    queryFn: () => get(`/api/producao/rodada${qs({ end: end ?? undefined })}`),
-    refetchInterval: 60_000,
-  });
-  const d = round.data;
-  const go = (hours: number) => {
-    if (!d) return;
-    setVals({}); setResult(null);
-    setEnd(DateTime.fromISO(d.end, { zone: zone() }).plus({ hours }).toISO());
-  };
-  const filled = (d?.rows ?? []).filter((r) => !r.entry && (vals[rowKey(r)]?.qty ?? '') !== '');
-  const save = useMutation({
-    mutationFn: () => post<{ saved: number; errors: { machine: string; pn: string; erro: string }[] }>('/api/producao/rodada', {
-      start: d!.start, end: d!.end,
-      items: filled.map((r) => ({ machine: r.machine, pn: r.pn, quantity: Number(vals[rowKey(r)].qty), breakMinutes: vals[rowKey(r)].brk ?? 0 })),
-    }),
-    onSuccess: (r) => {
-      setResult(r);
-      // keep what failed on screen so the leader can fix it
-      setVals((v) => Object.fromEntries(Object.entries(v).filter(([k]) => r.errors.some((x) => rowKey(x) === k))));
-      qc.invalidateQueries({ queryKey: ['producao'] });
-    },
-  });
-  const set = (r: RoundRow, p: Partial<{ qty: string; brk: number }>) =>
-    setVals((v) => ({ ...v, [rowKey(r)]: { qty: v[rowKey(r)]?.qty ?? '', brk: v[rowKey(r)]?.brk ?? 0, ...p } }));
-
-  return (
-    <Card
-      title={
-        <span className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-brand-600" />
-          {d ? <>Hora {hm(d.start)}–{hm(d.end)}{d.shift ? ` · ${d.shift.name}` : ''}</> : 'Rodada da hora'}
-        </span>
-      }
-      actions={
-        <div className="flex items-center gap-1.5">
-          <Button size="sm" onClick={() => go(-1)} disabled={!d} aria-label="Hora anterior"><ChevronLeft className="h-4 w-4" /></Button>
-          <Button size="sm" onClick={() => go(1)} disabled={!d || d.isLatest} aria-label="Próxima hora"><ChevronRight className="h-4 w-4" /></Button>
-          <Button size="sm" onClick={() => setUpload(true)}><Upload className="h-3.5 w-3.5" />Planejamento do PCP</Button>
-        </div>
-      }>
-      {upload && <PlanUploadModal onClose={() => setUpload(false)} />}
-      {round.isLoading ? <Spinner /> : round.error ? <ErrorBox error={round.error} onRetry={() => round.refetch()} /> : d && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            {!d.shift ? <span className="text-gray-500">Fora do horário dos turnos.</span>
-              : d.plan ? (
-                <span className={d.plan.sameDay ? 'text-gray-500' : 'text-amber-700'}>
-                  {d.plan.sameDay ? 'Planejamento' : 'Sem planejamento deste dia: usando o'} de {DateTime.fromISO(d.plan.date).toFormat('dd/MM')}, enviado por {d.plan.by} às {DateTime.fromISO(d.plan.uploadedAt, { zone: zone() }).toFormat('dd/MM HH:mm')}
-                </span>
-              ) : <span className="flex items-center gap-1.5 text-amber-700"><AlertTriangle className="h-4 w-4" />Nenhum planejamento enviado. Suba a planilha do PCP para as máquinas virem preenchidas.</span>}
-            {d.setup && !d.setup.ok && <span className="text-amber-700">Controle de Setup sem resposta: PNs só do planejamento.</span>}
-            {d.rows.length > 0 && <span className="ml-auto text-gray-600">{d.rows.length - d.pending} de {d.rows.length} apontadas</span>}
-          </div>
-
-          {d.rows.length > 0 && (
-            <ul className="space-y-2">
-              {d.rows.map((r) => r.entry ? (
-                <EntryCard key={rowKey(r)} e={r.entry} options={o} compact />
-              ) : (
-                <li key={rowKey(r)} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-gray-200 px-3 py-2.5">
-                  <div className="min-w-[9rem] flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-base font-bold text-gray-900">Máq. {r.machine}</span>
-                      <span className="text-sm text-gray-700">{r.pn}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-2 text-xs text-gray-500">
-                      {r.perHour != null ? <span>meta {n0(r.perHour)} pç/h</span> : <span className="text-amber-700">sem ciclo padrão</span>}
-                      {r.source === 'setup' && <span className="rounded bg-violet-100 px-1 font-semibold text-violet-800">PN do último setup</span>}
-                      {r.setup && r.setup.status !== 'Finalizado' && <span className="rounded bg-violet-100 px-1 font-semibold text-violet-800">em setup desde {hm(r.setup.startedAt)}</span>}
-                      {r.op && <span>OP {r.op}</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1" role="group" aria-label={`Refeição na máquina ${r.machine}`}>
-                    <span className="mr-1 text-xs text-gray-500">refeição</span>
-                    {BREAKS.map((b) => (
-                      <button key={b} onClick={() => set(r, { brk: b })}
-                        className={cx('rounded-md border px-2 py-1 text-xs font-semibold', (vals[rowKey(r)]?.brk ?? 0) === b ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-gray-700')}>
-                        {b === 0 ? 'não' : `${b} min`}
-                      </button>
-                    ))}
-                  </div>
-                  <Input type="number" inputMode="numeric" min={0} aria-label={`Peças da máquina ${r.machine} PN ${r.pn}`} placeholder="peças"
-                    value={vals[rowKey(r)]?.qty ?? ''} onChange={(e) => set(r, { qty: e.target.value })} className="!w-28 text-lg font-semibold" />
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
-          {result && result.errors.length > 0 && (
-            <ul className="space-y-0.5 text-sm text-red-700">{result.errors.map((x) => <li key={x.machine + x.pn}>Máq. {x.machine} · {x.pn}: {x.erro}</li>)}</ul>
-          )}
-          {result && result.saved > 0 && (
-            <p className="flex items-center gap-1.5 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />{result.saved} apontamento(s) salvos. O resultado de cada máquina está na lista acima.</p>
-          )}
-          {d.rows.some((r) => !r.entry) && (
-            <div className="flex justify-end">
-              <Button kind="primary" disabled={!filled.length} loading={save.isPending} onClick={() => save.mutate()}>
-                <Save className="h-4 w-4" />{filled.length ? `Salvar ${filled.length} máquina${filled.length > 1 ? 's' : ''}` : 'Digite as peças'}
-              </Button>
-            </div>
-          )}
-
-          {d.extra.length > 0 && (
-            <div>
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Outros apontamentos desta hora</div>
-              <ul className="space-y-2">{d.extra.map((e) => <EntryCard key={e.id} e={e} options={o} compact />)}</ul>
-            </div>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
 
 interface PlanPreview {
   date: string; fileName: string; machinesPerShift: number[];
@@ -781,5 +680,302 @@ function PlanUploadModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ tablet: a hora, máquina por máquina */
+
+/** quick answers, the same the Controle de Setup offers for a stop after the setup */
+const QUICK_REASONS = ['Falta de M.O', 'Falta de embalagem', 'Falta de componente', 'Refeição', 'Manutenção', 'Ajuste de processo'];
+
+/**
+ * The hour, one machine + PN at a time (João, 27/11/2026): the system brings the machine and the PN, the leader types
+ * the pieces, the system compares with the meta and the stops, the leader answers the reason when the time is not
+ * justified, and only then the next machine comes. No list on the screen.
+ */
+function TabletRound({ onNeedPlan }: { onNeedPlan: () => void }) {
+  const [end, setEnd] = useState<string | null>(null);
+  const [cur, setCur] = useState<string | null>(null);
+  const round = useQuery<Round>({
+    queryKey: ['producao', 'rodada', end],
+    queryFn: () => get(`/api/producao/rodada${qs({ end: end ?? undefined })}`),
+  });
+  const d = round.data;
+  const rows = d?.rows ?? [];
+  const done = rows.filter((r) => r.entry).length;
+  // the current step: the one chosen, or the first machine still to report
+  const row = rows.find((r) => rowKey(r) === cur) ?? rows.find((r) => !r.entry) ?? null;
+  const index = row ? rows.indexOf(row) : -1;
+  const go = (hours: number) => { if (d) { setCur(null); setEnd(DateTime.fromISO(d.end, { zone: zone() }).plus({ hours }).toISO()); } };
+  const next = () => {
+    const after = [...rows.slice(index + 1), ...rows.slice(0, index)].find((r) => !r.entry);
+    setCur(after ? rowKey(after) : '__fim__');
+  };
+  const back = () => { if (index > 0) setCur(rowKey(rows[index - 1])); };
+
+  if (round.isLoading) return <Spinner />;
+  if (round.error) return <ErrorBox error={round.error} onRetry={() => round.refetch()} />;
+  if (!d) return null;
+  const finished = cur === '__fim__' || !row;
+  const counts = (s: CheckStatus) => rows.filter((r) => r.entry?.status === s).length;
+  return (
+    <section className="mx-auto max-w-2xl space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Button onClick={() => go(-1)} aria-label="Hora anterior" className="!px-3 !py-3"><ChevronLeft className="h-6 w-6" /></Button>
+          <div className="min-w-0 flex-1 text-center">
+            <div className="text-2xl font-bold tabular text-gray-900">{hm(d.start)}–{hm(d.end)}</div>
+            <div className="text-sm text-gray-500">{d.shift ? d.shift.name : 'fora do turno'}{d.isLatest ? ' · última hora fechada' : ''}</div>
+          </div>
+          <Button onClick={() => go(1)} disabled={d.isLatest} aria-label="Próxima hora" className="!px-3 !py-3"><ChevronRight className="h-6 w-6" /></Button>
+        </div>
+        {rows.length > 0 && (
+          <div className="mt-2">
+            <div className="mb-1 flex justify-between text-sm text-gray-600"><span>{done} de {rows.length} apontadas</span>
+              {d.plan && !d.plan.sameDay && <span className="text-amber-700">planejamento de {DateTime.fromISO(d.plan.date).toFormat('dd/MM')}</span>}</div>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100"><div className="h-full bg-brand-600" style={{ width: `${(done / rows.length) * 100}%` }} /></div>
+          </div>
+        )}
+      </div>
+
+      {!d.shift ? (
+        <Empty>Essa hora está fora dos turnos.</Empty>
+      ) : !d.plan ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-center">
+          <p className="text-lg font-semibold text-amber-900">Nenhum planejamento do PCP para este dia.</p>
+          <p className="mb-3 text-sm text-amber-800">Importe a planilha do dia para as máquinas virem prontas.</p>
+          <Button kind="primary" onClick={onNeedPlan}><Upload className="h-4 w-4" />Ir para Planejamento</Button>
+        </div>
+      ) : rows.length === 0 ? (
+        <Empty>Nenhuma máquina planejada para este turno.</Empty>
+      ) : finished ? (
+        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-6 text-center">
+          {done === rows.length
+            ? <p className="flex items-center justify-center gap-2 text-xl font-bold text-emerald-700"><CheckCircle2 className="h-6 w-6" />Hora completa</p>
+            : <p className="text-lg font-semibold text-amber-800">Faltam {rows.length - done} máquinas desta hora.</p>}
+          <p className="text-sm text-gray-600">{counts('meta')} na meta · {counts('justificada')} justificadas · {counts('divergencia')} com tempo não justificado</p>
+          {done < rows.length && <Button kind="primary" onClick={() => setCur(null)}>Continuar apontando</Button>}
+        </div>
+      ) : (
+        <Step key={rowKey(row) + d.end} r={row} round={d} position={index + 1} total={rows.length} onNext={next} onBack={index > 0 ? back : undefined} />
+      )}
+    </section>
+  );
+}
+
+/** one machine + PN: type the pieces, see the comparison, save, answer the reason, next */
+function Step({ r, round, position, total, onNext, onBack }: { r: RoundRow; round: Round; position: number; total: number; onNext: () => void; onBack?: () => void }) {
+  const qc = useQueryClient();
+  const [qty, setQty] = useState('');
+  const [brk, setBrk] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const e = r.entry;
+  const press = (k: string) => setQty((cur) => (k === '⌫' ? cur.slice(0, -1) : k === 'C' ? '' : (cur + k).replace(/^0+(?=\d)/, '').slice(0, 6)));
+  const save = useMutation({
+    mutationFn: () => post<{ saved: number; errors: { erro: string }[] }>('/api/producao/rodada', {
+      start: round.start, end: round.end, items: [{ machine: r.machine, pn: r.pn, quantity: Number(qty), breakMinutes: brk }],
+    }),
+    onSuccess: async (x) => { setErr(x.errors[0]?.erro ?? null); await qc.invalidateQueries({ queryKey: ['producao'] }); },
+  });
+  const meta = r.perHour != null ? Math.floor((r.perHour * (60 - brk)) / 60) : null;
+  // the procedure: an unjustified time needs its reason before moving on
+  const blocked = !!e && e.status === 'divergencia' && !e.reason;
+
+  return (
+    <div className="overflow-hidden rounded-xl border-2 border-gray-200 bg-white">
+      <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+        <div>
+          <div className="text-4xl font-bold leading-none text-gray-900">Máq. {r.machine}</div>
+          <div className="mt-2 text-xl font-semibold text-gray-700">PN {r.pn}</div>
+          <div className="mt-1 flex flex-wrap gap-2 text-sm text-gray-500">
+            {meta != null ? <span>meta da hora <b className="text-gray-800">{n0(meta)} pç</b></span> : <span className="text-amber-700">sem ciclo padrão</span>}
+            {r.source === 'setup' && <span className="rounded bg-violet-100 px-1.5 text-xs font-semibold leading-5 text-violet-800">PN do último setup</span>}
+            {r.setup && r.setup.status !== 'Finalizado' && <span className="rounded bg-violet-100 px-1.5 text-xs font-semibold leading-5 text-violet-800">em setup desde {hm(r.setup.startedAt)}</span>}
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-600">{position} de {total}</span>
+      </div>
+
+      <div className="space-y-4 p-5">
+        {e ? (
+          <MachineResult e={e} />
+        ) : (
+          <>
+            <div className="flex items-baseline justify-between rounded-xl border-2 border-brand-600 px-4 py-3">
+              <span className="text-base text-gray-600">Peças produzidas</span>
+              <span className={cx('text-5xl font-bold tabular', qty ? 'text-gray-900' : 'text-gray-300')}>{qty || '0'}</span>
+            </div>
+            {qty !== '' && <LivePreview r={r} round={round} qty={qty} brk={brk} />}
+            <div>
+              <div className="mb-1.5 text-sm font-medium text-gray-700">Parou para refeição nesta hora?</div>
+              <div className="grid grid-cols-3 gap-2">
+                {BREAKS.map((b) => (
+                  <button key={b} onClick={() => setBrk(b)}
+                    className={cx('rounded-xl border-2 py-3 text-lg font-semibold', brk === b ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white text-gray-800')}>
+                    {b === 0 ? 'Não' : `${b} min`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
+                <button key={k} onClick={() => press(k)} aria-label={k === '⌫' ? 'Apagar' : k === 'C' ? 'Limpar' : k}
+                  className="rounded-xl border border-gray-300 bg-white py-4 text-3xl font-semibold text-gray-900 active:bg-gray-100">{k}</button>
+              ))}
+            </div>
+            {(err || save.error) && <p className="text-sm text-red-700">{err ?? errorMessage(save.error)}</p>}
+          </>
+        )}
+      </div>
+
+      <div className="flex gap-2 border-t border-gray-100 p-3">
+        {onBack && <Button onClick={onBack} aria-label="Máquina anterior" className="!px-3 !py-4"><ChevronLeft className="h-5 w-5" /></Button>}
+        {e ? (
+          <Button kind="primary" disabled={blocked} onClick={onNext} className="flex-1 !py-4 text-lg">
+            {blocked ? 'Informe o motivo para seguir' : <>Próxima máquina<ChevronRight className="h-5 w-5" /></>}
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onNext} className="!py-4">Pular</Button>
+            <Button kind="primary" disabled={qty === ''} loading={save.isPending} onClick={() => save.mutate()} className="flex-1 !py-4 text-lg">
+              <Save className="h-5 w-5" />Salvar e comparar
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** while the leader types: meta × real against the stops already registered in the hour, before saving */
+function LivePreview({ r, round, qty, brk }: { r: RoundRow; round: Round; qty: string | undefined; brk: number }) {
+  const start = DateTime.fromISO(round.start).toMillis(), end = DateTime.fromISO(round.end).toMillis();
+  const stops = r.stops ?? [];
+  const c = qty ? checkProduction({ start, end, quantity: Number(qty), cycleSeconds: r.cycleSeconds, cavities: r.cavities, stops, breakMin: brk }) : null;
+  const clipped = c?.stops ?? checkProduction({ start, end, quantity: 0, cycleSeconds: null, cavities: null, stops }).stops;
+  const tone = c ? { meta: 'bg-emerald-50 text-emerald-900 ring-emerald-300', justificada: 'bg-sky-50 text-sky-900 ring-sky-300', divergencia: 'bg-red-50 text-red-900 ring-red-300', sem_padrao: 'bg-gray-50 text-gray-700 ring-gray-200' }[c.status] : 'bg-white text-gray-700 ring-gray-200';
+  return (
+    <div className={cx('rounded-lg px-3 py-2 text-sm ring-1', tone)}>
+      {c && c.status !== 'sem_padrao' && (
+        <p className="font-semibold">
+          {c.status === 'meta' ? `Na meta: ${n0(c.quantity)} de ${n0(c.expected)} pç.`
+            : `Faltaram ${n0(c.lossPieces)} pç (${min(c.lossMin)}). ` + (c.justifiedMin ? `Paradas explicam ${min(c.justifiedMin)}` : 'Nenhuma parada registrada explica') + (c.status === 'divergencia' ? `; ${min(c.unjustifiedMin)} sem justificativa.` : '.')}
+        </p>
+      )}
+      {clipped.length > 0 ? (
+        <ul className="mt-0.5 space-y-0.5">
+          {clipped.map((s) => (
+            <li key={s.source + s.ref} className="flex gap-2">
+              <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800')}>{STOP_SOURCE_LABEL[s.source]}</span>
+              <span className="min-w-0 flex-1 truncate">{s.label}</span><span className="tabular">{min(s.minutes)} parada</span>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-gray-500">Nenhuma parada registrada nesta máquina nesta hora.</p>}
+      {(r.running ?? []).map((o) => (
+        <p key={o.ref} className="mt-0.5 text-xs text-gray-500">{o.label}: aberta com a máquina rodando, não conta como parada.</p>
+      ))}
+    </div>
+  );
+}
+
+/** what the conferência says about one PN of the machine, in big type for the tablet */
+function MachineResult({ e }: { e: Entry }) {
+  const tone = CHECK_STATUS[e.status].tone;
+  const banner = { green: 'bg-emerald-600', blue: 'bg-sky-600', red: 'bg-red-600', gray: 'bg-gray-500' }[tone];
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className={cx('flex items-center justify-between px-4 py-2 text-white', banner)}>
+        <span className="font-semibold">PN {e.pn}</span>
+        <span className="font-bold">{CHECK_STATUS[e.status].label}</span>
+      </div>
+      <div className="space-y-3 p-4">
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+          <div><div className="text-xs text-gray-500">Produziu</div><div className="text-4xl font-bold tabular text-gray-900">{n0(e.quantity)}</div></div>
+          <div><div className="text-xs text-gray-500">Meta</div><div className="text-4xl font-bold tabular text-gray-400">{n0(e.expected)}</div></div>
+          {e.breakMin > 0 && <div className="text-sm text-gray-500">refeição {min(e.breakMin)}</div>}
+          {e.aboveStandard && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-sm font-semibold text-amber-800 ring-1 ring-amber-300">acima do ciclo: confira o número</span>}
+        </div>
+        <PeriodBar e={e} />
+        {e.stops.length > 0 && (
+          <ul className="space-y-1 text-sm">
+            {e.stops.map((s) => (
+              <li key={s.source + s.ref} className="flex gap-2">
+                <span className={cx('rounded px-1.5 text-xs font-semibold', s.source === 'setup' ? 'bg-violet-100 text-violet-800' : s.source === 'ajuste' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800')}>{s.sourceLabel}</span>
+                <span className="min-w-0 flex-1 truncate text-gray-700">{s.label}</span>
+                <span className="font-semibold tabular">{min(s.minutes)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {e.status === 'divergencia' && <QuickReason e={e} />}
+      </div>
+    </div>
+  );
+}
+
+function QuickReason({ e }: { e: Entry }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState(e.reason ?? '');
+  const [edit, setEdit] = useState(!e.reason);
+  const save = useMutation({
+    mutationFn: () => post(`/api/producao/apontamentos/${e.id}/motivo`, { reason: text }),
+    onSuccess: () => { setEdit(false); qc.invalidateQueries({ queryKey: ['producao'] }); },
+  });
+  if (!edit) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+        <span><b>Motivo:</b> {e.reason ?? text}</span>
+        <Button size="sm" kind="ghost" onClick={() => setEdit(true)}>Alterar</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-xl border-2 border-red-200 bg-red-50 p-3">
+      <p className="font-semibold text-red-800">{min(e.unjustifiedMin)} sem justificativa ({n0(e.unjustifiedPieces)} peças). O que aconteceu?</p>
+      <div className="flex flex-wrap gap-2">
+        {QUICK_REASONS.map((r) => (
+          <button key={r} onClick={() => setText(r)}
+            className={cx('rounded-full border-2 px-3 py-2 text-sm font-semibold', text === r ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-800')}>{r}</button>
+        ))}
+      </div>
+      <Input value={text} onChange={(x) => setText(x.target.value)} placeholder="Ou escreva o motivo" className="text-base" />
+      {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
+      <div className="flex justify-end"><Button kind="primary" disabled={text.trim().length < 3} loading={save.isPending} onClick={() => save.mutate()}>Salvar motivo</Button></div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ planejamento */
+
+function PlanningPanel() {
+  const [upload, setUpload] = useState(false);
+  const today = DateTime.now().setZone(zone()).toISODate()!;
+  const plan = useQuery<any>({ queryKey: ['producao', 'planejamento', today], queryFn: () => get(`/api/producao/planejamento${qs({ date: today })}`) });
+  const p = plan.data?.plan;
+  const items: { machine: string; pn: string; shifts: number[]; op: string | null }[] = plan.data?.items ?? [];
+  return (
+    <Card title="Planejamento do dia (PCP)" actions={<Button kind="primary" onClick={() => setUpload(true)}><Upload className="h-4 w-4" />Importar planilha do dia</Button>}>
+      {upload && <PlanUploadModal onClose={() => setUpload(false)} />}
+      {plan.isLoading ? <Spinner /> : !p ? (
+        <p className="text-sm text-amber-800">Nenhum planejamento para hoje. Importe a planilha "PLANEJAMENTO APONTAMENTO" do dia: as máquinas e PNs de cada turno passam a vir prontos na tela do líder.</p>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <p className={p.sameDay ? 'text-gray-600' : 'text-amber-700'}>
+            {p.sameDay ? 'Em uso hoje:' : 'Sem planejamento de hoje. Em uso:'} planejamento de <b>{DateTime.fromISO(p.date).toFormat('dd/MM/yyyy')}</b>, enviado por {p.by} às {DateTime.fromISO(p.uploadedAt, { zone: zone() }).toFormat('dd/MM HH:mm')}
+            {p.fileName ? ` (${p.fileName})` : ''}. {plan.data.machinesPerShift.map((n: number, i: number) => `${n} máquinas no T${i + 1}`).join(' · ')}.
+          </p>
+          <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            {items.map((i) => (
+              <div key={i.machine + i.pn} className={cx('flex items-center gap-2 rounded-lg border px-3 py-1.5', i.shifts.length ? 'border-gray-200' : 'border-dashed border-gray-200 text-gray-400')}>
+                <b className="min-w-[2.5rem] shrink-0 whitespace-nowrap">{i.machine}</b>
+                <span className="min-w-0 flex-1 truncate">{i.pn}</span>
+                {[1, 2, 3].map((t) => <span key={t} className={cx('rounded px-1 text-xs font-semibold', i.shifts.includes(t) ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400')}>T{t}</span>)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

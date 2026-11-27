@@ -88,3 +88,8 @@ API: `POST /api/producao/planejamento?commit&date` (multipart), `GET /api/produc
 `GET /api/producao/rodada?end`, `POST /api/producao/rodada`, `GET /api/producao/opcoes`, `POST /api/producao/apontamentos`, `PATCH /api/producao/apontamentos/:id`,
 `POST /api/producao/apontamentos/:id/motivo`, `GET /api/producao/conferencia?from&to&machine&status`,
 `PUT /api/producao/padroes`, `POST /api/producao/padroes/importar-ciclo`.
+
+
+## Tela do tablet (27/11/2026)
+
+A aba **Apontar** mostra uma máquina + PN por vez, sem lista: o sistema traz a máquina e o PN da hora (planejamento do PCP ou último setup), o líder digita as peças no teclado numérico, e a tela já compara com a meta e com as paradas registradas na hora (OS/OA com máquina parada e setups). OS/OA abertas com a máquina rodando aparecem, mas não contam como parada. Ao salvar, aparece o resultado; se houver tempo não justificado, o líder informa o motivo antes de seguir para a próxima máquina. **Pular** deixa a máquina para o fim. O apontamento avulso foi para a aba **Conferência**; a importação do planejamento e os ciclos ficam na aba **Planejamento**.
