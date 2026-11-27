@@ -10,10 +10,10 @@ export const PRODUCTION_TOLERANCE_MIN = 5;
 export const PRODUCTION_MAX_HOURS = 12;
 
 /**
- * Preview: live only for the administrator (João, 27/11/2026) until he releases it. Turning it off gives the rules
- * below to the leadership of Produção and the plant manager.
+ * Was an admin-only preview; João released it to the leaders of Produção on 27/11/2026 (adminOnly = false). Turning it
+ * back on hides the module from everyone but the administrator.
  */
-export const productionAccess = { adminOnly: true };
+export const productionAccess = { adminOnly: false };
 
 /** who reports production and sees the conferência: leadership of Produção, plant manager and administrator */
 export const canReportProduction = (a: { role: string }, areaSlug: string | null | undefined) =>
