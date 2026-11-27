@@ -3,7 +3,7 @@ import { AlertTriangle, Info } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useState, type ReactNode } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { LOSS_LABEL, type LossKey } from '@shared/production';
+import { LOSS_LABEL, OEE_TARGET, type LossKey } from '@shared/production';
 import { get, qs } from '../lib/api';
 import { tz } from '../lib/format';
 import { cx, Empty, ErrorBox, Input, Select, Spinner } from '../components/ui';
@@ -157,7 +157,7 @@ function Panel({ title, sub, children, className }: { title: string; sub?: strin
 function Kpis({ d }: { d: Oee }) {
   const t = d.totals;
   const items: { label: string; v: string; hint: string; big?: boolean }[] = [
-    { label: 'OEE', v: pct(t.oee), hint: `${n0(t.good)} peças boas`, big: true },
+    { label: 'OEE', v: pct(t.oee), hint: `meta ${pct(OEE_TARGET)} · ${t.oee == null ? '' : t.oee >= OEE_TARGET ? 'atingida' : `faltam ${((OEE_TARGET - t.oee) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} p.p.`}`, big: true },
     { label: 'Disponibilidade', v: pct(t.availability), hint: `${hm(t.stopMin)} de paradas` },
     { label: 'Performance', v: pct(t.performance), hint: 'ritmo no ciclo padrão' },
     { label: 'Qualidade', v: pct(t.quality), hint: `${n0(t.scrap)} peças refugadas` },
@@ -213,7 +213,7 @@ function Trend({ d }: { d: Oee }) {
           <CartesianGrid vertical={false} stroke="#f1f2f4" />
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} interval="preserveStartEnd" minTickGap={12} />
           <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
-          <ReferenceLine y={(d.totals.oee ?? 0) * 100} stroke="#9ca3af" strokeDasharray="4 4" />
+          <ReferenceLine y={OEE_TARGET * 100} stroke="#6b7280" strokeDasharray="4 4" label={{ value: `meta ${OEE_TARGET * 100}%`, position: 'insideTopLeft', fontSize: 11, fill: '#6b7280' }} />
           <Tooltip cursor={{ stroke: '#9ca3af', strokeDasharray: '3 3' }} content={({ payload, label }) => {
             const p: any = payload?.[0]?.payload; if (!p) return null;
             if (!p.n) return <div className="rounded-lg bg-gray-900 px-3 py-2 text-xs text-white shadow-lg"><b>{label}</b><div className="text-gray-400">sem apontamento</div></div>;
@@ -240,6 +240,7 @@ function Stacks({ rows, onPick, label }: { rows: (Ind & { losses: Loss[] })[]; o
   if (!rows.length) return <Empty>Sem registros.</Empty>;
   return (
     <div>
+      <p className="mb-2 px-1.5 text-xs text-gray-500">OEE em vermelho: abaixo da meta de {pct(OEE_TARGET)}.</p>
       <ul className="space-y-1">
         {rows.map((r) => {
           const good = r.plannedMin - r.lossMin;
@@ -253,7 +254,7 @@ function Stacks({ rows, onPick, label }: { rows: (Ind & { losses: Loss[] })[]; o
                 <span className="flex h-5 gap-0.5 overflow-hidden rounded">
                   {parts.map((p) => <span key={p.key} style={{ width: `${(p.min / r.plannedMin) * 100}%`, background: p.color }} />)}
                 </span>
-                <span className="text-right font-semibold tabular text-gray-900">{pct(r.oee)}</span>
+                <span className={cx('text-right font-semibold tabular', r.oee != null && r.oee < OEE_TARGET ? 'text-red-700' : 'text-gray-900')}>{pct(r.oee)}</span>
               </button>
             </li>
           );

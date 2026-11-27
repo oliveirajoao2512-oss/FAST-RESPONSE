@@ -106,6 +106,6 @@ A aba **OEE** (GET /api/producao/oee?from&to&shift&machine) mostra, por período
 - **Disponibilidade** = (tempo planejado − paradas registradas) / tempo planejado. O tempo planejado é o período menos a refeição. As paradas são OS/OA com máquina parada e setups, sem contar sobreposição duas vezes.
 - **Performance** = (peças boas + refugo) no ciclo padrão / tempo rodando.
 - **Qualidade** = peças boas / (boas + refugo).
-- **OEE** = D × P × Q = peças boas no ciclo padrão / tempo planejado, limitado a 100% (apontamentos acima do ciclo aparecem num aviso).
+- **OEE** = D × P × Q = peças boas no ciclo padrão / tempo planejado, limitado a 100% (apontamentos acima do ciclo aparecem num aviso). Meta da planta: 85% (`OEE_TARGET`), marcada no gráfico; máquinas abaixo da meta ficam em vermelho.
 
 O painel mostra para onde foi o tempo planejado (produção boa, paradas por origem, refugo, ritmo, sem motivo), a evolução hora a hora ou dia a dia, um gráfico por máquina e por turno, o refugo por defeito, as peças não produzidas por motivo e os PNs que mais perderam tempo. Apontamentos sem ciclo padrão ficam fora do OEE e são contados no aviso.

@@ -139,6 +139,8 @@ export function checkProduction(i: CheckInput): CheckResult {
  * pieces not made (rhythm: no operator, no packaging…). Scrap is the Quality of the OEE; rhythm is its Performance.
  */
 export type GapKind = 'refugo' | 'ritmo';
+/** OEE target of the plant (João, 27/11/2026) */
+export const OEE_TARGET = 0.85;
 export const SCRAP_REASONS = ['Rebarba', 'Falha de injeção', 'Chupado', 'Mancha / contaminação', 'Bolha', 'Dimensional', 'Quebrada / trincada', 'Partida de máquina'];
 export const RHYTHM_REASONS = ['Falta de M.O', 'Falta de embalagem', 'Falta de componente', 'Microparadas', 'Ciclo acima do padrão', 'Refeição'];
 
