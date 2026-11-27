@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { OrdersAnalyticsPage } from './pages/OrdersAnalytics';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { WO_DOMAIN, orderAnalyticsDomains, plantPanelDomains } from '@shared/maintenance';
+import { canReportProduction } from '@shared/production';
 import { Layout, MaintainerLayout } from './components/Layout';
 import { Spinner } from './components/ui';
 import { useQualityAccess } from './lib/quality';
@@ -23,6 +24,7 @@ const QualityPage = lazy(() => import('./pages/Quality').then((m) => ({ default:
 const WorkOrdersPage = lazy(() => import('./pages/WorkOrders').then((m) => ({ default: m.WorkOrdersPage })));
 const osPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="manutencao" /></Suspense>;
 const PlantPanelPage = lazy(() => import('./pages/PlantPanel').then((m) => ({ default: m.PlantPanelPage })));
+const ProductionPage = lazy(() => import('./pages/Production').then((m) => ({ default: m.ProductionPage })));
 const StatusBoardPage = lazy(() => import('./pages/StatusBoard').then((m) => ({ default: m.StatusBoardPage })));
 const adjPage = <Suspense fallback={<Spinner />}><WorkOrdersPage domain="ajuste" /></Suspense>;
 
@@ -81,6 +83,7 @@ export function App() {
         <Route path="aprovacoes" element={<ApprovalsPage />} />
         <Route path="os" element={osPage} />
         <Route path="ajustes" element={adjPage} />
+        {canReportProduction(me, me.area?.slug) && <Route path="producao" element={<Suspense fallback={<Spinner />}><ProductionPage /></Suspense>} />}
         {plantPanelDomains(me, me.area?.slug).length > 0 && <Route path="painel-planta" element={<Suspense fallback={<Spinner />}><PlantPanelPage /></Suspense>} />}
         {orderAnalyticsDomains(me, me.area?.slug).length > 0 && <Route path="indicadores-ordens" element={<OrdersAnalyticsPage />} />}
         <Route path="ranking" element={<RankingPage />} />

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ORDER_ONLY_ROLES, ROLE_LABELS, type Role } from '@shared/constants';
 import { WO_DOMAIN, orderAnalyticsDomains, plantPanelDomains, type WoDomain } from '@shared/maintenance';
+import { canReportProduction } from '@shared/production';
 import { get, post, qs } from '../lib/api';
 import { fmtShort } from '../lib/format';
 import { useMeta } from '../lib/meta';
@@ -83,6 +84,7 @@ export function Layout() {
       <NavLink to="/ajustes" className={link}>
         <SlidersHorizontal size={18} /><span className="flex-1">Ordens de Ajuste</span>{badge(waitingOa, 'Aguardando aceite')}
       </NavLink>
+      {canReportProduction(me, me.area?.slug) && <NavLink to="/producao" className={link}><Factory size={18} />Produção</NavLink>}
       {quality && <NavLink to="/qualidade" className={link}><ClipboardCheck size={18} />Resposta Rápida</NavLink>}
       {groupLink(groups.indicadores)}
       {groups.admin.tabs.length > 0 && groupLink(groups.admin)}

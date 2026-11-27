@@ -20,7 +20,8 @@ export interface SetupRow {
   stopAfter: string | null;
 }
 export interface SetupSnapshot { ok: boolean; error?: string; rows: SetupRow[]; fetchedAt: string }
-type Fetcher = (sinceMs: number) => Promise<SetupRow[]>;
+/** setups still open (any start) plus every setup started between fromMs and toMs */
+type Fetcher = (fromMs: number, toMs: number) => Promise<SetupRow[]>;
 
 const project = () => process.env.SETUP_FIRESTORE_PROJECT || 'controle-f7242';
 const enabled = () => process.env.SETUP_SOURCE !== 'off' && process.env.NODE_ENV !== 'test';
@@ -63,11 +64,13 @@ export function toRow(d: Record<string, any>): SetupRow | null {
   };
 }
 
-/** setups still open (any start date) plus every setup started since `sinceMs` */
-const firestoreFetcher: Fetcher = async (sinceMs) => {
+const tsFilter = (op: string, ms: number) => ({ fieldFilter: { field: { fieldPath: 'inicio_timestamp' }, op, value: { integerValue: String(Math.floor(ms)) } } });
+const firestoreFetcher: Fetcher = async (fromMs, toMs) => {
   const [open, recent] = await Promise.all([
     runQuery({ fieldFilter: { field: { fieldPath: 'status' }, op: 'IN', value: { arrayValue: { values: [{ stringValue: 'Em andamento' }, { stringValue: 'Aguardando Produção' }] } } } }),
-    runQuery({ fieldFilter: { field: { fieldPath: 'inicio_timestamp' }, op: 'GREATER_THAN_OR_EQUAL', value: { integerValue: String(Math.floor(sinceMs)) } } }),
+    runQuery(Number.isFinite(toMs)
+      ? { compositeFilter: { op: 'AND', filters: [tsFilter('GREATER_THAN_OR_EQUAL', fromMs), tsFilter('LESS_THAN_OR_EQUAL', toMs)] } }
+      : tsFilter('GREATER_THAN_OR_EQUAL', fromMs)),
   ]);
   const byId = new Map<string, SetupRow>();
   for (const d of [...recent, ...open]) {
@@ -78,26 +81,35 @@ const firestoreFetcher: Fetcher = async (sinceMs) => {
 };
 
 let fetcher: Fetcher | null = null;
-let cache: { key: number; at: number; snap: SetupSnapshot } | null = null;
+let cache: { key: string; at: number; snap: SetupSnapshot } | null = null;
 
 /** tests plug a fake source here; null goes back to the default */
 export function setSetupFetcher(f: Fetcher | null) { fetcher = f; cache = null; }
 
 /** cached for 30 s, so a TV refreshing every 30 s does not hammer Firestore */
-export async function setupSnapshot(sinceMs: number): Promise<SetupSnapshot | null> {
+export async function setupSnapshot(sinceMs: number, untilMs = Infinity): Promise<SetupSnapshot | null> {
   const f = fetcher ?? (enabled() ? firestoreFetcher : null);
   if (!f) return null;
   const now = Date.now();
-  if (cache && cache.key === sinceMs && now - cache.at < 30_000) return cache.snap;
+  const key = `${sinceMs}|${untilMs}`;
+  if (cache && cache.key === key && now - cache.at < 30_000) return cache.snap;
   try {
-    const snap = { ok: true, rows: await f(sinceMs), fetchedAt: new Date(now).toISOString() };
-    cache = { key: sinceMs, at: now, snap };
+    const snap = { ok: true, rows: await f(sinceMs, untilMs), fetchedAt: new Date(now).toISOString() };
+    cache = { key, at: now, snap };
     return snap;
   } catch (e) {
     // keep showing the last good data, flagged as stale
-    if (cache) return { ...cache.snap, ok: false, error: (e as Error).message };
+    if (cache && cache.key === key) return { ...cache.snap, ok: false, error: (e as Error).message };
     return { ok: false, error: (e as Error).message, rows: [], fetchedAt: new Date(now).toISOString() };
   }
 }
 
-export const machineKey = (code: string) => code.trim().toUpperCase().replace(/\s+/g, '');
+export { machineKey } from '../../../shared/production.js';
+
+/** when the machine was held by the setup: from its start until production started (or now, while still open) */
+export function setupInterval(s: SetupRow, nowMs = Date.now()): { start: number; end: number } {
+  const start = new Date(s.startedAt).getTime();
+  const end = s.productionAt ? new Date(s.productionAt).getTime()
+    : s.status === 'Finalizado' ? new Date(s.finishedAt ?? s.startedAt).getTime() : nowMs;
+  return { start, end: Math.max(start, end) };
+}

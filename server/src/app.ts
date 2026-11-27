@@ -18,6 +18,7 @@ import { qualityRoutes } from './routes/quality.js';
 import { qualityActionRoutes } from './routes/qualityActions.js';
 import { pushRoutes } from './routes/push.js';
 import { statusBoardRoutes } from './routes/statusBoard.js';
+import { productionRoutes } from './routes/production.js';
 import { workOrderRoutes } from './routes/workOrders.js';
 
 /**
@@ -114,6 +115,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(workOrderRoutes);
   await app.register(pushRoutes);
   await app.register(statusBoardRoutes);
+  await app.register(productionRoutes);
 
   app.all('/api/*', async (_req, reply) => reply.code(404).send({ erro: 'Rota não encontrada.', codigo: 'nao_encontrado' }));
 
