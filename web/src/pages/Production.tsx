@@ -26,7 +26,7 @@ interface Entry {
   id: string; machine: string; pn: string; shift: string | null; start: string; end: string; leader: string; note: string | null;
   cycleSeconds: number | null; cavities: number | null; standardFrom: 'maquina' | 'outra_maquina' | 'atual' | null; standardMachine: string | null;
   reason: string | null; reasonBy: string | null; reasonAt: string | null; message: string | null; canEdit: boolean;
-  status: CheckStatus; periodMin: number; ratePerHour: number | null; expected: number | null; quantity: number;
+  status: CheckStatus; periodMin: number; breakMin: number; plannedMin: number; ratePerHour: number | null; expected: number | null; quantity: number;
   lossPieces: number | null; lossMin: number | null; stopMin: number; justifiedMin: number | null; unjustifiedMin: number | null;
   unjustifiedPieces: number | null; aboveStandard: boolean; stopsExceedLoss: boolean; stops: Stop[];
 }
@@ -82,7 +82,7 @@ export function ProductionPage() {
 
 /* ------------------------------------------------------------------ apontar */
 
-interface FormState { machine: string; pn: string; date: string; from: string; to: string; quantity: string; note: string }
+interface FormState { machine: string; pn: string; date: string; from: string; to: string; quantity: string; breakMin: string; note: string }
 
 function suggestPeriod(o: Options, machine: string): Pick<FormState, 'date' | 'from' | 'to'> {
   const now = DateTime.now().setZone(zone());
@@ -107,7 +107,7 @@ function periodOf(f: Pick<FormState, 'date' | 'from' | 'to'>) {
 
 function ReportForm({ o, onSaved }: { o: Options; onSaved: (day: string) => void }) {
   const qc = useQueryClient();
-  const blank = (machine = ''): FormState => ({ machine, pn: '', ...suggestPeriod(o, machine), quantity: '', note: '' });
+  const blank = (machine = ''): FormState => ({ machine, pn: '', ...suggestPeriod(o, machine), quantity: '', breakMin: '', note: '' });
   const [f, setF] = useState<FormState>(() => blank());
   const [saved, setSaved] = useState<string | null>(null);
   const set = (p: Partial<FormState>) => { setSaved(null); setF((x) => ({ ...x, ...p })); };
@@ -130,19 +130,19 @@ function ReportForm({ o, onSaved }: { o: Options; onSaved: (day: string) => void
   const period = periodOf(f);
   const qty = f.quantity === '' ? null : Number(f.quantity);
   const preview = period && std
-    ? checkProduction({ start: period.start.toMillis(), end: period.end.toMillis(), quantity: qty ?? 0, cycleSeconds: std.cycleSeconds, cavities: std.cavities, stops: [] })
+    ? checkProduction({ start: period.start.toMillis(), end: period.end.toMillis(), quantity: qty ?? 0, cycleSeconds: std.cycleSeconds, cavities: std.cavities, breakMin: Number(f.breakMin) || 0, stops: [] })
     : null;
   const shift = period ? shiftOf(period.start.toJSDate(), o.shifts, zone()) : null;
 
   const save = useMutation({
     mutationFn: () => post('/api/producao/apontamentos', {
-      machine: f.machine, pn: f.pn, start: period!.start.toISO(), end: period!.end.toISO(), quantity: qty, note: f.note || null,
+      machine: f.machine, pn: f.pn, start: period!.start.toISO(), end: period!.end.toISO(), quantity: qty, breakMinutes: Number(f.breakMin) || 0, note: f.note || null,
     }),
     onSuccess: () => {
       setSaved(`Máquina ${f.machine}: ${qty} peças de ${f.from} a ${f.to} salvas.`);
       onSaved(f.date);
       qc.invalidateQueries({ queryKey: ['producao'] });
-      setF((x) => ({ ...x, quantity: '', note: '' }));
+      setF((x) => ({ ...x, quantity: '', breakMin: '', note: '' }));
     },
   });
   // after saving, the next period of the same machine starts where this one ended
@@ -178,14 +178,19 @@ function ReportForm({ o, onSaved }: { o: Options; onSaved: (day: string) => void
           </Field>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
-          {period && <span>{period.end.diff(period.start, 'minutes').minutes} min{shift ? ` · ${shift}` : ''}{period.end.day !== period.start.day ? ' · passa da meia-noite' : ''}</span>}
+          {period && <span>{period.end.diff(period.start, 'minutes').minutes} min{Number(f.breakMin) > 0 ? ` − ${Number(f.breakMin)} min de refeição` : ''}{shift ? ` · ${shift}` : ''}{period.end.day !== period.start.day ? ' · passa da meia-noite' : ''}</span>}
           {preview && <span>Meta do período: <b className="text-gray-900">{n0(preview.expected)} peças</b></span>}
           {preview && qty != null && preview.lossMin! > PRODUCTION_TOLERANCE_MIN && (
             <span className="text-amber-700">Faltam {n0(preview.lossPieces)} peças ({min(preview.lossMin)}). A conferência vai procurar paradas registradas.</span>
           )}
           {preview && qty != null && preview.aboveStandard && <span className="text-amber-700">Acima do que o ciclo permite: confira o período e a quantidade.</span>}
         </div>
+        <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+        <Field label="Pausa de refeição (min)" hint="Se a máquina parou para o almoço nesse período">
+          <Input type="number" inputMode="numeric" min={0} step={5} value={f.breakMin} onChange={(e) => set({ breakMin: e.target.value })} placeholder="0" />
+        </Field>
         <Field label="Observação (opcional)"><Input value={f.note} onChange={(e) => set({ note: e.target.value })} maxLength={500} placeholder="Ex.: troca de bobina de embalagem" /></Field>
+        </div>
         {save.error && <p className="text-sm text-red-700">{errorMessage(save.error)}</p>}
         {saved && <p className="flex items-center gap-1.5 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />{saved}</p>}
         <div className="flex justify-end">
@@ -270,7 +275,7 @@ function Totals({ t }: { t: Conference['totals'] }) {
 function PeriodBar({ e }: { e: Entry }) {
   if (e.expected == null || !e.periodMin) return null;
   const lossMin = e.lossMin ?? 0;
-  const prodMin = Math.max(0, e.periodMin - lossMin);
+  const prodMin = Math.max(0, e.plannedMin - lossMin);
   const seg = (m: number) => `${(m / e.periodMin) * 100}%`;
   return (
     <div>
@@ -278,11 +283,13 @@ function PeriodBar({ e }: { e: Entry }) {
         {prodMin >= 0.5 && <div className="bg-emerald-500" style={{ width: seg(prodMin) }} />}
         {(e.justifiedMin ?? 0) >= 0.5 && <div className="border-l-2 border-white bg-sky-400" style={{ width: seg(e.justifiedMin ?? 0) }} />}
         {(e.unjustifiedMin ?? 0) >= 0.5 && <div className="border-l-2 border-white bg-red-500" style={{ width: seg(e.unjustifiedMin ?? 0) }} />}
+        {e.breakMin >= 0.5 && <div className="border-l-2 border-white bg-gray-300" style={{ width: seg(e.breakMin) }} />}
       </div>
       <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-gray-600">
         <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-emerald-500" />Produzindo {min(prodMin)}</span>
         {(e.justifiedMin ?? 0) >= 0.5 && <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-sky-400" />Parada registrada {min(e.justifiedMin)}</span>}
         {(e.unjustifiedMin ?? 0) >= 0.5 && <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-red-500" />Sem justificativa {min(e.unjustifiedMin)}</span>}
+        {e.breakMin >= 0.5 && <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-gray-300" />Refeição {min(e.breakMin)}</span>}
       </div>
     </div>
   );
@@ -313,7 +320,7 @@ function EntryCard({ e, options }: { e: Entry; options: Options }) {
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
             <Item k="Ciclo padrão" v={e.cycleSeconds ? cycleText({ cycleSeconds: e.cycleSeconds, cavities: e.cavities ?? 1 }) : 'não cadastrado'}
               hint={e.standardFrom === 'outra_maquina' ? `ciclo da máquina ${e.standardMachine}` : e.standardFrom === 'atual' ? 'cadastrado depois do apontamento' : undefined} />
-            <Item k="Deveria produzir" v={`${n0(e.expected)} pç em ${min(e.periodMin)}`} />
+            <Item k="Deveria produzir" v={`${n0(e.expected)} pç em ${min(e.plannedMin)}`} hint={e.breakMin > 0 ? `período ${min(e.periodMin)} − refeição ${min(e.breakMin)}` : undefined} />
             <Item k="Produziu" v={`${n0(e.quantity)} pç`} hint={e.lossPieces ? `faltaram ${n0(e.lossPieces)} pç = ${min(e.lossMin)}` : undefined} />
             <Item k="Paradas registradas" v={min(e.stopMin)} hint={e.stops.some((s) => s.overlapMinutes > 0) ? 'sobreposição contada uma vez' : undefined} />
             <Item k="Justificado" v={min(e.justifiedMin)} />
@@ -401,10 +408,10 @@ function EditEntry({ e, options, onClose }: { e: Entry; options: Options; onClos
   const qc = useQueryClient();
   const s = DateTime.fromISO(e.start, { zone: zone() });
   const en = DateTime.fromISO(e.end, { zone: zone() });
-  const [f, setF] = useState({ machine: e.machine, pn: e.pn, date: s.toISODate()!, from: s.toFormat('HH:mm'), to: en.toFormat('HH:mm'), quantity: String(e.quantity), note: e.note ?? '' });
+  const [f, setF] = useState({ machine: e.machine, pn: e.pn, date: s.toISODate()!, from: s.toFormat('HH:mm'), to: en.toFormat('HH:mm'), quantity: String(e.quantity), breakMin: String(e.breakMin || ''), note: e.note ?? '' });
   const period = periodOf(f);
   const save = useMutation({
-    mutationFn: () => patch(`/api/producao/apontamentos/${e.id}`, { machine: f.machine, pn: f.pn, start: period!.start.toISO(), end: period!.end.toISO(), quantity: Number(f.quantity), note: f.note || null }),
+    mutationFn: () => patch(`/api/producao/apontamentos/${e.id}`, { machine: f.machine, pn: f.pn, start: period!.start.toISO(), end: period!.end.toISO(), quantity: Number(f.quantity), breakMinutes: Number(f.breakMin) || 0, note: f.note || null }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['producao'] }); onClose(); },
   });
   return (
@@ -419,7 +426,8 @@ function EditEntry({ e, options, onClose }: { e: Entry; options: Options; onClos
           <Field label="Até"><Input type="time" value={f.to} onChange={(x) => setF({ ...f, to: x.target.value })} /></Field>
         </div>
         <Field label="Peças produzidas"><Input type="number" min={0} value={f.quantity} onChange={(x) => setF({ ...f, quantity: x.target.value })} /></Field>
-        <Field label="Observação"><Input value={f.note} onChange={(x) => setF({ ...f, note: x.target.value })} /></Field>
+        <Field label="Pausa de refeição (min)"><Input type="number" min={0} value={f.breakMin} onChange={(x) => setF({ ...f, breakMin: x.target.value })} /></Field>
+        <Field label="Observação" className="sm:col-span-2"><Input value={f.note} onChange={(x) => setF({ ...f, note: x.target.value })} /></Field>
       </div>
       <p className="mt-2 text-xs text-gray-500">O valor anterior fica guardado na auditoria.</p>
       {save.error && <p className="mt-2 text-sm text-red-700">{errorMessage(save.error)}</p>}

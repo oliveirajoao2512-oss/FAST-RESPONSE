@@ -58,6 +58,11 @@ describe('cálculo da conferência (exemplos do João)', () => {
     expect(r).toMatchObject({ status: 'meta', stopsExceedLoss: true });
   });
 
+  it('pausa de refeição sai do tempo planejado', () => {
+    const r = checkProduction({ ...hour, quantity: 50, breakMin: 10, stops: [] });
+    expect(r).toMatchObject({ periodMin: 60, breakMin: 10, plannedMin: 50, expected: 50, lossMin: 0, status: 'meta' });
+  });
+
   it('sem ciclo padrão não inventa meta', () => {
     const r = checkProduction({ start: 0, end: H, cycleSeconds: null, cavities: null, quantity: 10, stops: [maint(10)] });
     expect(r).toMatchObject({ status: 'sem_padrao', expected: null, stopMin: 10 });
@@ -133,6 +138,14 @@ describe('apontamento e conferência (API)', () => {
     const r2 = (await lider.get(`/api/producao/conferencia?from=${new Date(base).toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`)).body;
     expect(r2.entries[0]).toMatchObject({ status: 'divergencia', reason: 'Falta de operador no começo do turno', reasonBy: 'Lider Producao', message: null });
     expect(r2.totals.pendingReason).toBe(0);
+  });
+
+  it('pausa de refeição informada pelo líder entra na conferência e não pode passar do período', async () => {
+    expect((await lider.post('/api/producao/apontamentos', { machine: '14', pn: 'PN-A', start: iso(base), end: iso(base + H), quantity: 10, breakMinutes: 60 })).status).toBe(400);
+    expect((await lider.post('/api/producao/apontamentos', { machine: '14', pn: 'PN-A', start: iso(base), end: iso(base + H), quantity: 30, breakMinutes: 30 })).status).toBe(201);
+    const r = (await lider.get(`/api/producao/conferencia?machine=14&from=${new Date(base).toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`)).body;
+    // PN-A only has a cycle on machine 12 (60 s): 30 min planned = 30 pieces
+    expect(r.entries[0]).toMatchObject({ breakMin: 30, plannedMin: 30, expected: 30, status: 'meta', standardFrom: 'outra_maquina' });
   });
 
   it('não aceita dois apontamentos da mesma máquina no mesmo período', async () => {

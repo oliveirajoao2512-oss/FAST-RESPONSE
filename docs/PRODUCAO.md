@@ -62,7 +62,7 @@ Se o Controle de Setup não responder, a conferência sai sem os setups e avisa.
 
 ## Limites conhecidos desta etapa
 
-- Pausas fixas (refeição etc.) ainda não são descontadas do tempo do período.
+- Refeição: o horário não é padrão (depende da cobertura), então o líder informa os minutos de pausa no apontamento e eles saem do tempo planejado.
 - A parada da OS/OA vai até a finalização da ordem, que pode ser depois de a máquina voltar a produzir.
 - Refugo ainda não é apontado (a Qualidade do OEE fica para a próxima etapa).
 

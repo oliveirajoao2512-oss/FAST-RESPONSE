@@ -41,6 +41,7 @@ const entrySchema = z.object({
   start: z.coerce.date(),
   end: z.coerce.date(),
   quantity: z.coerce.number().int().min(0).max(1_000_000),
+  breakMinutes: z.coerce.number().int().min(0).max(720).default(0),
   note: z.string().trim().max(500).optional().nullable(),
 });
 const standardSchema = z.object({
@@ -138,14 +139,15 @@ export async function productionRoutes(app: FastifyInstance) {
     const b = parse(entrySchema, req.body);
     const machine = await validMachine(b.machine);
     const pn = normalizePn(b.pn)!;
+    if (b.breakMinutes * 60_000 >= b.end.getTime() - b.start.getTime()) throw badRequest('A pausa de refeição precisa ser menor que o período.', { breakMinutes: 'maior que o período' });
     await checkPeriod(machine, b.start, b.end, null);
     const std = await findStandard(machine, pn);
     const { shifts, timezone } = await getConfig();
     const row = await one<{ id: string }>(
-      `INSERT INTO production_entries (machine, pn, shift, period_start, period_end, quantity, cycle_seconds, cavities, standard_machine, note, leader_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      `INSERT INTO production_entries (machine, pn, shift, period_start, period_end, quantity, cycle_seconds, cavities, standard_machine, note, leader_id, break_minutes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [machine, pn, shiftOf(b.start, shifts, timezone), b.start, b.end, b.quantity, std?.cycleSeconds ?? null, std?.cavities ?? null,
-        std && !std.sameMachine ? std.machine : null, b.note || null, u.id]);
+        std && !std.sameMachine ? std.machine : null, b.note || null, u.id, b.breakMinutes]);
     await audit(pool, { actorId: u.id, action: 'producao.apontar', entityType: 'production_entry', entityId: row!.id, data: { machine, pn, quantity: b.quantity } });
     reply.code(201);
     return { id: row!.id, standard: std };
@@ -162,6 +164,7 @@ export async function productionRoutes(app: FastifyInstance) {
     const b = parse(entrySchema, req.body);
     const machine = await validMachine(b.machine);
     const pn = normalizePn(b.pn)!;
+    if (b.breakMinutes * 60_000 >= b.end.getTime() - b.start.getTime()) throw badRequest('A pausa de refeição precisa ser menor que o período.', { breakMinutes: 'maior que o período' });
     await checkPeriod(machine, b.start, b.end, id);
     const sameStd = machineKey(machine) === machineKey(old.machine) && pn === old.pn;
     const std = sameStd ? null : await findStandard(machine, pn);
@@ -169,13 +172,13 @@ export async function productionRoutes(app: FastifyInstance) {
     await q(
       `UPDATE production_entries SET machine = $2, pn = $3, shift = $4, period_start = $5, period_end = $6, quantity = $7, note = $8,
               cycle_seconds = CASE WHEN $9 THEN cycle_seconds ELSE $10 END, cavities = CASE WHEN $9 THEN cavities ELSE $11 END,
-              standard_machine = CASE WHEN $9 THEN standard_machine ELSE $12 END, updated_at = now(), updated_by = $13
+              standard_machine = CASE WHEN $9 THEN standard_machine ELSE $12 END, updated_at = now(), updated_by = $13, break_minutes = $14
         WHERE id = $1`,
       [id, machine, pn, shiftOf(b.start, shifts, timezone), b.start, b.end, b.quantity, b.note || null, sameStd,
-        std?.cycleSeconds ?? null, std?.cavities ?? null, std && !std.sameMachine ? std.machine : null, u.id]);
+        std?.cycleSeconds ?? null, std?.cavities ?? null, std && !std.sameMachine ? std.machine : null, u.id, b.breakMinutes]);
     await audit(pool, {
       actorId: u.id, action: 'producao.corrigir', entityType: 'production_entry', entityId: id,
-      data: { antes: { machine: old.machine, pn: old.pn, start: old.period_start, end: old.period_end, quantity: old.quantity, note: old.note } },
+      data: { antes: { machine: old.machine, pn: old.pn, start: old.period_start, end: old.period_end, quantity: old.quantity, note: old.note, breakMinutes: old.break_minutes } },
     });
     return { ok: true };
   });
@@ -227,7 +230,7 @@ export async function productionRoutes(app: FastifyInstance) {
       const cavities = r.cavities ?? lateStd?.cavities ?? null;
       const c = checkProduction({
         start: +new Date(r.period_start), end: +new Date(r.period_end), quantity: r.quantity,
-        cycleSeconds: cycle, cavities, stops: byMachine.get(machineKey(r.machine)) ?? [],
+        cycleSeconds: cycle, cavities, breakMin: r.break_minutes, stops: byMachine.get(machineKey(r.machine)) ?? [],
       });
       return {
         id: r.id, machine: r.machine, pn: r.pn, shift: r.shift, start: r.period_start, end: r.period_end,

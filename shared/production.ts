@@ -49,10 +49,15 @@ export interface CheckInput {
   cycleSeconds: number | null; cavities: number | null;
   stops: StopInput[];
   toleranceMin?: number;
+  /** meal break inside the period, told by the leader (the time is not standard: it depends on who covers) */
+  breakMin?: number;
 }
 export interface CheckResult {
   status: CheckStatus;
   periodMin: number;
+  breakMin: number;
+  /** period minus the meal break: the time the machine was supposed to produce */
+  plannedMin: number;
   /** pieces per hour at the standard cycle */
   ratePerHour: number | null;
   expected: number | null;
@@ -96,7 +101,9 @@ export function checkProduction(i: CheckInput): CheckResult {
   const periodMin = Math.max(0, (i.end - i.start) / 60000);
   const { stops, totalMin } = clipStops(i.stops, i.start, i.end);
   const stopMin = round1(totalMin);
-  const base = { periodMin: round1(periodMin), quantity: i.quantity, stopMin, stops };
+  const breakMin = Math.min(periodMin, Math.max(0, i.breakMin ?? 0));
+  const plannedMin = periodMin - breakMin;
+  const base = { periodMin: round1(periodMin), breakMin: round1(breakMin), plannedMin: round1(plannedMin), quantity: i.quantity, stopMin, stops };
   if (!i.cycleSeconds || i.cycleSeconds <= 0) {
     return {
       ...base, status: 'sem_padrao', ratePerHour: null, expected: null, lossPieces: null, lossMin: null,
@@ -104,7 +111,7 @@ export function checkProduction(i: CheckInput): CheckResult {
     };
   }
   const perMin = (60 / i.cycleSeconds) * (i.cavities || 1);
-  const expectedExact = periodMin * perMin;
+  const expectedExact = plannedMin * perMin;
   const lossPieces = Math.max(0, expectedExact - i.quantity);
   const lossMin = lossPieces / perMin;
   const justifiedMin = Math.min(lossMin, totalMin);
